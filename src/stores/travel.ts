@@ -205,6 +205,35 @@ export const useTravelStore = defineStore('travel', () => {
     error.value = message
   }
 
+  // -------- Inspiration 本地数据库支持 --------
+  async function getLocalInspirationDestinations(params?: { country?: string; stage?: any; keyword?: string }): Promise<Array<{ name: string; country: string }>> {
+    const { listDestinations } = await import('@/utils/inspirationDb')
+    const list = listDestinations(params as any)
+    return list.map(d => ({ name: d.name, country: d.country }))
+  }
+
+  function buildInspirationFromLocal(name: string): InspirationData {
+    return {
+      title: '🌟 灵感之旅（本地推荐）',
+      subtitle: '基于本地灵感库的快速提案',
+      location: name,
+      locations: [name],
+      locationDetails: {
+        [name]: {
+          name,
+          duration: '3-5天',
+          budget: '中等',
+          highlights: ['自然/人文场景探索', '节奏放缓的沉浸式体验', '轻计划重感受'],
+          aiMessage: '这是一条来自本地灵感库的快速提案，适合用于无网或 AI 不可用时的体验预览。'
+        }
+      },
+      duration: '3-5天',
+      budget: '中等',
+      highlights: ['自然/人文场景探索', '节奏放缓的沉浸式体验', '轻计划重感受'],
+      aiMessage: '跟随好奇，先从这里出发吧。'
+    }
+  }
+
   // 使用 Planner API 生成行程
   const generateItinerary = async (mode: 'planner' | 'seeker') => {
     setLoading(true)
@@ -366,8 +395,21 @@ export const useTravelStore = defineStore('travel', () => {
       setCurrentMode('inspiration')
       
     } catch (err) {
-      console.error('生成灵感内容失败:', err)
-      setError('生成灵感内容失败，请重试')
+      console.error('生成灵感内容失败，尝试使用本地灵感库回退:', err)
+      try {
+        // 使用本地灵感库作为回退方案
+        const suggestions = await getLocalInspirationDestinations()
+        const fallback = suggestions[0]?.name
+        if (fallback) {
+          const localData = buildInspirationFromLocal(fallback)
+          setInspirationData(localData)
+          setCurrentMode('inspiration')
+        } else {
+          setError('生成灵感内容失败，请重试')
+        }
+      } catch (e) {
+        setError('生成灵感内容失败，请重试')
+      }
     } finally {
       setLoading(false)
     }
@@ -465,6 +507,7 @@ export const useTravelStore = defineStore('travel', () => {
     setError,
     generateItinerary,
     generateInspiration,
+    getLocalInspirationDestinations,
     submitFeedback,
     resetData,
     optimizePlannerItinerary,

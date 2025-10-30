@@ -74,6 +74,25 @@
             </a-button>
           </div>
 
+          <!-- 本地灵感库建议（当未生成结果时显示） -->
+          <div v-if="!inspirationResult && localSuggestions.length" style="margin-top: 1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <a-divider style="flex:1;margin:0 8px 0 0;">本地灵感库建议</a-divider>
+              <a-button type="link" @click="randomizeSuggestions" style="padding:0;">换一批</a-button>
+            </div>
+            <div class="locations-grid">
+              <div
+                v-for="(s, idx) in localSuggestions"
+                :key="idx"
+                class="location-option"
+                @click="useSuggestion(s.name)"
+                :title="s.country"
+              >
+                {{ s.name }}
+              </div>
+            </div>
+          </div>
+
           <!-- 错误提示 -->
           <a-alert
             v-if="error"
@@ -114,7 +133,7 @@
                             :class="{ 'selected': selectedLocation === loc }"
                             @click="selectedLocation = loc"
                           >
-                            {{ loc }}
+                            {{ formatLocationLabel(loc) }}
                           </div>
                         </div>
                       </div>
@@ -233,6 +252,7 @@ import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
 import { message } from 'ant-design-vue'
 import { getUserLocation, PRESET_COUNTRIES } from '@/config/location'
+// removed MirrorLake integration
 
 const { t, locale } = useI18n()
 import {
@@ -252,6 +272,37 @@ const selectedLocation = ref<string>('')
 const aiHint = ref('')
 const hintLoading = ref(false)
 const debounceTimer = ref<NodeJS.Timeout | null>(null)
+
+// 本地灵感库建议（默认取前 12 个）
+const localSuggestions = ref<Array<{ name: string; country: string }>>([])
+
+const loadLocalSuggestions = async () => {
+  try {
+    const list = await travelStore.getLocalInspirationDestinations()
+    localSuggestions.value = shuffle(list).slice(0, 12)
+  } catch (e) {
+    // 静默失败
+  }
+}
+
+loadLocalSuggestions()
+
+const useSuggestion = (name: string) => {
+  inspirationInput.value = name
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice()
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+const randomizeSuggestions = () => {
+  localSuggestions.value = shuffle(localSuggestions.value)
+}
 
 // 获取当前国家和语言显示
 const currentCountryDisplay = computed(() => {
@@ -306,6 +357,12 @@ const displayHighlights = computed(() => {
 const displayAiMessage = computed(() => {
   return currentLocationDetail.value?.aiMessage || inspirationResult.value?.aiMessage || ''
 })
+
+// 显示地点（附加国家）
+function formatLocationLabel(loc: string): string {
+  const country = inspirationResult.value?.locationCountries?.[loc]
+  return country ? `${loc}（${country}）` : loc
+}
 
 // 根据关键词获取合适的图标
 const getHighlightIcon = (highlight: string) => {

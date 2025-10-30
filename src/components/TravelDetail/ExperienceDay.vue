@@ -5,22 +5,28 @@
   }">
     <!-- 旅程概览：背景故事和目的地信息 -->
     <div class="journey-overview-section animate-on-scroll">
-      <!-- 五段心智流快速导航 -->
-      <div v-if="mentalFlowStages" class="mental-flow-nav">
-        <div class="flow-nav-icons">
-          <button
-            v-for="(stage, key) in mentalFlowStages"
-            :key="key"
-            class="nav-icon-btn"
-            :title="getStageName(key as string)"
-            @click="navigateToStage(key as string)"
+    </div>
+    
+    <!-- ①.5 召唤阶段（summon）：在映照阶段之前展示） -->
+    <div 
+      v-if="summonStageContent && (summonStageContent.title || (summonStageContent.activities && summonStageContent.activities.length))" 
+      class="summon-stage animate-on-scroll"
+    >
+      <div class="summon-card">
+        <h2 class="summon-title">{{ summonStageContent.title }}</h2>
+        <p v-if="summonStageContent.subtitle" class="summon-subtitle">{{ summonStageContent.subtitle }}</p>
+        <div v-if="summonStageContent.activities && summonStageContent.activities.length" class="summon-activities">
+          <div
+            v-for="(act, idx) in summonStageContent.activities"
+            :key="`summon-${idx}`"
+            class="summon-activity"
           >
-            <span class="nav-icon">{{ getStageIcon(key as string) }}</span>
-          </button>
+            {{ act }}
+          </div>
         </div>
       </div>
     </div>
-    
+
     <!-- ② 映照阶段：五层心理镜面体验 - 在绝对孤独中看清自己 -->
     <div 
       class="reflection-stage animate-on-scroll" 
@@ -59,11 +65,12 @@
               :key="`mirror-${index}`"
               class="mirror-card"
               :class="{ 'card-selected': selectedMirrorCardIndex === index }"
-              :style="{ '--card-delay': `${index * 0.2}s` }"
+              :style="{ '--card-delay': `${index * 0.2}s`, background: card.bg, '--card-color': card.colorRgb }"
               @click="enterMirrorScene(card, index)"
             >
-              <div class="mirror-card-image-wrapper">
-                <img class="mirror-card-image" :src="card.image" alt="reflection" />
+              <div class="mirror-card-content">
+                <div class="mirror-card-icon">{{ card.emotionIcon || '✨' }}</div>
+                <p class="mirror-card-text">{{ card.text }}</p>
               </div>
             </div>
           </div>
@@ -738,39 +745,32 @@
             <div v-if="healingDesign" class="healing-design-part">
               <h4 class="part-title">治愈设计</h4>
               <div class="healing-design-list">
-                <div v-if="healingDesign.sound" class="healing-item">
-                  <span class="healing-icon">🔊</span>
-                  <div class="healing-content">
-                    <h5>声音</h5>
-                    <p>{{ healingDesign.sound }}</p>
-                  </div>
-                </div>
-                <div v-if="healingDesign.scent" class="healing-item">
-                  <span class="healing-icon">🌸</span>
-                  <div class="healing-content">
-                    <h5>气味</h5>
-                    <p>{{ healingDesign.scent }}</p>
-                  </div>
-                </div>
-                <div v-if="healingDesign.light" class="healing-item">
-                  <span class="healing-icon">💡</span>
-                  <div class="healing-content">
-                    <h5>光线</h5>
-                    <p>{{ healingDesign.light }}</p>
-                  </div>
-                </div>
-                <div v-if="healingDesign.rhythm" class="healing-item">
-                  <span class="healing-icon">🎵</span>
-                  <div class="healing-content">
-                    <h5>节奏</h5>
-                    <p>{{ healingDesign.rhythm }}</p>
-                  </div>
-                </div>
-                <div v-if="healingDesign.community" class="healing-item">
-                  <span class="healing-icon">👥</span>
-                  <div class="healing-content">
-                    <h5>社群</h5>
-                    <p>{{ healingDesign.community }}</p>
+                <div
+                  v-for="item in healingItems"
+                  :key="item.key"
+                  class="healing-item is-collapsible"
+                  :class="{ 'is-open': isItemOpen(item.key) }"
+                >
+                  <a-tooltip :title="item.title" placement="left">
+                    <button
+                      class="healing-icon-btn"
+                      @click="toggleHealingItem(item.key)"
+                      :aria-expanded="isItemOpen(item.key)"
+                      :aria-controls="`healing-panel-${item.key}`"
+                    >
+                      <span class="healing-icon">{{ item.icon }}</span>
+                    </button>
+                  </a-tooltip>
+                  <div
+                    class="healing-content"
+                    :id="`healing-panel-${item.key}`"
+                    role="region"
+                    :aria-hidden="!isItemOpen(item.key)"
+                  >
+                    <h5>{{ item.title }}</h5>
+                    <transition name="collapse">
+                      <p v-show="isItemOpen(item.key)">{{ item.text }}</p>
+                    </transition>
                   </div>
                 </div>
               </div>
@@ -1101,6 +1101,29 @@ const visibleDestinationCards = ref<Set<number>>(new Set())
 const imageUploadModalVisible = ref(false)
 const uploadModalMode = ref<'upload' | 'search'>('upload')
 const unsplashSearchQuery = ref('')
+
+// 治愈设计：悬浮提示 + 点击展开
+const healingOpenSet = ref<Set<string>>(new Set())
+const isItemOpen = (key: string) => healingOpenSet.value.has(key)
+const toggleHealingItem = (key: string) => {
+  if (healingOpenSet.value.has(key)) healingOpenSet.value.delete(key)
+  else healingOpenSet.value.add(key)
+}
+const healingItems = computed(() => {
+  if (!healingDesign.value) return [] as Array<{ key: string; title: string; icon: string; text: string }>
+  const items: Array<{ key: string; title: string; icon: string; text: string }> = []
+  const map: Record<string, { title: string; icon: string; text?: string }> = {
+    sound: { title: '声音', icon: '🔊', text: healingDesign.value?.sound },
+    scent: { title: '气味', icon: '🌸', text: healingDesign.value?.scent },
+    light: { title: '光线', icon: '💡', text: healingDesign.value?.light },
+    rhythm: { title: '节奏', icon: '🎵', text: healingDesign.value?.rhythm },
+    community: { title: '社群', icon: '👥', text: healingDesign.value?.community }
+  }
+  for (const [key, v] of Object.entries(map)) {
+    if (v.text) items.push({ key, title: v.title, icon: v.icon, text: v.text as string })
+  }
+  return items
+})
 const unsplashSearchResults = ref<UnsplashPhoto[]>([])
 const isSearching = ref(false)
 const selectedUnsplashPhotos = ref<string[]>([])
@@ -1211,50 +1234,62 @@ const getEmotionIcon = (emotion: string): string => {
 // 映照阶段：镜子卡片数据（从reflection.activities获取或使用默认）
 const reflectionMirrorCards = computed(() => {
   const stage = mentalFlowStages.value?.reflection
-  const activities = stage?.activities || []
+  const activities = (stage?.activities || []).filter((a: any) => typeof a === 'string' && a.trim().length > 0)
+  const tone = travel.value?.data?.detectedIntent?.emotionTone || '平静'
   
-  // 优先取四大支柱的图片作为镜面卡片图片
-  const pillars = fourPillars.value || []
-  const pillarImages: string[] = pillars
-    .map((p: any) => p?.media)
-    .filter((u: string) => typeof u === 'string' && u.length > 0)
-
-  // 从全局素材补齐
-  const fallbackImages: string[] = materialImages.value
-    .filter((u: any) => typeof u === 'string' && u.length > 0)
-
-  const pickImageByIndex = (idx: number): string => {
-    if (pillarImages[idx]) return pillarImages[idx]
-    if (fallbackImages.length > 0) return fallbackImages[idx % fallbackImages.length]
-    return ''
+  const baseRgb = (type: 'tundra' | 'volcano' | 'aurora'): [number, number, number] => {
+    if (type === 'volcano') return [255, 99, 71] // tomato
+    if (type === 'aurora') return [56, 189, 248] // sky-400
+    return [56, 239, 125] // green
   }
+  const makeBg = (type: 'tundra' | 'volcano' | 'aurora', intensity = 0.6) => {
+    const [r, g, b] = baseRgb(type)
+    const a1 = Math.min(0.08 + intensity * 0.08, 0.22)
+    const a2 = Math.min(0.14 + intensity * 0.12, 0.32)
+    return `linear-gradient(135deg, rgba(${r}, ${g}, ${b}, ${a1}), rgba(${r}, ${g}, ${b}, ${a2}))`
+  }
+  const rgbString = (type: 'tundra' | 'volcano' | 'aurora') => baseRgb(type).join(', ')
+  
+  // 1) 优先使用情绪识别语（包含图标与强度）
+  const emotionCards = (emotionReflections.value || []).slice(0, 3).map((r: any, idx: number) => {
+    const inferredType: 'tundra' | 'volcano' | 'aurora' = idx % 3 === 1 ? 'volcano' : (idx % 3 === 2 ? 'aurora' : 'tundra')
+    const intensity = typeof r.intensity === 'number' ? r.intensity : 0.6
+    return {
+      text: r.text,
+      emotionIcon: r.emotionIcon || getEmotionIcon(tone),
+      type: inferredType,
+      emotion: r.emotion || tone,
+      intensity,
+      bg: makeBg(inferredType, intensity),
+      colorRgb: rgbString(inferredType)
+    }
+  })
+  if (emotionCards.length > 0) return emotionCards
 
-  // 根据关键词推断类型（保留交互动画用），但不显示文本/图标
-  const getCardType = (activity: string): 'tundra' | 'volcano' | 'aurora' => {
-    if (activity.match(/苔原|极昼|午夜|冰雪|冰川|雪原|极地|寒冷|空旷|寂静/i)) return 'tundra'
-    if (activity.match(/火山|石头|岩石|熔岩|炽热|燃烧|梦境|刻字|雕刻/i)) return 'volcano'
-    if (activity.match(/极光|光|轨迹|天空|星空|夜晚|闪耀|光芒|指引/i)) return 'aurora'
+  // 2) 其次使用 activities 文本，并根据语义估计类型和图标
+  const getCardType = (text: string): 'tundra' | 'volcano' | 'aurora' => {
+    if (text.match(/苔原|极昼|午夜|冰雪|冰川|雪原|极地|寒冷|空旷|寂静/i)) return 'tundra'
+    if (text.match(/火山|石头|岩石|熔岩|炽热|燃烧|梦境|刻字|雕刻/i)) return 'volcano'
+    if (text.match(/极光|光|轨迹|天空|星空|夜晚|闪耀|光芒|指引/i)) return 'aurora'
     const types: Array<'tundra' | 'volcano' | 'aurora'> = ['tundra', 'volcano', 'aurora']
     return types[Math.floor(Math.random() * types.length)]
   }
 
-  // 如果有activities，使用前三个，并附上图片
   if (activities.length > 0) {
-    return activities.slice(0, 3).map((activity: string, index: number) => ({
-      text: '',
-      type: getCardType(activity),
-      icon: '',
-      image: pickImageByIndex(index)
-    }))
+    return activities.slice(0, 3).map((text: string, idx: number) => {
+      const t = getCardType(text)
+      const intensity = 0.55 + idx * 0.1
+      return { text, emotionIcon: getEmotionIcon(tone), type: t, emotion: tone, intensity, bg: makeBg(t, intensity), colorRgb: rgbString(t) }
+    })
   }
 
-  // 默认三卡，仅图片
-  return [0, 1, 2].map((i) => ({
-    text: '',
-    type: (['tundra', 'volcano', 'aurora'] as const)[i % 3],
-    icon: '',
-    image: pickImageByIndex(i)
-  }))
+  // 3) 兜底：静态占位文本
+  const placeholders = ['你有多久没有好好与自己说话？', '你还记得，内心的安静是什么感觉？', '如果此刻能拥抱一件事，会是什么？']
+  return placeholders.map((text, idx) => {
+    const t: 'tundra' | 'volcano' | 'aurora' = idx % 3 === 1 ? 'volcano' : (idx % 3 === 2 ? 'aurora' : 'tundra')
+    const intensity = 0.6
+    return { text, emotionIcon: getEmotionIcon(tone), type: t, emotion: tone, intensity, bg: makeBg(t, intensity), colorRgb: rgbString(t) }
+  })
 })
 
 // 映照阶段状态
@@ -3101,6 +3136,17 @@ const awakeningStageContent = computed(() => {
   return {
     text: awakeningMomentText.value || stage?.emotionalGoal || '',
     entranceText: awakeningEntranceText.value || stage?.symbolicElement || ''
+  }
+})
+
+// ①.5 召唤阶段内容（在映照阶段前展示）
+const summonStageContent = computed(() => {
+  const stage = mentalFlowStages.value?.summon as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '召唤',
+    subtitle: stage?.emotionalGoal || stage?.symbolicElement || '',
+    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 3) : []
   }
 })
 
@@ -5176,7 +5222,7 @@ onUnmounted(() => {
 /* ② 映照阶段：五层心理镜面体验样式 */
 .reflection-stage {
   position: relative;
-  min-height: 100vh;
+  min-height: 80vh;
   padding: clamp(3rem, 6vw, 5rem) clamp(1rem, 4vw, 2rem);
   display: flex;
   flex-direction: column;
@@ -5450,10 +5496,67 @@ onUnmounted(() => {
   text-align: center;
 }
 
+.mirror-card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.mirror-card-text {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #334155;
+}
+
 .mirror-card-image {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* 召唤阶段样式 */
+.summon-stage {
+  max-width: 1000px;
+  margin: 2rem auto 1rem;
+}
+
+.summon-card {
+  background: linear-gradient(135deg, #f8fdfb 0%, #f0fffa 100%);
+  border: 1px solid rgba(56, 239, 125, 0.2);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(17, 153, 142, 0.08);
+  padding: 1.25rem 1.5rem;
+}
+
+.summon-title {
+  margin: 0 0 0.25rem 0;
+  color: #134e4a;
+}
+
+.summon-subtitle {
+  margin: 0 0 0.75rem 0;
+  color: #166534;
+  opacity: 0.8;
+}
+
+.summon-activities {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.summon-activity {
+  background: #ffffff;
+  border: 1px solid rgba(56, 239, 125, 0.25);
+  color: #0f172a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .summon-activities {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ③ 内心回声层：场景沉浸体验 */

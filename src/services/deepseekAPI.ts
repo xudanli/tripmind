@@ -1871,6 +1871,34 @@ Return ONLY a valid JSON object:
 export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string): Promise<any> {
   const isEnglish = language.startsWith('en')
   
+  // Build reference catalog from local inspiration DB to ground AI suggestions
+  let referenceCatalog = ''
+  try {
+    const { listDestinations } = await import('@/utils/inspirationDb')
+    const all = listDestinations()
+    // group by country and take up to 3 per country, cap total ~48
+    const grouped: Record<string, { name: string; country: string }[]> = {}
+    for (const d of all) {
+      (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
+    }
+    const lines: string[] = []
+    const countries = Object.keys(grouped).sort()
+    let total = 0
+    for (const c of countries) {
+      const picks = (grouped[c] || []).slice(0, 3)
+      if (picks.length === 0) continue
+      const names = picks.map(p => p.name).join(', ')
+      lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
+      total += picks.length
+      if (total >= 48) break
+    }
+    if (lines.length) {
+      referenceCatalog = isEnglish
+        ? `Reference destinations (pick from these when suitable; do not invent nonexistent places):\n${lines.join('\n')}`
+        : `参考目的地（尽量优先从下列中选择，避免凭空捏造地点）：\n${lines.join('\n')}`
+    }
+  } catch {}
+  
   const systemPrompt = isEnglish
     ? `Role Setting:
 You are an "Inspiration Designer". Your task is not to arrange flights and hotels, but to design a journey of awakening for the soul.
@@ -1994,7 +2022,7 @@ CRITICAL REQUIREMENTS:
 7. Each locationDetails entry MUST have: name, country, duration, budget, highlights, aiMessage
 8. Provide 5-8 alternative destinations in locations array, covering AT LEAST 5 different countries
 9. Include fields: currentCountry and locationCountries (mapping from location to country)
-10. If user is from ${userCountry || 'unknown country'}, include 2-3 domestic destinations
+10. If user is from ${userCountry || 'unknown country'}, include 2-3 domestic destinations overall, AND ensure AT LEAST 3 destinations are outside the user's country
 11. Each location's highlights and description must reflect the four design pillars and cognitive opportunities
 12. All descriptive text must be "poetic but not pretentious", able to evoke imagery and psychological resonance
 
@@ -2128,7 +2156,7 @@ Please respond ONLY with valid JSON, no additional text before or after.`
 7. 每个 locationDetails 条目必须包含：name、country、duration、budget、highlights、aiMessage
 8. 在 locations 数组中提供 5-8 个备选目的地，覆盖至少 5 个不同国家
 9. 必须包含：currentCountry 字段，以及 locationCountries（地点到国家的映射）
-10. 如果用户来自 ${userCountry || '未知国家'}，推荐 2-3 个该国国内目的地
+10. 如果用户来自 ${userCountry || '未知国家'}，在总体 5-8 个地点中仅推荐 2-3 个该国国内目的地，并且至少 3 个地点必须来自用户国家之外
 11. 每个地点的 highlights 和 description 必须体现四大设计支柱和认知契机
 12. 所有描述性文字必须"诗性但不虚浮"，能唤起画面感与心理共鸣
 
@@ -2143,8 +2171,9 @@ JSON 验证规则：
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
+    referenceCatalog ? { role: 'system', content: referenceCatalog } : undefined,
     { role: 'user', content: input }
-  ]
+  ].filter(Boolean) as ChatMessage[]
 
   let response: string | undefined
   try {
@@ -2153,7 +2182,7 @@ JSON 验证规则：
       max_tokens: 4000  // 增加token限制以容纳更详细的内容
     })
     
-    console.log('🌟 AI 原始响应 (前 1000 字符):', response.substring(0, 1000))
+    console.log('🌟 AI 原始响应 (前 1000 字符):', (response || '').substring(0, 1000))
     
     // 清理响应中的 markdown 代码块
     let cleaned = response

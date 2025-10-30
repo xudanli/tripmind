@@ -45,6 +45,10 @@
           >
             <template #icon><edit-outlined /></template>
           </a-button>
+          <div class="location-chip" v-if="displayLocation">
+            <span class="loc-icon">📍</span>
+            <span class="loc-text">{{ displayLocation }}</span>
+          </div>
         </div>
         <div class="title-editable" v-else>
           <a-input
@@ -367,6 +371,16 @@ const dynamicPoetry = computed(() => {
   return tpl[Math.floor(Math.random() * tpl.length)]
 })
 
+// 显示地点（优先选中地点，其次主地点；附带国家）
+const displayLocation = computed(() => {
+  const data: any = travel.value?.data
+  if (!data) return ''
+  const loc = data.selectedLocation || data.location
+  if (!loc) return ''
+  const country = data.locationCountries?.[loc] || data.currentCountry
+  return country ? `${loc}（${country}）` : loc
+})
+
 function onScrollMeasure(e: Event) {
   const now = performance.now()
   const dy = Math.abs(window.scrollY - lastScrollY.value)
@@ -681,7 +695,7 @@ onUnmounted(() => {
 .hero-cover {
   position: relative;
   overflow: hidden;
-  height: 600px;
+  height: 700px;
 }
 
 .bg-layer {
@@ -1172,6 +1186,23 @@ onUnmounted(() => {
   line-height: 1.2;
   animation: titleFadeIn 1.2s ease-out;
 }
+
+.location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: white;
+  font-size: 0.9rem;
+  backdrop-filter: blur(8px);
+}
+
+.loc-icon { opacity: 0.95; }
+.loc-text { opacity: 0.95; }
 
 @keyframes titleFadeIn {
   from {

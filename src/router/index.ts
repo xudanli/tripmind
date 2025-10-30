@@ -32,6 +32,11 @@ const router = createRouter({
       component: () => import('../views/InspirationView.vue'),
     },
     {
+      path: '/inspiration/catalog',
+      name: 'inspiration-catalog',
+      component: () => import('../views/InspirationCatalogView.vue'),
+    },
+    {
       path: '/api-test',
       name: 'api-test',
       component: () => import('../views/ApiTestView.vue'),

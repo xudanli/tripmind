@@ -3,34 +3,181 @@
     'has-background-switch': backgroundImages.length > 0,
     'has-modal-open': imageUploadModalVisible
   }">
-    <!-- 旅程概览：背景故事和目的地信息 -->
-    <div class="journey-overview-section animate-on-scroll">
-    </div>
-    
-    <!-- ①.5 召唤阶段（summon）：在映照阶段之前展示） -->
-    <div 
-      v-if="summonStageContent && (summonStageContent.title || (summonStageContent.activities && summonStageContent.activities.length))" 
-      class="summon-stage animate-on-scroll"
+    <!-- ① 剥离阶段（summon）：统一卡片风格 -->
+    <section 
+      id="stage-summon"
+      v-if="summonStageData" 
+      class="stage-card"
+      :style="{ scrollMarginTop: '80px' }"
     >
-      <div class="summon-card">
-        <h2 class="summon-title">{{ summonStageContent.title }}</h2>
-        <p v-if="summonStageContent.subtitle" class="summon-subtitle">{{ summonStageContent.subtitle }}</p>
-        <div v-if="summonStageContent.activities && summonStageContent.activities.length" class="summon-activities">
-          <div
-            v-for="(act, idx) in summonStageContent.activities"
-            :key="`summon-${idx}`"
-            class="summon-activity"
-          >
-            {{ act }}
+      <div class="stage-head">
+        <h3>{{ summonStageData.title || '放下重负' }}</h3>
+        <p class="sub">{{ summonStageData.subtitle || summonStageGoal }}</p>
+      </div>
+      <ul class="action-list" v-if="summonStageData.activities && summonStageData.activities.length">
+        <li
+          v-for="(act, idx) in summonStageData.activities.slice(0, 5)"
+          :key="`summon-${idx}`"
+          class="action-item"
+          :class="{ completed: completedActions.has(`summon-${idx}`) }"
+        >
+          <div class="icon">{{ parseActivityIcon(act) }}</div>
+          <div class="meta">
+            <div class="title">{{ parseActivityTitle(act) }}</div>
+            <div class="desc">{{ parseActivityBenefit(act) }}</div>
           </div>
+          <button class="pill" @click="completeAction('summon', idx, act)">
+            {{ completedActions.has(`summon-${idx}`) ? '✓ 已完成' : '去做' }}
+          </button>
+          <transition name="check-glow">
+            <div v-if="completedActions.has(`summon-${idx}`)" class="check-mark">✓</div>
+          </transition>
+        </li>
+      </ul>
+    </section>
+    
+    <!-- ② 映照阶段：镜湖映心 -->
+    <section 
+      id="stage-reflection" 
+      class="stage-card reflection-stage-optimized" 
+      ref="reflectionStageRef"
+      :style="{ scrollMarginTop: '80px' }"
+    >
+      <div v-if="reflectionStageData">
+        <div class="stage-head">
+          <h3>{{ reflectionStageData.title || '镜湖映心' }}</h3>
+          <p class="sub">{{ reflectionStageData.subtitle || '看清内心真实模样' }}</p>
         </div>
       </div>
+      
+      <!-- 三卡操作区：统一风格 -->
+      <div class="cards">
+        <div 
+          v-for="(card, idx) in mirrorLakeActionCards" 
+          :key="idx"
+          class="card"
+          :class="{ completed: completedMirrorActions.has(card.key) }"
+          @click="handleCardClick(card)"
+          @mouseenter="handleCardHover(idx)"
+          @mouseleave="handleCardLeave(idx)"
+        >
+          <div class="head">
+            <span class="emoji">{{ card.icon }}</span>
+            <h4>{{ card.title }}</h4>
+          </div>
+          <div class="lines">
+            <p class="instruction">{{ card.instruction }}</p>
+            <p class="benefit">{{ card.benefit }}</p>
+          </div>
+          <div class="meta">
+            <span v-if="card.duration">⏱ {{ card.duration }}</span>
+            <span v-if="card.location">📍 {{ card.location }}</span>
+            <span v-if="card.needsHeadphone">🎧 需要耳机</span>
+          </div>
+          <button
+            class="cta btn-outline" 
+            @click.stop="performAction(card)"
+            :class="{ 'btn-ripple': isRippleActive === card.key }"
+          >
+            {{ card.buttonText }}
+          </button>
+          <transition name="check-glow">
+            <div v-if="completedMirrorActions.has(card.key)" class="check-mark">✓</div>
+          </transition>
+        </div>
+      </div>
+      
+      <!-- 感受记录区（时间线） -->
+      <div class="reflection-records-section" id="feeling-records">
+        <div class="records-header">
+          <h2 class="records-title">感受记录</h2>
+          <div class="records-filters">
+            <button 
+              v-for="filter in recordFilters" 
+              :key="filter.key"
+              class="filter-btn"
+              :class="{ active: activeRecordFilter === filter.key }"
+              @click="activeRecordFilter = filter.key"
+            >
+              {{ filter.label }}
+            </button>
+          </div>
+          <a-button size="small" class="export-btn" @click="exportToItinerary">
+            <template #icon><export-outlined /></template>
+            导出到行程
+          </a-button>
     </div>
-
-    <!-- ② 映照阶段：五层心理镜面体验 - 在绝对孤独中看清自己 -->
+    
+        <!-- 今日记录（置顶） -->
+        <div v-if="todayRecords.length > 0" class="records-today">
+          <h3 class="today-label">今日</h3>
+          <div class="records-timeline">
+            <div 
+              v-for="(record, idx) in todayRecords" 
+              :key="`today-${idx}`"
+              class="record-item"
+              :class="record.type"
+            >
+              <div class="record-time">{{ formatRecordTime(record.timestamp) }}</div>
+              <div class="record-content">
+                <div v-if="record.type === 'text'" class="record-text">{{ record.content }}</div>
+                <div v-if="record.type === 'audio'" class="record-audio">
+                  <span class="audio-icon">🎧</span>
+                  <span>{{ record.duration || '录音' }}</span>
+                </div>
+                <div v-if="record.type === 'image'" class="record-image">
+                  <img :src="record.content" alt="记录图片" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 历史记录 -->
+        <div v-if="historyRecords.length > 0" class="records-history">
+          <h3 class="history-label">历史</h3>
+          <div class="records-timeline">
+            <div 
+              v-for="(record, idx) in historyRecords" 
+              :key="`history-${idx}`"
+              class="record-item"
+              :class="record.type"
+            >
+              <div class="record-date">{{ formatRecordDate(record.timestamp) }}</div>
+              <div class="record-content">
+                <div v-if="record.type === 'text'" class="record-text">{{ record.content }}</div>
+                <div v-if="record.type === 'audio'" class="record-audio">
+                  <span class="audio-icon">🎧</span>
+                  <span>{{ record.duration || '录音' }}</span>
+                </div>
+                <div v-if="record.type === 'image'" class="record-image">
+                  <img :src="record.content" alt="记录图片" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 空状态 -->
+        <div v-if="allRecords.length === 0" class="records-empty">
+          <div class="empty-icon">💭</div>
+          <p class="empty-text">还没有记录。先完成任一行动，留下你的第一条镜湖心声。</p>
+        </div>
+      </div>
+      
+      <!-- 完成计数器 -->
+      <transition name="counter-pop">
+        <div v-if="todayCompletedCount > 0" class="today-completed-counter">
+          今日完成 ×{{ todayCompletedCount }}
+        </div>
+      </transition>
+    </section>
+    
+    <!-- 保留原映照阶段（隐藏但保留功能） -->
     <div 
+      id="stage-awakening-old"
       class="reflection-stage animate-on-scroll" 
-      ref="reflectionStageRef"
+      style="display: none;"
       :class="{ 
         'mirror-closed': isMirrorClosed,
         'scene-active': activeSceneType !== null
@@ -219,8 +366,38 @@
       </transition>
     </div>
 
-    <!-- ③ 破晓阶段：觉醒的契机 - 五层沉浸式体验 -->
-    <div class="awakening-stage animate-on-scroll" ref="dialogueStageRef">
+    <!-- ③ 觉醒阶段：破晓时刻 -->
+    <section id="stage-awakening" class="stage-card" ref="dialogueStageRef" :style="{ scrollMarginTop: '80px' }">
+      <div v-if="awakeningStageData">
+        <div class="stage-head">
+          <h3>{{ awakeningStageData.title || '破晓时刻' }}</h3>
+          <p class="sub">{{ awakeningStageData.subtitle || awakeningStageGoal }}</p>
+        </div>
+        <ul class="action-list" v-if="awakeningStageData.activities && awakeningStageData.activities.length">
+          <li
+            v-for="(act, idx) in awakeningStageData.activities.slice(0, 5)"
+            :key="`awakening-${idx}`"
+            class="action-item"
+            :class="{ completed: completedActions.has(`awakening-${idx}`) }"
+          >
+            <div class="icon">{{ parseActivityIcon(act) }}</div>
+            <div class="meta">
+              <div class="title">{{ parseActivityTitle(act) }}</div>
+              <div class="desc">{{ parseActivityBenefit(act) }}</div>
+        </div>
+            <button class="pill" @click="completeAction('awakening', idx, act)">
+              {{ completedActions.has(`awakening-${idx}`) ? '✓ 已完成' : '去做' }}
+            </button>
+            <transition name="check-glow">
+              <div v-if="completedActions.has(`awakening-${idx}`)" class="check-mark">✓</div>
+      </transition>
+          </li>
+        </ul>
+    </div>
+    </section>
+
+    <!-- 保留原觉醒阶段交互内容（隐藏但保留功能） -->
+    <div class="awakening-stage animate-on-scroll" ref="dialogueStageRef" style="display: none;">
       <!-- ① 视觉引导层：图标 + 标题 -->
       <div class="awakening-visual-guide">
         <div class="visual-icon" :class="{ 'active': isVisualGuideActive }">
@@ -534,27 +711,82 @@
       <div ref="awakeningSoundRef" class="awakening-sound-control"></div>
     </div>
 
-    <!-- ④ 沉淀阶段：让情绪有出口，让感悟被安放 - 安静的内向温度感 -->
-    <div 
-      class="internalization-stage animate-on-scroll" 
+    <!-- ④ 种子沉淀阶段 -->
+    <section 
+      id="stage-internalization"
+      class="stage-card"
       ref="internalizationStageRef"
+      :style="{ scrollMarginTop: '80px' }"
     >
-      <div class="internalization-header">
-        <h2 class="internalization-title">{{ internalizationStageContent.title }}</h2>
-        <p class="internalization-subtitle">{{ internalizationStageContent.subtitle }}</p>
+      <div v-if="internalizationStageData">
+        <div class="stage-head">
+          <h3>{{ internalizationStageData.title || '种子沉淀' }}</h3>
+          <p class="sub">{{ internalizationStageData.subtitle || internalizationStageGoal }}</p>
       </div>
 
-      <!-- 内化活动建议 - 标签形式 -->
-      <div v-if="internalizationStageContent.activities && internalizationStageContent.activities.length > 0" class="internalization-activities">
-        <a-tag
-          v-for="(activity, index) in internalizationStageContent.activities" 
-          :key="index"
-          class="internalization-activity-tag"
-          :color="getActivityTagColor(index)"
-        >
-          {{ activity }}
-        </a-tag>
+        <!-- 选项胶囊：晚餐 → 盐制信物 → 日记整理 -->
+        <div v-if="internalizationStageData.activities && internalizationStageData.activities.length > 0" class="segment">
+          <button
+            v-for="(act, idx) in internalizationStageData.activities.slice(0, 3)"
+            :key="`capsule-${idx}`"
+            class="chip"
+            :class="{ 'is-active': selectedCapsule === idx }"
+            @click="selectedCapsule = idx"
+          >
+            {{ parseActivityTitle(act) }}
+          </button>
       </div>
+        
+        <!-- 编辑卡：选项胶囊 + textarea + 保存按钮 -->
+        <div class="seed-edit-card" v-if="selectedCapsule === 0">
+          <div class="segment letter-template-selector">
+            <button 
+              v-for="(tmpl, idx) in letterTemplates" 
+              :key="idx"
+              class="chip"
+              :class="{ 'is-active': selectedLetterTemplate === idx }"
+              @click="selectedLetterTemplate = idx"
+            >
+              {{ tmpl.label }}
+            </button>
+          </div>
+          <textarea
+            v-model="letterContent"
+            :placeholder="letterTemplates[selectedLetterTemplate]?.placeholder"
+            class="textbox"
+          ></textarea>
+          <div class="save-row">
+            <span>⏱ 约 {{ estimateLetterTime }} 分钟</span>
+            <button class="btn-save" @click="saveLetterToCollection">保存到灵感夹</button>
+          </div>
+        </div>
+        
+        <!-- 动作清单（除信件外的其他活动） -->
+        <ul class="action-list" v-if="internalizationStageData.activities && internalizationStageData.activities.length > 3">
+          <li
+            v-for="(act, idx) in internalizationStageData.activities.slice(3)"
+            :key="`internalization-${idx + 3}`"
+            class="action-item"
+            :class="{ completed: completedActions.has(`internalization-${idx + 3}`) }"
+          >
+            <div class="icon">{{ parseActivityIcon(act) }}</div>
+            <div class="meta">
+              <div class="title">{{ parseActivityTitle(act) }}</div>
+              <div class="desc">{{ parseActivityBenefit(act) }}</div>
+            </div>
+            <button class="pill" @click="completeAction('internalization', idx + 3, act)">
+              {{ completedActions.has(`internalization-${idx + 3}`) ? '✓ 已完成' : '去做' }}
+            </button>
+            <transition name="check-glow">
+              <div v-if="completedActions.has(`internalization-${idx + 3}`)" class="check-mark">✓</div>
+            </transition>
+          </li>
+        </ul>
+      </div>
+    </section>
+    
+    <!-- 保留原内化阶段交互内容（隐藏但保留功能） -->
+    <div class="internalization-stage animate-on-scroll" style="display: none;">
 
       <div class="letter-to-future-container">
         <!-- 信封动画容器 -->
@@ -648,11 +880,41 @@
     </div>
 
 
-    <!-- ⑤ 转化阶段：旅程的延续 - 从觉醒走向行动 -->
-    <div class="transform-stage animate-on-scroll" ref="transformStageRef">
+    <!-- ⑤ 转化阶段 -->
+    <section id="stage-transformation" class="stage-card" ref="transformStageRef" :style="{ scrollMarginTop: '80px' }">
+      <div v-if="transformationStageData">
+        <div class="stage-head">
+          <h3>{{ transformationStageData.title || '转化' }}</h3>
+          <p class="sub">{{ transformationStageData.subtitle || transformationStageGoal }}</p>
+        </div>
+        <ul class="action-list" v-if="transformationStageData.activities && transformationStageData.activities.length">
+          <li
+            v-for="(act, idx) in transformationStageData.activities.slice(0, 5)"
+            :key="`transformation-${idx}`"
+            class="action-item"
+            :class="{ completed: completedActions.has(`transformation-${idx}`) }"
+          >
+            <div class="icon">{{ parseActivityIcon(act) }}</div>
+            <div class="meta">
+              <div class="title">{{ parseActivityTitle(act) }}</div>
+              <div class="desc">{{ parseActivityBenefit(act) }}</div>
+            </div>
+            <button class="pill" @click="completeAction('transformation', idx, act)">
+              {{ completedActions.has(`transformation-${idx}`) ? '✓ 已完成' : '去做' }}
+            </button>
+            <transition name="check-glow">
+              <div v-if="completedActions.has(`transformation-${idx}`)" class="check-mark">✓</div>
+            </transition>
+          </li>
+        </ul>
+      </div>
+    </section>
+    
+    <!-- 保留原转化阶段内容（隐藏但保留功能） -->
+    <div class="transform-stage animate-on-scroll" style="display: none;">
       <div class="transform-header">
-        <h2 class="transform-title">{{ transformationStageContent.title }}</h2>
-        <p class="transform-subtitle">{{ transformationStageContent.subtitle }}</p>
+        <h2 class="transform-title">{{ transformationStageContent?.title }}</h2>
+        <p class="transform-subtitle">{{ transformationStageContent?.subtitle }}</p>
       </div>
 
       <!-- 真实旅人故事卡片 -->
@@ -998,6 +1260,42 @@
         </a-tab-pane>
       </a-tabs>
     </a-modal>
+    
+    <!-- 🎯 底部：点亮你的旅程 -->
+    <section class="journey-lightup-section">
+      <div class="lightup-container">
+        <h2 class="lightup-title">点亮你的旅程</h2>
+        <p class="lightup-subtitle">将已完成/已收藏的动作生成路线 & 待办清单</p>
+        <div class="lightup-stats">
+          <div class="stat-item">
+            <span class="stat-number">{{ completedCount }}</span>
+            <span class="stat-label">已完成</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">{{ totalActions }}</span>
+            <span class="stat-label">总动作</span>
+          </div>
+        </div>
+        <div class="lightup-actions">
+          <a-button type="primary" size="large" class="lightup-btn primary" @click="generateActionList">
+            <template #icon><thunderbolt-outlined /></template>
+            生成行动清单
+          </a-button>
+          <a-button size="large" class="lightup-btn secondary" @click="generateItinerary">
+            <template #icon><rocket-outlined /></template>
+            一键生成极简行程
+          </a-button>
+        </div>
+        <div v-if="completedCount > 0" class="completed-summary">
+          <h3>已完成动作预览</h3>
+          <div class="completed-list">
+            <div v-for="(key, idx) in Array.from(completedActions)" :key="idx" class="completed-item">
+              {{ getActionName(key) }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -1035,7 +1333,11 @@ import {
   LoadingOutlined,
   LeftOutlined,
   RightOutlined,
-  BulbOutlined
+  BulbOutlined,
+  FileOutlined,
+  PlayCircleOutlined,
+  PauseOutlined,
+  ExportOutlined
 } from '@ant-design/icons-vue'
 
 // 导入配置和工具函数
@@ -1064,6 +1366,408 @@ const isInspirationTheme = computed(() => route.name?.toString().toLowerCase().i
 
 // 响应式数据
 const travel = computed(() => travelListStore.getTravel(route.params.id as string))
+
+// ===== Hero区域：数据计算 =====
+const heroTitle = computed(() => {
+  return travel.value?.title || travel.value?.data?.title || '在镜中遇见自己'
+})
+
+// 五段心智流体验（从数据加载，提前定义供Hero使用）
+const mentalFlowStages = computed(() => {
+  return travel.value?.data?.mentalFlowStages
+})
+
+const heroAtmosphere = computed(() => {
+  const stage = mentalFlowStages.value?.summon || mentalFlowStages.value?.reflection
+  return stage?.symbolicElement || travel.value?.data?.atmosphere || 
+    '在盐湖的镜面里，我听见时间在心跳间缓慢呼吸。'
+})
+
+const heroBackgroundStyle = computed(() => {
+  const coverImage = travel.value?.coverImage || travel.value?.data?.coverImage
+  if (coverImage) {
+    return {
+      backgroundImage: `url(${coverImage})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    }
+  }
+  return {
+    background: 'linear-gradient(135deg, rgba(17, 153, 142, 0.85), rgba(56, 239, 125, 0.85))'
+  }
+})
+
+const stageBreadcrumbs = [
+  { key: 'summon', label: '剥离' },
+  { key: 'reflection', label: '映照' },
+  { key: 'awakening', label: '觉醒' },
+  { key: 'internalization', label: '沉淀' },
+  { key: 'transformation', label: '转化' }
+]
+
+const currentStageIndex = ref(0)
+
+const generateItinerary = () => {
+  message.info('正在生成行程...')
+  // TODO: 实现生成行程逻辑
+}
+
+const addToCollection = () => {
+  message.success('已加入灵感夹')
+  // TODO: 实现加入收藏逻辑
+}
+
+// 监听滚动，更新当前阶段高亮
+const updateCurrentStage = () => {
+  const stages = stageBreadcrumbs.map(s => document.getElementById(`stage-${s.key}`))
+  const scrollTop = window.scrollY + 200
+  stages.forEach((el, idx) => {
+    if (el && el.offsetTop <= scrollTop && (idx === stages.length - 1 || stages[idx + 1]?.offsetTop > scrollTop)) {
+      currentStageIndex.value = idx
+    }
+  })
+}
+
+// ===== 动作完成状态管理 =====
+const completedActions = ref<Set<string>>(new Set())
+
+const completeAction = (stage: string, idx: number, activity: string) => {
+  const key = `${stage}-${idx}`
+  if (completedActions.value.has(key)) {
+    completedActions.value.delete(key)
+    message.info('已取消标记')
+  } else {
+    completedActions.value.add(key)
+    playSound(SoundType.CLICK)
+    message.success('✓ 已完成')
+  }
+  // 保存到 localStorage
+  localStorage.setItem(`completedActions_${route.params.id}`, JSON.stringify(Array.from(completedActions.value)))
+}
+
+// ===== 动作解析函数（从AI内容智能提取） =====
+const parseActivityIcon = (text: string): string => {
+  const t = (text || '').toLowerCase()
+  if (/静坐|冥想|meditat|breath|sit/.test(t)) return '🧘‍♀️'
+  if (/交出|设备|手机|digital|offline/.test(t)) return '📵'
+  if (/写下|标签|身份|write|tag/.test(t)) return '📝'
+  if (/焚化|燃烧|burn/.test(t)) return '🔥'
+  if (/徒步|行走|walk|hike/.test(t)) return '🚶'
+  if (/盐湖|湖|lake|mirror/.test(t)) return '🌊'
+  return '✨'
+}
+
+const parseActivityTitle = (text: string): string => {
+  // 提取7字内的简短标题
+  const cleaned = text.replace(/[⏱📍☁︎].*$/, '').trim()
+  if (cleaned.length <= 7) return cleaned
+  // 尝试截取到第一个标点或关键词
+  const match = cleaned.match(/^([^，。：；,\.:;]{1,7})/)
+  return match ? match[1] : cleaned.substring(0, 7) + '...'
+}
+
+const parseActivityBenefit = (text: string): string => {
+  // 尝试提取收益描述（通常包含"让"、"感受"等关键词）
+  const benefitMatch = text.match(/(?:让|感受|体验|获得|释放|放下)([^，。：；,\.:;]{2,20})/)
+  return benefitMatch ? benefitMatch[1] : '让内心更平静'
+}
+
+const parseActivityMeta = (text: string): { duration?: string; mood?: string; location?: string } => {
+  const meta: any = {}
+  // 提取时长
+  const durationMatch = text.match(/(\d+)[-–](\d+)\s*分钟|(\d+)\s*分钟|(\d+)[-–](\d+)\s*分/)
+  if (durationMatch) meta.duration = durationMatch[1] ? `${durationMatch[1]}-${durationMatch[2]}分钟` : `${durationMatch[3] || durationMatch[4]}分钟`
+  // 提取情绪标签
+  if (/静心|静默|安静|calm|quiet/.test(text)) meta.mood = '☁︎ 静心'
+  if (/放松|减压|relax/.test(text)) meta.mood = '☁︎ 放松'
+  // 提取地点
+  const locationMatch = text.match(/(?:在|到|于)([湖海边山顶]|湖边|湖边|山顶|海边|湖边|盐湖)/)
+  if (locationMatch) meta.location = locationMatch[1]
+  return meta
+}
+
+// ===== 阶段目标句（动词+收益） =====
+const summonStageGoal = computed(() => {
+  const stage = mentalFlowStages.value?.summon
+  return stage?.emotionalGoal || '减压与清空 —— 让噪声离线'
+})
+
+const awakeningStageGoal = computed(() => {
+  const stage = mentalFlowStages.value?.awakening
+  return stage?.emotionalGoal || '唤起真实欲望 —— 向内说出答案'
+})
+
+const internalizationStageGoal = computed(() => {
+  const stage = mentalFlowStages.value?.internalization
+  return stage?.emotionalGoal || '在静默中生根 —— 写一封盐封的信'
+})
+
+const transformationStageGoal = computed(() => {
+  const stage = mentalFlowStages.value?.transformation
+  return stage?.emotionalGoal || '把感受变行动 —— 点亮一条可执行旅程'
+})
+
+// ===== 觉醒阶段卡片内容 =====
+const awakeningStageCardContent = computed(() => {
+  const stage = mentalFlowStages.value?.awakening as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '觉醒',
+    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 5) : []
+  }
+})
+
+// ===== 内化阶段：信件模板与状态 =====
+const selectedCapsule = ref(0)
+const selectedLetterTemplate = ref(0)
+const letterContent = ref('')
+const letterTemplates = [
+  { label: '给过去的自己', placeholder: '写下你想对过去的自己说的话...' },
+  { label: '给未来的自己', placeholder: '写下你想对未来自己说的话...' },
+  { label: '给当下的自己', placeholder: '写下你想对当下自己说的话...' }
+]
+
+const estimateLetterTime = computed(() => {
+  const words = letterContent.value.length
+  return Math.ceil(words / 100) * 5 || 15
+})
+
+const saveLetterToCollection = () => {
+  if (!letterContent.value.trim()) {
+    message.warning('请先写下内容')
+    return
+  }
+  message.success('已保存到灵感夹')
+  // TODO: 实现保存逻辑
+}
+
+// ===== 底部"点亮旅程" =====
+const completedCount = computed(() => completedActions.value.size)
+
+const totalActions = computed(() => {
+  const stages = ['summon', 'awakening', 'internalization', 'transformation']
+  let total = 0
+  stages.forEach(stage => {
+    const stageData = (mentalFlowStages.value as any)?.[stage]
+    if (stageData?.activities) total += Math.min(stageData.activities.length, 5)
+  })
+  return total || 0
+})
+
+const getActionName = (key: string): string => {
+  const [stage, idx] = key.split('-')
+  const stageData = (mentalFlowStages.value as any)?.[stage]
+  if (stageData?.activities?.[parseInt(idx)]) {
+    return parseActivityTitle(stageData.activities[parseInt(idx)])
+  }
+  return key
+}
+
+const generateActionList = () => {
+  const completed = Array.from(completedActions.value).map(k => getActionName(k))
+  if (completed.length === 0) {
+    message.warning('请先完成一些动作')
+    return
+  }
+  message.success(`已生成 ${completed.length} 项行动清单`)
+  // TODO: 实现生成清单逻辑
+}
+
+// ===== 镜湖映心：三卡操作区 =====
+const mirrorLakeActionCards = [
+  {
+    key: 'dawn-solitude',
+    icon: '🌅',
+    title: '黎明湖面独处',
+    instruction: '5 分钟慢呼吸，收拢注意力',
+    benefit: '把注意力从外界收回到身体',
+    duration: '5分钟',
+    location: '湖边',
+    needsHeadphone: false,
+    buttonText: '去独处'
+  },
+  {
+    key: 'water-diary',
+    icon: '📝',
+    title: '水影日记书写',
+    instruction: '写下3个感受+1个当下需求',
+    benefit: '把情绪落地到文字里',
+    duration: '10分钟',
+    location: '湖边',
+    needsHeadphone: false,
+    buttonText: '去书写'
+  },
+  {
+    key: 'pine-dialogue',
+    icon: '🌲',
+    title: '松涛下的自我对话',
+    instruction: '用第二人称，大声说出一句承诺',
+    benefit: '把真实需求说出口',
+    duration: '8分钟',
+    location: '松林',
+    needsHeadphone: true,
+    buttonText: '去表达'
+  }
+]
+
+const completedMirrorActions = ref<Set<string>>(new Set())
+const isRippleActive = ref<string | null>(null)
+const hoveredCardIndex = ref<number | null>(null)
+
+const handleCardHover = (idx: number) => {
+  hoveredCardIndex.value = idx
+}
+
+const handleCardLeave = (idx: number) => {
+  hoveredCardIndex.value = null
+}
+
+const handleCardClick = (card: typeof mirrorLakeActionCards[0]) => {
+  // 卡片点击处理（如果需要）
+}
+
+const performAction = (card: typeof mirrorLakeActionCards[0]) => {
+  isRippleActive.value = card.key
+  setTimeout(() => {
+    isRippleActive.value = null
+  }, 600)
+  
+  if (completedMirrorActions.value.has(card.key)) {
+    completedMirrorActions.value.delete(card.key)
+    message.info('已取消标记')
+  } else {
+    completedMirrorActions.value.add(card.key)
+    playSound(SoundType.CLICK)
+    message.success('✓ 已完成')
+    
+    // 添加记录
+    addFeelingRecord({
+      type: 'text',
+      content: `完成了「${card.title}」`,
+      timestamp: new Date().toISOString()
+    })
+  }
+  
+  // 保存状态
+  localStorage.setItem(`mirrorActions_${route.params.id}`, JSON.stringify(Array.from(completedMirrorActions.value)))
+}
+
+// ===== 声音控制 =====
+const isLakeSoundOn = ref(false)
+const lakeSoundAudio = ref<HTMLAudioElement | null>(null)
+
+const toggleLakeSound = () => {
+  isLakeSoundOn.value = !isLakeSoundOn.value
+  if (isLakeSoundOn.value) {
+    // TODO: 播放湖面白噪/风声
+    message.info('声音已开启')
+  } else {
+    if (lakeSoundAudio.value) {
+      lakeSoundAudio.value.pause()
+    }
+    message.info('已静音')
+  }
+}
+
+// ===== 15分钟镜湖练习 =====
+const startMirrorLakePractice = () => {
+  message.info('开始15分钟镜湖练习...')
+  // TODO: 实现引导式15分钟流（3步×5分钟，支持跳过）
+}
+
+// ===== 感受记录（时间线） =====
+interface FeelingRecord {
+  type: 'text' | 'audio' | 'image'
+  content: string
+  timestamp: string
+  duration?: string
+}
+
+const allRecords = ref<FeelingRecord[]>([])
+const activeRecordFilter = ref('all')
+const recordFilters = [
+  { key: 'all', label: '全部' },
+  { key: 'audio', label: '音频' },
+  { key: 'text', label: '文字' },
+  { key: 'image', label: '图片' }
+]
+
+const todayRecords = computed(() => {
+  const today = new Date().toDateString()
+  return filteredRecords.value.filter(r => new Date(r.timestamp).toDateString() === today)
+})
+
+const historyRecords = computed(() => {
+  const today = new Date().toDateString()
+  return filteredRecords.value.filter(r => new Date(r.timestamp).toDateString() !== today)
+})
+
+const filteredRecords = computed(() => {
+  if (activeRecordFilter.value === 'all') return allRecords.value
+  return allRecords.value.filter(r => r.type === activeRecordFilter.value)
+})
+
+const addFeelingRecord = (record: FeelingRecord) => {
+  allRecords.value.unshift(record)
+  localStorage.setItem(`feelingRecords_${route.params.id}`, JSON.stringify(allRecords.value))
+}
+
+const formatRecordTime = (timestamp: string) => {
+  const date = new Date(timestamp)
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+}
+
+const formatRecordDate = (timestamp: string) => {
+  const date = new Date(timestamp)
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+const exportToItinerary = () => {
+  if (allRecords.value.length === 0) {
+    message.warning('还没有记录')
+    return
+  }
+  message.success('已导出到行程')
+  // TODO: 实现导出逻辑
+}
+
+const todayCompletedCount = computed(() => {
+  return completedMirrorActions.value.size
+})
+
+// 更新scrollToStage，支持跳转到感受记录，优化滚动锚点
+const scrollToStage = (key: string) => {
+  playSound(SoundType.CLICK)
+  
+  let targetElement: HTMLElement | null = null
+  
+  if (key === 'reflection') {
+    targetElement = document.getElementById('feeling-records')
+  } else {
+    targetElement = document.getElementById(`stage-${key}`)
+  }
+  
+  if (targetElement) {
+    // 使用 scroll-margin-top，平滑滚动 280ms
+    const offset = 80
+    const y = targetElement.getBoundingClientRect().top + window.pageYOffset - offset
+    
+    // 检测是否支持平滑滚动
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ 
+      top: y, 
+      behavior: prefersReducedMotion ? 'auto' : 'smooth'
+    })
+    
+    // 添加 scrolled-to 类，触发下划线动画
+    nextTick(() => {
+      targetElement?.classList.add('scrolled-to')
+      setTimeout(() => {
+        targetElement?.classList.remove('scrolled-to')
+      }, 2000)
+    })
+  }
+}
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const isImmersionMode = ref(false)
 const activePeriod = ref<'morning' | 'afternoon' | 'evening' | null>(null)
@@ -3003,10 +3707,7 @@ const inspirationKeywords = computed(() => {
   return travel.value?.data?.keywords
 })
 
-// 五段心智流体验（从数据加载，用于展示）
-const mentalFlowStages = computed(() => {
-  return travel.value?.data?.mentalFlowStages
-})
+// mentalFlowStages 已在上面定义，此处注释避免重复
 
 // 旅程设计面板状态
 const isDesignPanelOpen = ref(false)
@@ -3139,16 +3840,59 @@ const awakeningStageContent = computed(() => {
   }
 })
 
-// ①.5 召唤阶段内容（在映照阶段前展示）
-const summonStageContent = computed(() => {
+// ===== 统一阶段数据（数据驱动） =====
+const summonStageData = computed(() => {
   const stage = mentalFlowStages.value?.summon as any
   if (!stage) return null as any
   return {
-    title: stage?.theme || '召唤',
+    title: stage?.theme || '放下重负',
     subtitle: stage?.emotionalGoal || stage?.symbolicElement || '',
-    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 3) : []
+    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 5) : []
   }
 })
+
+const reflectionStageData = computed(() => {
+  const stage = mentalFlowStages.value?.reflection as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '镜湖映心',
+    subtitle: stage?.emotionalGoal || stage?.symbolicElement || '看清内心真实模样',
+    activities: Array.isArray(stage?.activities) ? stage.activities : []
+  }
+})
+
+const awakeningStageData = computed(() => {
+  const stage = mentalFlowStages.value?.awakening as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '破晓时刻',
+    subtitle: stage?.emotionalGoal || stage?.symbolicElement || '',
+    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 5) : []
+  }
+})
+
+const internalizationStageData = computed(() => {
+  const stage = mentalFlowStages.value?.internalization as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '种子沉淀',
+    subtitle: stage?.emotionalGoal || stage?.symbolicElement || '',
+    activities: Array.isArray(stage?.activities) ? stage.activities : []
+  }
+})
+
+const transformationStageData = computed(() => {
+  const stage = mentalFlowStages.value?.transformation as any
+  if (!stage) return null as any
+  return {
+    title: stage?.theme || '转化',
+    subtitle: stage?.emotionalGoal || stage?.symbolicElement || '',
+    activities: Array.isArray(stage?.activities) ? stage.activities.slice(0, 5) : []
+  }
+})
+
+// 保留旧的计算属性以兼容（这些变量已在其他地方声明，无需重复声明）
+// summonStageContent, awakeningStageCardContent, internalizationStageContent, transformationStageContent
 
 // 导航到指定阶段
 const navigateToStage = (stageKey: string) => {
@@ -4997,6 +5741,40 @@ onMounted(() => {
     console.error('加载已保存的反思失败:', error)
   }
   
+  // Hero滚动监听：更新当前阶段高亮
+  window.addEventListener('scroll', updateCurrentStage, { passive: true })
+  updateCurrentStage()
+  
+  // 加载已完成的动作
+  const saved = localStorage.getItem(`completedActions_${route.params.id}`)
+  if (saved) {
+    try {
+      completedActions.value = new Set(JSON.parse(saved))
+    } catch (e) {
+      console.warn('加载完成动作失败:', e)
+    }
+  }
+  
+  // 加载镜湖操作完成状态
+  const savedMirror = localStorage.getItem(`mirrorActions_${route.params.id}`)
+  if (savedMirror) {
+    try {
+      completedMirrorActions.value = new Set(JSON.parse(savedMirror))
+    } catch (e) {
+      console.warn('加载镜湖操作失败:', e)
+    }
+  }
+  
+  // 加载感受记录
+  const savedRecords = localStorage.getItem(`feelingRecords_${route.params.id}`)
+  if (savedRecords) {
+    try {
+      allRecords.value = JSON.parse(savedRecords)
+    } catch (e) {
+      console.warn('加载感受记录失败:', e)
+    }
+  }
+  
   // 初始化Intersection Observer用于滚动触发
   if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
     // 观察视觉诗项目
@@ -5142,6 +5920,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('scroll', updateCurrentStage)
   // 清理背景音频
   if (backgroundSoundAudio.value) {
     backgroundSoundAudio.value.pause()
@@ -5198,14 +5977,848 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== Apple风格设计系统 ===== */
 .experience-day {
+  /* 颜色系统 - Apple风格 */
+  --color-primary: #007AFF;
+  --color-secondary: #5856D6;
+  --color-accent: #FF3B30;
+  --color-success: #34C759;
+  
+  /* 文本颜色 */
+  --text-primary: #1D1D1F;
+  --text-secondary: #86868B;
+  --text-tertiary: #AEAFB2;
+  
+  /* 背景颜色 */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F5F5F7;
+  --bg-tertiary: #E8E8ED;
+  
+  /* 边框 */
+  --border-color: rgba(0, 0, 0, 0.1);
+  --border-light: rgba(0, 0, 0, 0.06);
+  
+  /* 玻璃态效果 */
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --glass-blur: 20px;
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-saturate: 180%;
+  
+  /* 阴影系统 - Apple风格细腻阴影 */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-xl: 0 12px 48px rgba(0, 0, 0, 0.16);
+  
+  /* 圆角系统 */
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --radius-pill: 9999px;
+  
+  /* 间距系统 */
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+  
+  /* 字体系统 */
+  --font-title: clamp(1.75rem, 4vw, 2.5rem);
+  --font-heading: clamp(1.5rem, 3vw, 2rem);
+  --font-subheading: clamp(1.125rem, 2.5vw, 1.5rem);
+  --font-body: 1rem;
+  --font-small: 0.875rem;
+  --font-tiny: 0.75rem;
+  
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* 动画系统 - Apple风格缓动 */
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
+  --transition-fast: 150ms var(--ease-out);
+  --transition-base: 250ms var(--ease-out);
+  --transition-slow: 350ms var(--ease-out);
+  
+  /* 兼容旧变量 */
+  --card-bg: var(--glass-bg);
+  --card-blur: var(--glass-blur);
+  --card-radius: var(--radius-lg);
+  --card-shadow: var(--shadow-md);
+  --h2: var(--font-heading);
+  --text-strong: var(--text-primary);
+  --text-sub: var(--text-secondary);
+  --body: var(--font-body);
+  --line: var(--border-light);
+  --space-4: var(--space-md);
+  --space-5: 1.25rem;
+  --space-7: var(--space-xl);
+  --dur: var(--transition-base);
+  --ease: var(--ease-out);
+  --chip: #F0F4FF;
+  --chip-border: #D0DCE8;
+  --chip-text: #1D4ED8;
+  --chip-active: var(--color-primary);
+  --accent: var(--color-accent);
+  
+  /* 布局 */
   display: flex;
   flex-direction: column;
-  gap: clamp(1rem, 2.5vw, 2rem);
+  gap: var(--space-2xl);
   width: 100%;
-  min-height: 400px;
-  padding: 0;
+  min-height: 100vh;
+  padding: var(--space-xl) var(--space-md);
   position: relative;
+  background: var(--bg-secondary);
+}
+
+/* ===== 统一阶段卡片样式 - Apple风格 ===== */
+.stage-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 
+    var(--shadow-md),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  padding: var(--space-3xl);
+  max-width: 1024px;
+  margin: 0 auto;
+  width: 100%;
+  scroll-margin-top: 80px;
+  scroll-behavior: smooth;
+  position: relative;
+  transition: all var(--transition-base);
+}
+
+.stage-card:hover {
+  box-shadow: 
+    var(--shadow-lg),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-card {
+    scroll-behavior: auto;
+  }
+  .stage-head h3::after {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .stage-card {
+    padding: var(--space-5);
+    margin: 1rem auto;
+  }
+}
+
+.stage-head h3 {
+  font-size: var(--font-heading);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-sm);
+  position: relative;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.stage-head h3::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--text-strong);
+  opacity: 0;
+  transition: width 1.5s ease-out, opacity 1.5s ease-out;
+}
+
+/* 滚动锚点吸附后，标题下划线淡入 */
+.stage-card:target .stage-head h3::after,
+.stage-card.scrolled-to .stage-head h3::after {
+  width: 80px;
+  opacity: 0.3;
+}
+
+.stage-head .sub {
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-xl);
+  font-size: var(--font-subheading);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.action-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 80px;
+  padding: var(--space-lg) var(--space-xl);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-xs);
+}
+
+.action-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-color);
+}
+
+.action-item:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.action-item.completed {
+  background: rgba(230, 250, 240, 0.8);
+  border-color: rgba(56, 239, 125, 0.3);
+}
+
+.action-item .icon {
+  font-size: 28px;
+  line-height: 1;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.action-item .meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.action-item .title {
+  font-size: var(--font-subheading);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-xs);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-item .desc {
+  font-size: var(--font-body);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill {
+  height: 36px;
+  min-width: 80px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-pill);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--color-primary);
+  font-size: var(--font-small);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.pill:hover {
+  background: var(--bg-secondary);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.pill:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.pill:focus-visible {
+  outline: 2px solid #274C9C;
+  outline-offset: 2px;
+}
+
+.action-item.completed .pill {
+  background: rgba(56, 239, 125, 0.15);
+  border-color: rgba(56, 239, 125, 0.4);
+  color: #095e54;
+}
+
+.check-mark {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  background: linear-gradient(135deg, rgba(254, 50, 50, 0.9), rgba(254, 50, 50, 0.7));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 12px rgba(254, 50, 50, 0.4);
+  animation: checkGlow 0.6s ease;
+  z-index: 10;
+}
+
+.check-glow-enter-active { transition: all 0.3s ease; }
+.check-glow-enter-from { transform: scale(0); opacity: 0; }
+
+@keyframes checkGlow {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ===== 三卡操作区（统一风格） ===== */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin: 2rem 0;
+}
+
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  padding: var(--space-2xl);
+  box-shadow: var(--shadow-sm);
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 三卡底各自极淡渐变区分 */
+.card:nth-child(1)::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(56, 239, 125, 0.08), transparent);
+}
+
+.card:nth-child(2)::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(255, 182, 193, 0.08), transparent);
+}
+
+.card:nth-child(3)::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, rgba(173, 216, 230, 0.08), transparent);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border-color);
+}
+
+.card:active {
+  transform: translateY(-3px) scale(0.98);
+}
+
+.card.completed {
+  background: rgba(230, 250, 240, 0.9);
+  border-color: rgba(56, 239, 125, 0.3);
+}
+
+.card .head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.card .head .emoji {
+  font-size: 28px;
+  line-height: 1;
+  width: 28px;
+  text-align: center;
+}
+
+.card h4 {
+  font-size: var(--font-subheading);
+  margin: 0;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.card .lines {
+  color: var(--text-sub);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.card .lines .instruction {
+  font-size: 16px;
+  margin: 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card .lines .benefit {
+  font-size: 16px;
+  margin: 0;
+  line-height: 1.5;
+  color: #6B7280;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card .meta {
+  display: flex;
+  gap: 14px;
+  color: #6B7280;
+  font-size: 14px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.card .cta {
+  align-self: flex-start;
+  margin-top: auto;
+}
+
+.btn-outline {
+  height: 44px;
+  min-width: 120px;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.btn-outline:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-outline:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.btn-outline:focus-visible {
+  outline: 2px solid #1F2A44;
+  outline-offset: 2px;
+}
+
+.btn-outline.btn-ripple::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(254, 50, 50, 0.3);
+  transform: translate(-50%, -50%);
+  animation: ripple 0.6s ease-out;
+}
+
+/* ===== 种子沉淀编辑卡 ===== */
+.seed-edit-card {
+  margin: var(--space-2xl) 0;
+  padding: var(--space-2xl);
+  background: var(--bg-primary);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.segment {
+  display: flex !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 14px !important;
+}
+
+.chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  padding: var(--space-sm) var(--space-lg);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  font-size: var(--font-small);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  margin: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.chip:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.chip.is-active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.chip:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.chip:focus-visible {
+  outline: 2px solid #274C9C;
+  outline-offset: 2px;
+}
+
+.textbox {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  min-height: 180px;
+  font-size: var(--font-body);
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.6;
+  transition: all var(--transition-fast);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xs);
+}
+
+.textbox:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 
+    0 0 0 4px rgba(0, 122, 255, 0.1),
+    var(--shadow-sm);
+}
+
+.textbox::placeholder {
+  color: var(--text-tertiary);
+}
+
+.save-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  color: var(--text-sub);
+  font-size: 0.875rem;
+}
+
+.btn-save {
+  height: 44px;
+  min-width: 140px;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-save:hover {
+  background: #0051D5;
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.btn-save:active {
+  background: #1D4ED8;
+  transform: translateY(-1px) scale(0.98);
+}
+
+.btn-save:focus-visible {
+  outline: 2px solid #2F6FEB;
+  outline-offset: 2px;
+}
+
+.btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===== 点亮你的旅程 ===== */
+.ignite {
+  background: linear-gradient(135deg, #FFF9F0 0%, #FFF5E6 100%);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-3xl);
+  text-align: center;
+  max-width: 1024px;
+  margin: var(--space-3xl) auto;
+}
+
+.ignite h3 {
+  font-size: var(--font-heading);
+  margin: 0 0 var(--space-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.ignite .nums {
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+  margin: 16px 0 8px;
+}
+
+.ignite .nums .n {
+  font-size: 44px;
+  font-weight: 800;
+  color: #FF5A4F;
+  line-height: 1;
+}
+
+.ignite .nums .n + div {
+  font-size: 14px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.btn-ignite {
+  height: 48px;
+  min-width: 140px;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-right: var(--space-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-ignite:hover {
+  background: #E63939;
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.btn-ignite:active {
+  background: #E63939;
+  transform: translateY(-1px) scale(0.98);
+}
+
+.btn-ignite:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-lite {
+  height: 48px;
+  min-width: 140px;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: var(--font-body);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+}
+
+.btn-lite:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-lite:active {
+  background: #F1F5F9;
+  transform: translateY(-1px) scale(0.98);
+}
+
+.btn-lite:focus-visible {
+  outline: 2px solid #1F2A44;
+  outline-offset: 2px;
+}
+
+/* 响应式 */
+@media (max-width: 900px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+  .action-item {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    min-height: auto;
+    max-height: none;
+  }
+  .action-item .icon {
+    width: auto;
+  }
+  .pill {
+    width: 100%;
+    margin-top: 8px;
+  }
+  .ignite .nums {
+    gap: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-head h3::after {
+    display: none;
+  }
+  .action-item:hover,
+  .card:hover,
+  .pill:hover,
+  .btn-ignite:hover,
+  .btn-lite:hover,
+  .btn-outline:hover,
+  .btn-save:hover,
+  .chip:hover {
+    transform: none;
+  }
+  .action-item:active,
+  .card:active,
+  .pill:active,
+  .btn-ignite:active,
+  .btn-lite:active,
+  .btn-outline:active,
+  .btn-save:active,
+  .chip:active {
+    transform: scale(1);
+  }
+}
+
+/* 可达性：确保对比度 */
+@media (prefers-contrast: high) {
+  .action-item {
+    border-width: 2px;
+  }
+  .pill {
+    border-width: 2px;
+  }
+}
+
+/* 动态字体支持 */
+@supports (font-size: clamp(1rem, 1vw, 2rem)) {
+  .action-item .title {
+    font-size: clamp(18px, 2.5vw, 22px);
+  }
+  .action-item .desc {
+    font-size: clamp(14px, 2vw, 16px);
+  }
 }
 
 .debug-info {
@@ -5219,7 +6832,481 @@ onUnmounted(() => {
   display: none;
 }
 
-/* ② 映照阶段：五层心理镜面体验样式 */
+/* ===== 镜湖映心：优化后的映照阶段样式 ===== */
+.reflection-stage-optimized {
+  position: relative;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+/* Hero区域 */
+.reflection-hero-section {
+  position: relative;
+  min-height: 50vh;
+  padding: 4rem 0;
+  background: linear-gradient(135deg, rgba(230, 250, 245, 0.4), rgba(220, 245, 255, 0.4));
+  border-radius: 24px;
+  margin-bottom: 3rem;
+  overflow: hidden;
+}
+
+.reflection-hero-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(200, 230, 255, 0.1), transparent 70%);
+  pointer-events: none;
+}
+
+.reflection-hero-container {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 2rem;
+  align-items: start;
+}
+
+.reflection-hero-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.reflection-hero-title {
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  font-weight: 500;
+  color: #111;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.reflection-hero-subtitle {
+  font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+  color: #333;
+  margin: 0;
+  font-weight: 400;
+}
+
+.reflection-hero-description {
+  font-size: clamp(1rem, 1.8vw, 1.125rem);
+  color: #666;
+  margin: 0;
+  line-height: 1.6;
+  font-style: italic;
+}
+
+.reflection-hero-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.reflection-hero-cta {
+  min-width: 200px;
+  border-radius: 12px;
+  height: 44px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.reflection-hero-cta.primary {
+  background: rgba(254, 50, 50, 0.85);
+  border: none;
+  color: #fff;
+}
+
+.reflection-hero-cta.primary:hover {
+  background: rgba(254, 50, 50, 1);
+  transform: translateY(-2px);
+}
+
+.reflection-hero-cta.secondary {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(136, 176, 227, 0.3);
+  color: #333;
+}
+
+.reflection-breadcrumb {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(136, 176, 227, 0.2);
+}
+
+.reflection-breadcrumb-item {
+  padding: 0.5rem 1.25rem;
+  color: #666;
+  text-decoration: none;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+}
+
+.reflection-breadcrumb-item:hover {
+  color: #333;
+  background: rgba(136, 176, 227, 0.1);
+}
+
+.reflection-breadcrumb-item.active {
+  color: #111;
+  background: rgba(136, 176, 227, 0.2);
+  font-weight: 500;
+}
+
+.reflection-sound-control {
+  position: absolute;
+  top: 2rem;
+  right: 2rem;
+}
+
+.sound-toggle {
+  color: #666;
+}
+
+/* 三卡操作区 */
+.reflection-action-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 4rem;
+}
+
+.mirror-action-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+  padding: 3.5rem 2rem 2rem;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.mirror-action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12);
+}
+
+.mirror-action-card.completed {
+  background: rgba(230, 250, 240, 0.7);
+  border-color: rgba(56, 239, 125, 0.3);
+}
+
+.action-card-header {
+  position: relative;
+  margin-bottom: 1.5rem;
+}
+
+.action-card-title-wrapper {
+  position: relative;
+}
+
+.action-card-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.action-card-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.action-card-white-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.action-card-instruction {
+  font-size: 0.95rem;
+  color: #333;
+  margin: 0 0 0.75rem 0;
+  line-height: 1.5;
+}
+
+.action-card-benefit {
+  font-size: 0.875rem;
+  color: #666;
+  margin: 0 0 1rem 0;
+  line-height: 1.6;
+}
+
+.action-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.action-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.action-card-btn {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(136, 176, 227, 0.4);
+  background: rgba(255, 255, 255, 0.9);
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.action-card-btn:hover {
+  background: rgba(136, 176, 227, 0.15);
+  border-color: rgba(136, 176, 227, 0.6);
+  transform: scale(1.02);
+}
+
+.action-card-btn.btn-ripple::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(254, 50, 50, 0.3);
+  transform: translate(-50%, -50%);
+  animation: ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+  to {
+    width: 300px;
+    height: 300px;
+    opacity: 0;
+  }
+}
+
+/* .action-check-mark 已整合到 .check-mark */
+
+/* 感受记录区 */
+.reflection-records-section {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  padding: 2rem;
+  margin-bottom: 3rem;
+}
+
+.records-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.records-title {
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: #111;
+  margin: 0;
+}
+
+.records-filters {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-btn {
+  height: 36px;
+  min-width: 80px;
+  padding: 0 1rem;
+  border-radius: 8px;
+  border: 1px solid rgba(136, 176, 227, 0.3);
+  background: rgba(255, 255, 255, 0.8);
+  color: #666;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.filter-btn:hover {
+  background: rgba(136, 176, 227, 0.1);
+  border-color: rgba(136, 176, 227, 0.4);
+  transform: translateY(-1px);
+}
+
+.filter-btn.active {
+  background: rgba(136, 176, 227, 0.2);
+  border-color: rgba(136, 176, 227, 0.5);
+  color: #111;
+  font-weight: 600;
+}
+
+.filter-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.filter-btn:focus-visible {
+  outline: 2px solid rgba(136, 176, 227, 0.5);
+  outline-offset: 2px;
+}
+
+.export-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #666;
+  font-size: 0.875rem;
+  transition: all var(--dur) var(--ease);
+}
+
+.export-btn:hover {
+  background: rgba(136, 176, 227, 0.1);
+  color: #111;
+}
+
+.export-btn:focus-visible {
+  outline: 2px solid rgba(136, 176, 227, 0.5);
+  outline-offset: 2px;
+}
+
+.records-today,
+.records-history {
+  margin-bottom: 2rem;
+}
+
+.today-label,
+.history-label {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #333;
+  margin: 0 0 1rem 0;
+}
+
+.records-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.record-item {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  border-left: 3px solid rgba(136, 176, 227, 0.4);
+}
+
+.record-time,
+.record-date {
+  font-size: 0.75rem;
+  color: #666;
+  min-width: 50px;
+}
+
+.record-content {
+  flex: 1;
+}
+
+.record-text {
+  color: #333;
+  line-height: 1.6;
+}
+
+.record-audio {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #333;
+}
+
+.record-image img {
+  max-width: 200px;
+  border-radius: 8px;
+}
+
+.records-empty {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #666;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.empty-text {
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+/* 完成计数器 */
+.today-completed-counter {
+  position: fixed;
+  top: 2rem;
+  right: 2rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(254, 50, 50, 0.9);
+  color: white;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(254, 50, 50, 0.3);
+  z-index: 1000;
+  animation: counterPop 0.5s ease;
+}
+
+@keyframes counterPop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.counter-pop-enter-active { transition: all 0.3s ease; }
+.counter-pop-enter-from { transform: scale(0); opacity: 0; }
+
+@media (max-width: 900px) {
+  .reflection-hero-container {
+    grid-template-columns: 1fr;
+  }
+  .reflection-hero-right {
+    align-items: stretch;
+  }
+  .reflection-action-cards {
+    grid-template-columns: 1fr;
+  }
+  .records-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ② 映照阶段：五层心理镜面体验样式（保留旧版本） */
 .reflection-stage {
   position: relative;
   min-height: 80vh;
@@ -5513,49 +7600,43 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
-/* 召唤阶段样式 */
-.summon-stage {
-  max-width: 1000px;
-  margin: 2rem auto 1rem;
+/* ===== 旧样式已整合到上方统一样式 (.stage-card, .action-item, .pill) ===== */
+
+.check-mark {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 32px;
+  height: 32px;
+  background: linear-gradient(135deg, #38ef7d, #11998e);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 1.2rem;
+  box-shadow: 0 4px 12px rgba(56, 239, 125, 0.4);
+  animation: checkGlow 0.6s ease;
 }
 
-.summon-card {
-  background: linear-gradient(135deg, #f8fdfb 0%, #f0fffa 100%);
-  border: 1px solid rgba(56, 239, 125, 0.2);
-  border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(17, 153, 142, 0.08);
-  padding: 1.25rem 1.5rem;
+@keyframes checkGlow {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
 }
 
-.summon-title {
-  margin: 0 0 0.25rem 0;
-  color: #134e4a;
-}
+.check-glow-enter-active { transition: all 0.3s ease; }
+.check-glow-enter-from { transform: scale(0); opacity: 0; }
 
-.summon-subtitle {
-  margin: 0 0 0.75rem 0;
-  color: #166534;
-  opacity: 0.8;
-}
+/* ===== 内化阶段样式已整合到上方.segment, .chip, .textbox, .save-row ===== */
 
-.summon-activities {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.summon-activity {
-  background: #ffffff;
-  border: 1px solid rgba(56, 239, 125, 0.25);
-  color: #0f172a;
-  border-radius: 10px;
-  padding: 10px 12px;
-  text-align: center;
-}
+/* ===== 点亮你的旅程（已整合到上方.ignite样式） ===== */
 
 @media (max-width: 768px) {
-  .summon-activities {
-    grid-template-columns: 1fr;
+  .stage-card {
+    padding: var(--space-5);
+    margin: 1rem auto;
   }
 }
 

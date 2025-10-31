@@ -82,6 +82,16 @@
         <!-- 动态关键词诗句 -->
         <p v-if="dynamicPoetry" class="dynamic-poetry">{{ dynamicPoetry }}</p>
       </div>
+      <div class="hero-cta-group">
+            <a-button type="primary" size="large" class="hero-cta primary" @click="generateItinerary">
+              <template #icon><thunderbolt-outlined /></template>
+              一键生成行程
+            </a-button>
+            <a-button size="large" class="hero-cta secondary" @click="addToCollection">
+              <template #icon><file-outlined /></template>
+              加入灵感夹
+            </a-button>
+          </div>
       
       <!-- 旅程背景（如有，显示在底部） -->
       <transition name="fade">
@@ -674,6 +684,182 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ===== Hero区域样式 ===== */
+.inspiration-hero-section {
+  position: relative;
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+.hero-mask {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 80% 60% at 50% 50%, rgba(0,0,0,0.4), transparent 60%),
+              linear-gradient(180deg, rgba(0,0,0,0.15) 0%, transparent 40%);
+  z-index: 1;
+}
+
+.hero-container {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1080px;
+  padding: 4rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.hero-content-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  align-items: center;
+  text-align: center;
+}
+
+.hero-title {
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  font-weight: 400;
+  color: #fff;
+  margin: 0;
+  line-height: 1.3;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+.hero-location-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255,255,255,0.25);
+  backdrop-filter: blur(8px);
+  border-radius: 999px;
+  font-size: 0.95rem;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.location-icon { font-size: 1.1rem; }
+.location-text { font-weight: 500; }
+
+.hero-atmosphere {
+  font-size: clamp(1.1rem, 2vw, 1.25rem);
+  color: rgba(255,255,255,0.9);
+  margin: 0;
+  line-height: 1.6;
+  font-style: italic;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.2);
+  max-width: 800px;
+}
+
+.hero-cta-group {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.stage-breadcrumb {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255,255,255,0.2);
+  margin-top: auto;
+}
+
+.breadcrumb-item {
+  padding: 0.5rem 1.25rem;
+  color: rgba(255,255,255,0.7);
+  text-decoration: none;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.breadcrumb-item:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.15);
+}
+
+.breadcrumb-item.active {
+  color: #fff;
+  background: rgba(255,255,255,0.25);
+  font-weight: 500;
+}
+
+.breadcrumb-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 2px;
+  background: #fff;
+  border-radius: 2px;
+}
+
+.hero-cta {
+  min-width: 160px;
+  border-radius: 12px;
+  height: 44px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transition: all 0.3s ease;
+}
+
+.hero-cta.primary {
+  background: rgba(254,50,50,0.9);
+  border: none;
+  color: #fff;
+}
+
+.hero-cta.primary:hover {
+  background: rgba(254,50,50,1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(254,50,50,0.4);
+}
+
+.hero-cta.secondary {
+  background: rgba(255,255,255,0.3);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.5);
+  color: #fff;
+}
+
+.hero-cta.secondary:hover {
+  background: rgba(255,255,255,0.4);
+  border-color: rgba(255,255,255,0.7);
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .hero-container {
+    padding: 3rem 1.5rem;
+  }
+  .hero-cta-group {
+    flex-direction: column;
+    width: 100%;
+    max-width: 320px;
+  }
+  .hero-cta {
+    width: 100%;
+  }
+  .stage-breadcrumb {
+    flex-wrap: wrap;
+  }
+}
+
 /* 🪞 层1：情绪入口（Emotional Gate）- Apple风格沉浸设计 */
 .emotional-gate {
   position: relative;
@@ -695,7 +881,7 @@ onUnmounted(() => {
 .hero-cover {
   position: relative;
   overflow: hidden;
-  height: 700px;
+  height: 900px;
 }
 
 .bg-layer {
@@ -1022,7 +1208,6 @@ onUnmounted(() => {
 /* 核心洞见样式 */
 .core-insight {
   text-align: center;
-  margin-bottom: 2rem;
   animation: fadeIn 1s ease-out 0.5s both;
 }
 

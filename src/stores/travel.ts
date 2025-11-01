@@ -62,6 +62,16 @@ export interface InspirationData {
   inspirationConfig?: any
   coreInsight?: string
   journeyBackground?: string
+  archetype?: {
+    name?: string
+    symbol?: string
+    coreConflict?: string
+  }
+  travelerProfile?: {
+    type?: string
+    currentState?: string
+    intention?: string
+  }
   mentalFlowStages?: {
     summon?: { theme: string; activities: string[]; emotionalGoal: string; symbolicElement: string }
     reflection?: { theme: string; activities: string[]; emotionalGoal: string; symbolicElement: string }
@@ -78,8 +88,17 @@ export interface InspirationData {
     sound?: string
     scent?: string
     light?: string
+    texture?: string
+    space?: string
     rhythm?: string
     community?: string
+  }
+  narrative?: {
+    prologue?: string
+    mirror?: string
+    threshold?: string
+    stillness?: string
+    return?: string
   }
   postJourneyChallenge?: {
     title?: string
@@ -87,6 +106,95 @@ export interface InspirationData {
     actions?: string[]
   }
   keywords?: string[]
+  story?: string
+  concept?: string
+  
+  // 双轨 JSON 输出结构（新格式 - Inspirit Designer）
+  personaProfile?: {
+    type: string
+    motivation: string
+    motivation_detail?: string
+    dominantEmotion: string
+    desiredEmotion?: string
+    travelRhythm: string
+    activityDensity?: string
+    socialPreference: string
+    socialIntensity?: number
+    cognitiveNeed: string
+    postJourneyGoal?: string
+  }
+  journeyDesign?: {
+    title: string
+    coreInsight: string
+    psychologicalFlow: string[]
+    symbolicElements?: string[]
+    recommendedRhythm?: string
+    socialMode?: string
+    dualTracks: {
+      external: Array<{
+        time: string
+        activity: string
+        location: string
+        type: string
+        budget?: number
+        notes?: string
+      }>
+      internal: Array<{
+        stage: string
+        question?: string
+        ritual?: string
+        action?: string
+        reflection?: string
+      }>
+    }
+  }
+  
+  // 行程计划格式（兼容格式）
+  days?: Array<{
+    day: number
+    date: string
+    theme: string
+    mood: string
+    summary: string
+    psychologicalStage?: string
+    timeSlots: Array<{
+      time: string
+      title: string
+      activity: string
+      location: string
+      type: string
+      category?: string
+      duration: number
+      notes: string
+      localTip?: string
+      cost?: number
+      coordinates?: { lat: number; lng: number }
+      internalTrack?: {
+        question?: string
+        ritual?: string
+        reflection?: string
+      }
+    }>
+  }>
+  
+  // 心理旅程相关字段
+  psychologicalFlow?: string[]
+  symbolicElements?: string[]
+  templateName?: string
+  matchScore?: number
+  matchDetails?: any
+  psychologicalJourney?: any
+  
+  // 行程推荐
+  recommendations?: {
+    bestTimeToVisit?: string
+    weatherAdvice?: string
+    packingTips?: string[]
+    localTips?: string[]
+    emergencyContacts?: string[]
+  }
+  totalCost?: number
+  summary?: string
 }
 
 export interface ExperienceDay {
@@ -351,6 +459,79 @@ export const useTravelStore = defineStore('travel', () => {
     }
   }
 
+  // 生成心理旅程（基于问卷）
+  const generatePsychologicalJourney = async (personalityProfile: any, selectedDestination?: string) => {
+    setLoading(true)
+    setError(null)
+    
+    try {
+      // 导入心理旅程生成函数（使用别名避免冲突）
+      const { generatePsychologicalJourney: generateJourneyAPI } = await import('@/services/deepseekAPI')
+      const currentLanguage = i18n.global.locale.value || 'zh-CN'
+      
+      // 获取用户地理位置，优先推荐本地或附近目的地
+      let userCountry: string | undefined = undefined
+      try {
+        const { getUserLocation } = await import('@/config/location')
+        const location = getUserLocation()
+        if (location?.country) {
+          userCountry = location.country
+          console.log('📍 用户地理位置:', userCountry)
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取用户地理位置失败，使用默认推荐', err)
+      }
+      
+      // 如果没有明确地理位置，尝试从语言推断（作为后备方案）
+      if (!userCountry) {
+        const { detectCountryFromLocale } = await import('@/utils/countryGuess')
+        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
+        const inferredCountry = detectCountryFromLocale(locale)
+        if (inferredCountry) {
+          userCountry = inferredCountry
+          console.log('📍 从语言推断地理位置:', userCountry)
+        }
+      }
+      
+      console.log('心理旅程模式：开始生成...', personalityProfile)
+      console.log('📍 用户选择的目的地:', selectedDestination || '未选择')
+      console.log('📍 推荐范围：', userCountry ? `优先${userCountry}国内或附近地区` : '全球（未检测到地理位置）')
+      
+      // 传递用户选择的目的地
+      const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination)
+      console.log('心理旅程模式：生成完成', inspirationData)
+      
+      // 补充国家信息（如果需要）
+      if (inspirationData.locations) {
+        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
+        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
+        const currentCountry = detectCountryFromLocale(locale)
+        const locationCountries = buildLocationCountries(inspirationData.locations)
+
+        if (inspirationData.locationDetails && locationCountries) {
+          Object.keys(inspirationData.locationDetails).forEach((loc) => {
+            const detail = (inspirationData.locationDetails as any)[loc]
+            const country = locationCountries[loc]
+            if (detail && country && !detail.country) {
+              detail.country = country
+            }
+          })
+        }
+
+        inspirationData.currentCountry = inspirationData.currentCountry || currentCountry
+        inspirationData.locationCountries = inspirationData.locationCountries || locationCountries
+      }
+      
+      setInspirationData(inspirationData)
+      setCurrentMode('inspiration')
+    } catch (err) {
+      console.error('生成心理旅程失败:', err)
+      setError('生成心理旅程失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // 生成灵感内容
   const generateInspiration = async (input: string) => {
     setLoading(true)
@@ -365,33 +546,34 @@ export const useTravelStore = defineStore('travel', () => {
       const intent = await detectInspirationIntent(input, currentLanguage)
       console.log('灵感模式：识别到的意图', intent)
       
-      // 第二步：生成灵感内容（调用 AI）
+      // 第二步：生成行程计划（调用 AI）
       const inspirationData = await generateInspirationJourney(input, currentLanguage)
-      console.log('灵感模式：生成的内容', inspirationData)
-      // 补齐国家信息（当前国家 + 每个地点的国家）
-      const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
-      const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
-      const currentCountry = detectCountryFromLocale(locale)
-      const locationCountries = buildLocationCountries(inspirationData.locations)
+      console.log('灵感模式：生成的行程计划', inspirationData)
+      
+      // 新的数据结构是行程计划格式（包含days数组）
+      // 如果包含locations字段，则补齐国家信息（向后兼容）
+      if (inspirationData.locations) {
+        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
+        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
+        const currentCountry = detectCountryFromLocale(locale)
+        const locationCountries = buildLocationCountries(inspirationData.locations)
 
-      // 为 locationDetails 注入 country 字段（如果可推断）
-      if (inspirationData.locationDetails && locationCountries) {
-        Object.keys(inspirationData.locationDetails).forEach((loc) => {
-          const detail = (inspirationData.locationDetails as any)[loc]
-          const country = locationCountries[loc]
-          if (detail && country && !detail.country) {
-            detail.country = country
-          }
-        })
-      }
+        // 为 locationDetails 注入 country 字段（如果可推断）
+        if (inspirationData.locationDetails && locationCountries) {
+          Object.keys(inspirationData.locationDetails).forEach((loc) => {
+            const detail = (inspirationData.locationDetails as any)[loc]
+            const country = locationCountries[loc]
+            if (detail && country && !detail.country) {
+              detail.country = country
+            }
+          })
+        }
 
-      const enriched = {
-          ...inspirationData,
-        currentCountry: inspirationData.currentCountry || currentCountry,
-        locationCountries: inspirationData.locationCountries || locationCountries
+        inspirationData.currentCountry = inspirationData.currentCountry || currentCountry
+        inspirationData.locationCountries = inspirationData.locationCountries || locationCountries
       }
       
-      setInspirationData(enriched)
+      setInspirationData(inspirationData)
       setCurrentMode('inspiration')
       
     } catch (err) {
@@ -507,6 +689,7 @@ export const useTravelStore = defineStore('travel', () => {
     setError,
     generateItinerary,
     generateInspiration,
+    generatePsychologicalJourney,
     getLocalInspirationDestinations,
     submitFeedback,
     resetData,

@@ -27,8 +27,25 @@
     <div class="main-content">
       <a-card class="inspiration-card">
         <div class="inspiration-content">
-          <!-- 输入区域 -->
-          <div class="input-section">
+          <!-- 模式切换 -->
+          <div class="mode-switch" style="margin-bottom: 1.5rem;">
+            <a-radio-group v-model:value="mode" size="large">
+              <a-radio-button value="input">
+                <span>💬 文字输入</span>
+              </a-radio-button>
+              <a-radio-button value="questionnaire">
+                <span>📋 人格问卷</span>
+              </a-radio-button>
+            </a-radio-group>
+          </div>
+
+          <!-- 问卷模式 -->
+          <div v-if="mode === 'questionnaire'" class="questionnaire-section">
+            <PersonalityQuestionnaire @submit="handleQuestionnaireSubmit" />
+          </div>
+
+          <!-- 输入模式 -->
+          <div v-else class="input-section">
             <h3>{{ t('inspiration.prompt') }}</h3>
             <p>{{ t('inspiration.description') }}</p>
             
@@ -252,6 +269,7 @@ import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
 import { message } from 'ant-design-vue'
 import { getUserLocation, PRESET_COUNTRIES } from '@/config/location'
+import PersonalityQuestionnaire, { type PersonalityProfile } from '@/components/Inspiration/PersonalityQuestionnaire.vue'
 // removed MirrorLake integration
 
 const { t, locale } = useI18n()
@@ -263,6 +281,9 @@ import {
 const router = useRouter()
 const travelStore = useTravelStore()
 const travelListStore = useTravelListStore()
+
+// 模式切换：questionnaire（问卷模式）或 input（输入模式）
+const mode = ref<'questionnaire' | 'input'>('input')
 
 const inspirationInput = ref('')
 const loading = computed(() => travelStore.loading)
@@ -440,6 +461,50 @@ watch(inspirationInput, async (newValue) => {
     }
   }, 800)
 })
+
+const handleQuestionnaireSubmit = async (profile: PersonalityProfile) => {
+  console.log('问卷提交:', profile)
+  console.log('当前选中地点:', selectedLocation.value)
+  
+  // 详细调试信息
+  const storeMethods = {
+    hasGenerateInspiration: typeof travelStore.generateInspiration === 'function',
+    hasGeneratePsychologicalJourney: typeof travelStore.generatePsychologicalJourney === 'function',
+    storeKeys: Object.keys(travelStore).filter(k => k.startsWith('generate')),
+    fullStoreKeys: Object.keys(travelStore)
+  }
+  console.log('travelStore 方法检查:', storeMethods)
+  
+  // 尝试直接访问函数
+  if (!travelStore.generatePsychologicalJourney) {
+    console.error('❌ generatePsychologicalJourney 函数不存在于 travelStore')
+    console.error('可用的方法:', storeMethods.storeKeys)
+    message.error('心理旅程生成功能暂时不可用，请刷新页面后重试')
+    return
+  }
+  
+  if (typeof travelStore.generatePsychologicalJourney !== 'function') {
+    console.error('❌ generatePsychologicalJourney 不是函数类型:', typeof travelStore.generatePsychologicalJourney)
+    message.error('心理旅程生成功能暂时不可用，请刷新页面后重试')
+    return
+  }
+  
+  try {
+    console.log('✅ 开始调用 generatePsychologicalJourney...')
+    console.log('📍 用户选择的目的地:', selectedLocation.value)
+    // 传递用户选择的目的地
+    await travelStore.generatePsychologicalJourney(profile, selectedLocation.value)
+    console.log('✅ generatePsychologicalJourney 调用完成')
+    
+    // 如果生成成功，跳转到详情页
+    if (travelStore.inspirationData) {
+      createTravel()
+    }
+  } catch (error: any) {
+    console.error('❌ 生成心理旅程失败:', error)
+    message.error(error.message || '生成心理旅程失败，请重试')
+  }
+}
 
 const handleSubmit = async () => {
   if (!inspirationInput.value.trim()) return

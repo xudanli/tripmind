@@ -9,7 +9,7 @@
     <!-- 正常内容 -->
     <template v-else>
     <!-- 根据模式切换Hero组件 -->
-    <!-- 注意：Inspiration模式的返回按钮已集成在InspirationHero内部 -->
+    <!-- 注意：Inspiration模式的返回按钮已集成在ExperienceDay组件的封面设计中 -->
     <template v-if="travel?.mode !== 'inspiration'">
       <div class="header">
         <a-button @click="router.back()" class="back-button">
@@ -37,13 +37,7 @@
       :show-mood-tracker="true"
     />
 
-    <InspirationHero
-      v-else-if="travel?.mode === 'inspiration'"
-      :title="travel?.title || ''"
-      :cover-image="getCoverImage()"
-      :progress-percent="65"
-      :show-progress="true"
-    />
+    <!-- Inspiration 模式的 Hero 展示已集成在 ExperienceDay 组件中 -->
 
     <!-- 主要内容区域 -->
     <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' }">
@@ -186,7 +180,7 @@ import { useTravelStore } from '@/stores/travel'
 import { useI18n } from 'vue-i18n'
 import PlannerHero from '@/components/TravelDetail/PlannerHero.vue'
 import SeekerHero from '@/components/TravelDetail/SeekerHero.vue'
-import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
+// InspirationHero 组件已移除，功能已集成到 ExperienceDay 组件中
 import PlannerTimeline from '@/components/TravelDetail/PlannerTimeline.vue'
 import SeekerMoodNotes from '@/components/TravelDetail/SeekerMoodNotes.vue'
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
@@ -280,7 +274,7 @@ onMounted(() => {
   } else {
     console.log('✅ 旅程模式:', travel.value.mode)
     if (travel.value.mode === 'inspiration') {
-      console.log('✅ 这是灵感模式，应该显示 InspirationHero 和 ExperienceDay，隐藏右侧面板')
+      console.log('✅ 这是灵感模式，应该显示 ExperienceDay（已集成封面设计），隐藏右侧面板')
     }
   }
   

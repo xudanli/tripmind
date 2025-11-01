@@ -526,434 +526,6 @@ Please respond in English.`
 }
 
 /**
- * 生成灵感体验日（基于意图识别）- 完整模板系统
- */
-export async function generateExperienceDay(
-  intentData: any,
-  userInput?: string,
-  language: string = 'zh-CN'
-): Promise<any> {
-  const isEnglish = language.startsWith('en')
-  
-  // 如果有用户输入，调用 AI 生成定制体验日
-  if (userInput) {
-    try {
-      const systemPrompt = isEnglish
-        ? `You are a creative travel experience designer. Based on the user's inspiration and destination, create a unique one-day experience that combines the destination's characteristics with the user's emotional needs.
-
-Given:
-- User's inspiration: ${userInput}
-- Intent type: ${intentData.intentType}
-- Emotion tone: ${intentData.emotionTone}
-
-Please create a detailed one-day experience with:
-1. A poetic title
-2. A theme
-3. 3-4 timeline activities (with specific times, activity names, and poetic narration)
-4. An emotional summary
-
-Return ONLY a valid JSON object with this structure:
-{
-  "title": "Experience title",
-  "theme": "Experience theme",
-  "emotionTags": ["tag1", "tag2"],
-  "aiTone": "tone description",
-  "timeline": [
-    {"time": "07:00", "activity": "Activity name", "narration": "Poetic description"},
-    {"time": "11:00", "activity": "Activity name", "narration": "Poetic description"},
-    {"time": "14:00", "activity": "Activity name", "narration": "Poetic description"},
-    {"time": "20:00", "activity": "Activity name", "narration": "Poetic description"}
-  ],
-  "summary": "Emotional summary"
-}
-
-Make it specific to the destination and unique, not generic.`
-        : `你是一位创意旅行体验设计师。根据用户的灵感和目的地，创建一个独特的一日体验，结合目的地的特色和用户的情感需求。
-
-给定信息：
-- 用户灵感：${userInput}
-- 意图类型：${intentData.intentType}
-- 情绪基调：${intentData.emotionTone}
-
-请创建一个详细的一日体验，包括：
-1. 一个富有诗意的标题
-2. 一个主题
-3. 3-4个时间线活动（包含具体时间、活动名称和富有诗意的叙述）
-4. 一个情感总结
-
-只返回有效的 JSON 对象，结构如下：
-{
-  "title": "体验标题",
-  "theme": "体验主题",
-  "emotionTags": ["标签1", "标签2"],
-  "aiTone": "语调描述",
-  "timeline": [
-    {"time": "07:00", "activity": "活动名称", "narration": "诗意描述"},
-    {"time": "11:00", "activity": "活动名称", "narration": "诗意描述"},
-    {"time": "14:00", "activity": "活动名称", "narration": "诗意描述"},
-    {"time": "20:00", "activity": "活动名称", "narration": "诗意描述"}
-  ],
-  "summary": "情感总结"
-}
-
-要针对目的地具体化，不要使用通用模板。`
-
-      const messages: ChatMessage[] = [
-        { role: 'system' as const, content: systemPrompt },
-        { role: 'user' as const, content: userInput }
-      ]
-
-      const response = await chatWithDeepSeek(messages, {
-        temperature: 0.9,
-        max_tokens: 1000
-      })
-
-      console.log('🤖 AI 生成的体验日原始响应:', response.substring(0, 500))
-
-      // 尝试解析 JSON
-      let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        cleaned = jsonMatch[0]
-      }
-
-      const aiGenerated = JSON.parse(cleaned)
-
-      // 使用 AI 生成的数据，补充必要字段
-      const personaMap: { [key: string]: any } = {
-        emotional_healing: {
-          name: '心灵疗愈师',
-          identity: '温柔的倾听者 / 重生陪伴者',
-          keywords: ['放下', '重生', '平静', '释然']
-        },
-        photography_exploration: {
-          name: '海底光影',
-          identity: '水下摄影师 / 光的捕捉者',
-          keywords: ['光', '呼吸', '流动', '镜头']
-        },
-        extreme_exploration: {
-          name: '冒险教练',
-          identity: '同行教练 / 冒险伙伴',
-          keywords: ['风', '挑战', '突破', '极限']
-        }
-      }
-
-      const persona = personaMap[intentData.intentType] || personaMap.emotional_healing
-
-      return {
-        experienceId: `exp_${Date.now()}_${intentData.intentType}`,
-        title: aiGenerated.title || '体验日',
-        theme: aiGenerated.theme || '主题体验',
-        emotionTags: aiGenerated.emotionTags || intentData.emotionTone?.split('·').map((t: string) => t.trim()) || ['探索'],
-        aiTone: aiGenerated.aiTone || '温柔、倾听',
-        suitableSeasons: ['春', '秋'],
-        recommendedLocations: [],
-        timeline: aiGenerated.timeline?.map((item: any) => ({
-          time: item.time,
-          activity: item.activity,
-          aiNarration: item.narration
-        })) || [],
-        aiSummary: aiGenerated.summary || '这是一次独特的体验',
-        aiFeatures: {
-          musicMood: 'healing_nature',
-          weatherSync: true,
-          emotionAdaptive: true
-        },
-        metadata: {
-          season: '春',
-          duration: '1天',
-          budget: '中等'
-        },
-        aiPersona: {
-          personaId: `${intentData.intentType}_v1`,
-          name: persona.name,
-          type: intentData.intentType,
-          identity: persona.identity,
-          toneProfile: {
-            temperature: 0.6,
-            style: aiGenerated.aiTone || '温柔',
-            keywords: persona.keywords
-          }
-        }
-      }
-    } catch (error) {
-      console.error('❌ AI 生成体验日失败，使用模板:', error)
-      // 如果 AI 生成失败，继续使用模板
-    }
-  }
-  
-  const templates = {
-    photography_exploration: {
-      zh: {
-        title: '海底的光',
-        theme: '光与呼吸的流动',
-        aiTone: '温柔且带艺术感',
-        emotionTags: ['宁静', '专注', '光影'],
-        suitableSeasons: ['春', '夏'],
-        recommendedLocations: ['巴厘岛', '帕劳', '冲绳'],
-        timeline: [
-          { time: '06:00', activity: '潜水准备', narration: '光线从海面坠入你的镜头。' },
-          { time: '10:30', activity: '下潜拍摄', narration: '你和海一起屏住呼吸。' },
-          { time: '19:00', activity: 'AI精选照片', narration: '每帧光影都像呼吸。' }
-        ],
-        summary: '今天的海比昨天更安静，你找到了属于你的那道光。',
-        musicMood: 'ambient_oceanic',
-        weatherSync: true,
-        emotionAdaptive: true
-      },
-      en: {
-        title: 'Underwater Light',
-        theme: 'Flow of Light and Breath',
-        aiTone: 'Gentle and artistic',
-        emotionTags: ['Peaceful', 'Focused', 'Light'],
-        suitableSeasons: ['Spring', 'Summer'],
-        recommendedLocations: ['Bali', 'Palau', 'Okinawa'],
-        timeline: [
-          { time: '06:00', activity: 'Diving Preparation', narration: 'Light falls from the surface into your lens.' },
-          { time: '10:30', activity: 'Underwater Shooting', narration: 'You and the sea hold your breath together.' },
-          { time: '19:00', activity: 'AI Photo Selection', narration: 'Every frame of light is like a breath.' }
-        ],
-        summary: 'Today\'s ocean is quieter than yesterday, you found your light.',
-        musicMood: 'ambient_oceanic',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    mind_healing: {
-      zh: {
-        title: '与自己相遇',
-        theme: '和自己相遇的一天',
-        aiTone: '安静、温柔、节奏慢',
-        emotionTags: ['平静', '释然', '温柔'],
-        suitableSeasons: ['春', '秋'],
-        recommendedLocations: ['京都', '清迈', '丽江'],
-        timeline: [
-          { time: '09:00', activity: '晨间冥想', narration: '我们不着急出发，山也在等你。' },
-          { time: '14:00', activity: '泡汤放松', narration: '先喝口水，听听风的声音。' },
-          { time: '19:00', activity: '晚餐独处', narration: '独自的晚餐，最好的陪伴。' }
-        ],
-        summary: '这是一个只属于你的一天，让时间慢下来。',
-        musicMood: 'peaceful_nature',
-        weatherSync: true,
-        emotionAdaptive: true
-      },
-      en: {
-        title: 'Meeting Yourself',
-        theme: 'A Day to Meet Yourself',
-        aiTone: 'Quiet, gentle, slow-paced',
-        emotionTags: ['Calm', 'Peaceful', 'Gentle'],
-        suitableSeasons: ['Spring', 'Autumn'],
-        recommendedLocations: ['Kyoto', 'Chiang Mai', 'Lijiang'],
-        timeline: [
-          { time: '09:00', activity: 'Morning Meditation', narration: 'We\'re not in a hurry, the mountain waits for you.' },
-          { time: '14:00', activity: 'Hot Spring Relaxation', narration: 'Drink some water, listen to the wind.' },
-          { time: '19:00', activity: 'Solo Dinner', narration: 'Alone dinner is the best company.' }
-        ],
-        summary: 'This is a day just for you, let time slow down.',
-        musicMood: 'peaceful_nature',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    nature_discovery: {
-      zh: {
-        title: '风的方向',
-        theme: '风的方向',
-        aiTone: '激励、真实、带自由感',
-        emotionTags: ['活力', '好奇', '自由'],
-        suitableSeasons: ['春', '秋'],
-        recommendedLocations: ['黄山', '四姑娘山', '张家界'],
-        timeline: [
-          { time: '08:00', activity: '开始徒步', narration: '风很冷，但这就是你想要的感觉。' },
-          { time: '14:00', activity: '山巅野餐', narration: '别回头，光就在前面。' },
-          { time: '20:00', activity: '星空露营', narration: '你找到了最安静的地方。' }
-        ],
-        summary: '跟随风的方向，你会找到答案。',
-        musicMood: 'adventure_nature',
-        weatherSync: true,
-        emotionAdaptive: true
-      },
-      en: {
-        title: 'Wind Direction',
-        theme: 'Direction of the Wind',
-        aiTone: 'Inspiring, real, with a sense of freedom',
-        emotionTags: ['Energetic', 'Curious', 'Free'],
-        suitableSeasons: ['Spring', 'Autumn'],
-        recommendedLocations: ['Yellow Mountain', 'Four Sisters Mountain', 'Zhangjiajie'],
-        timeline: [
-          { time: '08:00', activity: 'Start Hiking', narration: 'The wind is cold, but this is what you want.' },
-          { time: '14:00', activity: 'Mountain Top Picnic', narration: 'Don\'t look back, the light is ahead.' },
-          { time: '20:00', activity: 'Stargazing Camp', narration: 'You found the quietest place.' }
-        ],
-        summary: 'Follow the direction of the wind, you will find the answer.',
-        musicMood: 'adventure_nature',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    urban_creation: {
-      zh: {
-        title: '城市节奏',
-        theme: '在城市中看见节奏',
-        aiTone: '冷静、观察、带艺术感',
-        emotionTags: ['灵感', '专注', '流动'],
-        suitableSeasons: ['春', '夏', '秋'],
-        recommendedLocations: ['东京', '巴黎', '香港', '柏林'],
-        timeline: [
-          { time: '08:00', activity: '街头摄影', narration: '人流如线，光影是城市的呼吸。' },
-          { time: '14:00', activity: '建筑观察笔记', narration: '每一面墙都有不同的时间感。' },
-          { time: '19:00', activity: '夜色街拍', narration: '城市入夜后，灯光成了另一种语言。' }
-        ],
-        summary: '城市不会停下，但你可以在节奏中看见自己。',
-        musicMood: 'urban_ambient',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    emotional_healing: {
-      zh: {
-        title: '告别与重生',
-        theme: '放下与重生的旅程',
-        aiTone: '温柔、倾听、共情',
-        emotionTags: ['释然', '重生', '平静'],
-        suitableSeasons: ['春', '秋'],
-        recommendedLocations: ['京都', '冰岛', '新西兰', '清迈'],
-        timeline: [
-          { time: '07:00', activity: '湖边散步', narration: '风吹过的瞬间，过去也随之散去。' },
-          { time: '11:00', activity: '写一封信给自己', narration: '写下不是结束，而是新的开始。' },
-          { time: '20:00', activity: '烛光冥想', narration: '光亮不在远方，它在你的心底。' }
-        ],
-        summary: '有些告别，不需要语言。',
-        musicMood: 'healing_nature',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    extreme_exploration: {
-      zh: {
-        title: '风的速度',
-        theme: '挑战与自由的边界',
-        aiTone: '坚定、鼓励、有力量',
-        emotionTags: ['激情', '挑战', '自我突破'],
-        suitableSeasons: ['春', '夏', '秋'],
-        recommendedLocations: ['夏威夷', '智利', '尼泊尔'],
-        timeline: [
-          { time: '05:00', activity: '登山准备', narration: '黎明之前的风最冷，也最真。' },
-          { time: '11:00', activity: '攀岩体验', narration: '别看脚下，风在上面等你。' },
-          { time: '21:00', activity: '星空露营', narration: '在高处的孤独中，你找到了勇气。' }
-        ],
-        summary: '每一次心跳，都是抵达的一部分。',
-        musicMood: 'adventure_energy',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    },
-    cultural_exchange: {
-      zh: {
-        title: '人与人之间的温度',
-        theme: '语言、故事与连接',
-        aiTone: '亲切、洞察、带故事性',
-        emotionTags: ['好奇', '连接', '启发'],
-        suitableSeasons: ['春', '秋'],
-        recommendedLocations: ['摩洛哥', '清迈', '里斯本'],
-        timeline: [
-          { time: '09:00', activity: '当地市集探索', narration: '香料的味道，是城市的第一句话。' },
-          { time: '13:00', activity: '手作工坊体验', narration: '你在泥土中感受另一种语言的温度。' },
-          { time: '19:00', activity: '与当地人共餐', narration: '一顿饭，足以让世界变得柔软。' }
-        ],
-        summary: '交流不是学习，而是感受人心的形状。',
-        musicMood: 'cultural_ambient',
-        weatherSync: true,
-        emotionAdaptive: true
-      }
-    }
-  }
-  
-  // 获取对应模板
-  const templateKey = intentData.intentType as keyof typeof templates
-  const template = (templates[templateKey] as any)?.[isEnglish ? 'en' : 'zh'] || templates.photography_exploration.zh
-  
-  // 构建完整的体验日数据结构，包含AI人格
-  const personaMap: { [key: string]: any } = {
-    photography_exploration: {
-      name: '海底光影',
-      identity: '水下摄影师 / 光的捕捉者',
-      keywords: ['光', '呼吸', '流动', '镜头']
-    },
-    mind_healing: {
-      name: '静心陪伴',
-      identity: '温柔的倾听者 / 旅行心灵伴侣',
-      keywords: ['安静', '呼吸', '释然', '温柔']
-    },
-    nature_discovery: {
-      name: '自然向导',
-      identity: '生态探索者 / 自然的观察者',
-      keywords: ['风', '自由', '探索', '流动']
-    },
-    urban_creation: {
-      name: '光的观察者',
-      identity: '城市摄影师 / 光影记录者',
-      keywords: ['建筑', '光', '结构', '节奏']
-    },
-    emotional_healing: {
-      name: '心灵疗愈师',
-      identity: '温柔的倾听者 / 重生陪伴者',
-      keywords: ['放下', '重生', '平静', '释然']
-    },
-    extreme_exploration: {
-      name: '冒险教练',
-      identity: '同行教练 / 冒险伙伴',
-      keywords: ['风', '挑战', '突破', '极限']
-    },
-    cultural_exchange: {
-      name: '故事翻译者',
-      identity: '世界旅行家 / 文化连接者',
-      keywords: ['交流', '故事', '温度', '连接']
-    }
-  }
-  
-  const persona = personaMap[intentData.intentType] || personaMap.photography_exploration
-  
-  return {
-    experienceId: `exp_${Date.now()}_${intentData.intentType}`,
-    title: `${template.title}`,
-    theme: template.theme,
-    emotionTags: intentData.emotionTone ? intentData.emotionTone.split('·').map((t: string) => t.trim()) : template.emotionTags,
-    aiTone: template.aiTone,
-    suitableSeasons: template.suitableSeasons,
-    recommendedLocations: template.recommendedLocations,
-    timeline: template.timeline.map((item: any) => ({
-      time: item.time,
-      activity: item.activity,
-      aiNarration: item.narration
-    })),
-    aiSummary: template.summary,
-    aiFeatures: {
-      musicMood: template.musicMood,
-      weatherSync: template.weatherSync,
-      emotionAdaptive: template.emotionAdaptive
-    },
-    metadata: {
-      season: template.suitableSeasons[0],
-      duration: '1天',
-      budget: '中等'
-    },
-    // AI人格信息
-    aiPersona: {
-      personaId: `${intentData.intentType}_v1`,
-      name: persona.name,
-      type: intentData.intentType,
-      identity: persona.identity,
-      toneProfile: {
-        temperature: intentData.intentType.includes('extreme') ? 0.8 : 0.6,
-        style: template.aiTone,
-        keywords: persona.keywords
-      }
-    }
-  }
-}
-
-/**
  * AI人格语料库（Persona Voice Bank）
  */
 export const personaVoiceBank = {
@@ -1225,806 +797,541 @@ function fixCommonJSONIssues(jsonString: string): string {
 /**
  * 生成 Inspiration 模式的灵感旅程
  */
+
 /**
- * 生成四大支柱的问题和反思（基于用户意图和旅行信息）
+ * 基于人格问卷生成双轨心理旅程
  */
-export async function generateFourPillars(
-  intentData: any,
-  userInput?: string,
-  destination?: string,
-  language: string = 'zh-CN'
-): Promise<{
-  departure: { question: string; reflection: string }
-  context: { question: string; reflection: string }
-  internalization: { question: string; reflection: string }
-  transformation: { question: string; reflection: string }
-}> {
+export async function generatePsychologicalJourney(
+  personalityProfile: {
+    motivation: string
+    motivation_detail: string
+    dominant_emotion: string
+    desired_emotion: string
+    travel_rhythm: string
+    activity_density: string
+    social_preference: string
+    social_intensity: number
+    cognitive_need: string
+    post_journey_goal: string
+  },
+  language: string = 'zh-CN',
+  userCountry?: string,
+  selectedDestination?: string
+): Promise<any> {
+  const { 
+    calculatePersonalityVector, 
+    matchPsychologicalTemplate,
+    generateDualTrackJSON 
+  } = await import('@/utils/psychologicalTemplates')
+  
+  // 计算五维人格向量
+  const vector = calculatePersonalityVector(personalityProfile)
+  
+  // 匹配心理旅程模板（返回匹配结果和分数）
+  const matchResult = matchPsychologicalTemplate(vector, {
+    motivation_detail: personalityProfile.motivation_detail,
+    desired_emotion: personalityProfile.desired_emotion,
+    activity_density: personalityProfile.activity_density,
+    social_intensity: personalityProfile.social_intensity,
+    post_journey_goal: personalityProfile.post_journey_goal
+  })
+  
+  const template = matchResult.template
+  console.log('🎯 匹配到的心理旅程模板:', template.templateName)
+  console.log('📊 匹配分数:', matchResult.score.toFixed(2))
+  console.log('📊 五维人格向量:', vector)
+  
+  // 基于模板和人格向量生成行程提示词
   const isEnglish = language.startsWith('en')
   
-  const systemPrompt = isEnglish
-    ? `You are a philosophical travel companion who helps people reflect deeply on their journey. Based on the user's travel intent and destination, generate four pillars of reflection questions and insights.
+  // 如果用户选择了目的地，在提示词中强调必须使用该目的地
+  const destinationConstraint = selectedDestination
+    ? (isEnglish
+        ? `\n📍 CRITICAL: The user has selected "${selectedDestination}" as the destination. You MUST generate an itinerary specifically for this location. Do NOT change or replace it with another destination. All activities must be within or near "${selectedDestination}".`
+        : `\n📍 重要约束：用户已选择"${selectedDestination}"作为目的地。你必须为该地点生成行程，不得更改或替换为其他目的地。所有活动必须在"${selectedDestination}"及其附近。`)
+    : ''
+  
+  // 构建基于心理模板的行程生成提示
+  const psychologicalPrompt = isEnglish
+    ? `Generate a ${template.templateName} journey based on the following psychological profile:
+- Motivation: ${personalityProfile.motivation} (seeking: ${personalityProfile.motivation_detail})
+- Emotion: From ${personalityProfile.dominant_emotion} to ${personalityProfile.desired_emotion}
+- Rhythm: ${personalityProfile.travel_rhythm} with ${personalityProfile.activity_density} activities
+- Social: ${personalityProfile.social_preference} (intensity: ${personalityProfile.social_intensity}/5)
+- Need: ${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
 
-Given:
-- Intent type: ${intentData.intentType}
-- Emotion tone: ${intentData.emotionTone || 'calm'}
-- User input: ${userInput || 'Not provided'}
-- Destination: ${destination || 'Not specified'}
+Psychological Flow: ${template.psychologicalFlow.join(' → ')}
+Symbolic Elements: ${template.symbolicElements.join(', ')}
+Core Insight: ${template.coreInsight}
+Recommended Rhythm: ${template.recommendedRhythm}
+Social Mode: ${template.socialMode}${destinationConstraint}
 
-Generate four pillars with deep, thought-provoking questions and reflections:
+Create a travel itinerary that embodies this psychological journey.`
+    : `基于以下心理画像生成${template.templateName}旅程：
+- 动机：${personalityProfile.motivation}（寻求：${personalityProfile.motivation_detail}）
+- 情绪：从 ${personalityProfile.dominant_emotion} 到 ${personalityProfile.desired_emotion}
+- 节奏：${personalityProfile.travel_rhythm}，活动密度：${personalityProfile.activity_density}
+- 社交：${personalityProfile.social_preference}（强度：${personalityProfile.social_intensity}/5）
+- 需求：${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
 
-1. **Departure (脱离)**: A question about leaving/starting, and a reflection on beginnings
-2. **Context (情境)**: A question about arriving/experiencing, and a reflection on presence
-3. **Internalization (内化)**: A question about internalizing experiences, and a reflection on absorption
-4. **Transformation (转化)**: A question about transformation/change, and a reflection on growth
+心理流程：${template.psychologicalFlow.join(' → ')}
+象征元素：${template.symbolicElements.join('、')}
+核心洞察：${template.coreInsight}
+推荐节奏：${template.recommendedRhythm}
+社交模式：${template.socialMode}${destinationConstraint}
 
-Requirements:
-- Questions should be deep, poetic, and personal
-- Reflections should be insightful and emotionally resonant
-- Content should match the intent type and emotion tone
-- Use warm, contemplative language
-- Each question should be 15-25 words
-- Each reflection should be 15-25 words
-
-Return ONLY a valid JSON object with this structure:
-{
-  "departure": {
-    "question": "Question text",
-    "reflection": "Reflection text"
-  },
-  "context": {
-    "question": "Question text",
-    "reflection": "Reflection text"
-  },
-  "internalization": {
-    "question": "Question text",
-    "reflection": "Reflection text"
-  },
-  "transformation": {
-    "question": "Question text",
-    "reflection": "Reflection text"
-  }
-}`
-    : `你是一位哲学性的旅行陪伴者，帮助人们深度反思他们的旅程。根据用户的旅行意图和目的地，生成四个反思支柱的问题和洞察。
-
-给定信息：
-- 意图类型：${intentData.intentType}
-- 情绪基调：${intentData.emotionTone || '平静'}
-- 用户输入：${userInput || '未提供'}
-- 目的地：${destination || '未指定'}
-
-生成四个支柱，每个包含深度、发人深省的问题和反思：
-
-1. **脱离**：关于离开/开始的问题，以及关于开始的反思
-2. **情境**：关于到达/体验的问题，以及关于当下的反思
-3. **内化**：关于内化经历的问题，以及关于吸收的反思
-4. **转化**：关于转化/改变的问题，以及关于成长的反思
-
-要求：
-- 问题应该深刻、富有诗意、个人化
-- 反思应该富有洞察力和情感共鸣
-- 内容应该匹配意图类型和情绪基调
-- 使用温暖、沉思的语言
-- 每个问题15-25字
-- 每个反思15-25字
-
-只返回有效的 JSON 对象，结构如下：
-{
-  "departure": {
-    "question": "问题文本",
-    "reflection": "反思文本"
-  },
-  "context": {
-    "question": "问题文本",
-    "reflection": "反思文本"
-  },
-  "internalization": {
-    "question": "问题文本",
-    "reflection": "反思文本"
-  },
-  "transformation": {
-    "question": "问题文本",
-    "reflection": "反思文本"
-  }
-}`
-
-  const messages: ChatMessage[] = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userInput || `我想去${destination || '旅行'}` }
-  ]
-
+创建体现这一心理旅程的旅行行程。`
+  
+  console.log('🎯 生成心理旅程，用户选择的目的地:', selectedDestination || '未指定')
+  
+  // 调用生成函数生成实际行程，传递选择的目的地
+  let itineraryData = null
   try {
-    const response = await chatWithDeepSeek(messages, {
-      temperature: 0.8,
-      max_tokens: 800
-    })
-
-    console.log('🤖 AI 生成的四大支柱原始响应:', response.substring(0, 500))
-
-    // 解析 JSON
-    let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      cleaned = jsonMatch[0]
-    }
-
-    const result = JSON.parse(cleaned)
-
-    // 验证结构
-    if (!result.departure || !result.context || !result.internalization || !result.transformation) {
-      throw new Error('Invalid pillar structure')
-    }
-
-    return {
-      departure: {
-        question: result.departure.question || '',
-        reflection: result.departure.reflection || ''
-      },
-      context: {
-        question: result.context.question || '',
-        reflection: result.context.reflection || ''
-      },
-      internalization: {
-        question: result.internalization.question || '',
-        reflection: result.internalization.reflection || ''
-      },
-      transformation: {
-        question: result.transformation.question || '',
-        reflection: result.transformation.reflection || ''
+    itineraryData = await generateInspirationJourney(psychologicalPrompt, language, userCountry, selectedDestination)
+    
+    // 如果用户选择了目的地，但AI生成的目的地不匹配，强制替换
+    if (selectedDestination && itineraryData && itineraryData.destination !== selectedDestination) {
+      console.warn(`⚠️ AI生成的目的地(${itineraryData.destination})与用户选择(${selectedDestination})不一致，强制替换`)
+      itineraryData.destination = selectedDestination
+      // 更新标题以反映正确目的地
+      if (itineraryData.title && !itineraryData.title.includes(selectedDestination)) {
+        itineraryData.title = `${itineraryData.title.split('·')[0] || itineraryData.title.split('：')[0] || '心理旅程'}·${selectedDestination}`
       }
     }
   } catch (error) {
-    console.error('生成四大支柱失败:', error)
-    // 返回默认值作为后备
-    return {
-      departure: {
-        question: isEnglish ? 'If you leave here, where will you go?' : '如果离开这里，你会去哪里？',
-        reflection: isEnglish ? 'Leaving is the first step, and also the most important one.' : '离开是第一步，也是最重要的一步。'
-      },
-      context: {
-        question: isEnglish ? 'When you arrive there, what do you want?' : '当你到达那里，你想要的是什么？',
-        reflection: isEnglish ? 'Every place is waiting, waiting for someone to truly see it.' : '每一个地方都在等待，等待有人真正看见它。'
-      },
-      internalization: {
-        question: isEnglish ? 'What will this journey leave in your heart?' : '这段旅程会在你心里留下什么？',
-        reflection: isEnglish ? 'Let experiences become part of you, not just pass by.' : '让经历成为你的一部分，而不是仅仅走过。'
-      },
-      transformation: {
-        question: isEnglish ? 'How will this journey change you?' : '这次旅行会如何改变你？',
-        reflection: isEnglish ? 'Transformation is not at the end of the journey, but in every moment you make a new choice.' : '转化不是在旅行结束的那一刻，而是在每一个你做出新选择的瞬间。'
-      }
-    }
+    console.warn('⚠️ 行程生成失败，仅返回心理旅程模板', error)
   }
-}
-
-/**
- * 生成觉醒的巅峰文案（基于用户意图和旅行体验）
- */
-export async function generateAwakeningMoment(
-  intentData: any,
-  userInput?: string,
-  destination?: string,
-  language: string = 'zh-CN'
-): Promise<{
-  awakeningText: string
-  entranceText: string
-}> {
-  const isEnglish = language.startsWith('en')
   
-  const systemPrompt = isEnglish
-    ? `You are a poetic travel companion creating a moment of quiet awakening. Generate a brief, profound awakening statement and an entrance text that leads to writing a letter to the future self.
-
-Given:
-- Intent type: ${intentData.intentType}
-- Emotion tone: ${intentData.emotionTone || 'calm'}
-- User input: ${userInput || 'Not provided'}
-- Destination: ${destination || 'Not specified'}
-
-Generate two texts:
-
-1. **Awakening Text** (15-25 words): A quiet, introspective statement that creates a sense of "the world quiets down, only my heartbeat remains." It should be profound but gentle, inviting inner reflection.
-
-2. **Entrance Text** (5-10 words): A soft invitation to write a letter to the future self.
-
-Requirements:
-- Use warm, contemplative, poetic language
-- Avoid clichés or generic phrases
-- Create a sense of stillness and inner light
-- Match the intent type and emotion tone
-- The awakening text should feel like a moment of quiet revelation
-
-Return ONLY a valid JSON object:
-{
-  "awakeningText": "Text here",
-  "entranceText": "Text here"
-}`
-    : `你是一位诗意的旅行陪伴者，正在创造一个安静的觉醒时刻。生成一句简洁深刻的觉醒话语和一段引导用户写信给未来自己的入口文字。
-
-给定信息：
-- 意图类型：${intentData.intentType}
-- 情绪基调：${intentData.emotionTone || '平静'}
-- 用户输入：${userInput || '未提供'}
-- 目的地：${destination || '未指定'}
-
-生成两段文字：
-
-1. **觉醒话语**（15-25字）：一句安静、内省的话语，营造"世界安静下来，只剩下我心跳的声音"的感觉。应该深刻但温柔，邀请内心反思。
-
-2. **入口文字**（5-10字）：引导用户写信给未来自己的温柔邀请。
-
-要求：
-- 使用温暖、沉思、富有诗意的语言
-- 避免陈词滥调或通用短语
-- 营造静止和内在光芒的感觉
-- 匹配意图类型和情绪基调
-- 觉醒话语应该感觉像是安静启示的时刻
-
-只返回有效的 JSON 对象：
-{
-  "awakeningText": "文字内容",
-  "entranceText": "文字内容"
-}`
-
-  const messages: ChatMessage[] = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userInput || `我想去${destination || '旅行'}` }
-  ]
-
-  try {
-    const response = await chatWithDeepSeek(messages, {
-      temperature: 0.85,
-      max_tokens: 300
-    })
-
-    console.log('🤖 AI 生成的觉醒时刻原始响应:', response.substring(0, 200))
-
-    // 解析 JSON
-    let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      cleaned = jsonMatch[0]
-    }
-
-    const result = JSON.parse(cleaned)
-
-    return {
-      awakeningText: result.awakeningText || (isEnglish 
-        ? 'At this moment, you don\'t need to find an answer. You only need to hear yourself.'
-        : '此刻，你不需要找到答案。你只需要，听见自己。'),
-      entranceText: result.entranceText || (isEnglish
-        ? 'Write a letter to your future self'
-        : '写信给未来的自己')
-    }
-  } catch (error) {
-    console.error('生成觉醒时刻失败:', error)
-    // 返回默认值作为后备
-    return {
-      awakeningText: isEnglish
-        ? 'At this moment, you don\'t need to find an answer. You only need to hear yourself.'
-        : '此刻，你不需要找到答案。你只需要，听见自己。',
-      entranceText: isEnglish
-        ? 'Write a letter to your future self'
-        : '写信给未来的自己'
-    }
-  }
-}
-
-/**
- * 生成内化阶段文案（写信给未来自己的相关文本）
- */
-export async function generateInternalizationTexts(
-  intentData: any,
-  userInput?: string,
-  destination?: string,
-  language: string = 'zh-CN'
-): Promise<{
-  stageTitle: string
-  stageSubtitle: string
-  letterTitle: string
-  letterHint: string
-  placeholder: string
-  saveButtonText: string
-  savedMessage: string
-  continueButtonText: string
-}> {
-  const isEnglish = language.startsWith('en')
-  
-  const systemPrompt = isEnglish
-    ? `You are a poetic travel companion creating texts for the "Letter to Future Self" section. Generate all the necessary texts for this intimate writing experience.
-
-Given:
-- Intent type: ${intentData.intentType}
-- Emotion tone: ${intentData.emotionTone || 'calm'}
-- User input: ${userInput || 'Not provided'}
-- Destination: ${destination || 'Not specified'}
-
-Generate the following texts:
-
-1. **Stage Title** (2-4 words): A contemplative title for this section, suggesting quiet reflection
-2. **Stage Subtitle** (8-15 words): A gentle invitation to write down thoughts
-3. **Letter Title** (5-8 words): Title for the letter card
-4. **Letter Hint** (10-15 words): Hint text explaining the letter's purpose
-5. **Placeholder** (15-20 words, 2 lines): Placeholder text for the textarea, inviting reflection
-6. **Save Button Text** (3-5 words): Text for the save button
-7. **Saved Message** (8-12 words): Confirmation message after saving
-8. **Continue Button Text** (5-8 words): Text for continuing to next stage
-
-Requirements:
-- Use warm, contemplative, poetic language
-- Match the intent type and emotion tone
-- Create a sense of privacy and intimacy
-- Avoid generic phrases
-
-Return ONLY a valid JSON object:
-{
-  "stageTitle": "Text",
-  "stageSubtitle": "Text",
-  "letterTitle": "Text",
-  "letterHint": "Text",
-  "placeholder": "Text\\nSecond line",
-  "saveButtonText": "Text",
-  "savedMessage": "Text",
-  "continueButtonText": "Text"
-}`
-    : `你是一位诗意的旅行陪伴者，正在为"写信给未来自己"部分生成文字。为这个私密的写作体验生成所有必要的文本。
-
-给定信息：
-- 意图类型：${intentData.intentType}
-- 情绪基调：${intentData.emotionTone || '平静'}
-- 用户输入：${userInput || '未提供'}
-- 目的地：${destination || '未指定'}
-
-生成以下文本：
-
-1. **阶段标题**（2-4字）：一个沉思性的标题，暗示安静的反思
-2. **阶段副标题**（8-15字）：温柔的邀请用户写下想法
-3. **信件标题**（5-8字）：信件卡片的标题
-4. **信件提示**（10-15字）：说明信件用途的提示文字
-5. **占位符**（15-20字，2行）：输入框的占位符文字，邀请反思
-6. **保存按钮文字**（3-5字）：保存按钮的文字
-7. **已保存消息**（8-12字）：保存后的确认消息
-8. **继续按钮文字**（5-8字）：继续到下一阶段的按钮文字
-
-要求：
-- 使用温暖、沉思、富有诗意的语言
-- 匹配意图类型和情绪基调
-- 营造隐私和亲密的感受
-- 避免通用短语
-
-只返回有效的 JSON 对象：
-{
-  "stageTitle": "文字",
-  "stageSubtitle": "文字",
-  "letterTitle": "文字",
-  "letterHint": "文字",
-  "placeholder": "第一行\\n第二行",
-  "saveButtonText": "文字",
-  "savedMessage": "文字",
-  "continueButtonText": "文字"
-}`
-
-  const messages: ChatMessage[] = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userInput || `我想去${destination || '旅行'}` }
-  ]
-
-  try {
-    const response = await chatWithDeepSeek(messages, {
-      temperature: 0.8,
-      max_tokens: 500
-    })
-
-    console.log('🤖 AI 生成的内化阶段文本原始响应:', response.substring(0, 300))
-
-    // 解析 JSON
-    let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      cleaned = jsonMatch[0]
-    }
-
-    const result = JSON.parse(cleaned)
-
-    // 返回生成的结果
-    return {
-      stageTitle: result.stageTitle || (isEnglish ? 'Quiet Reflection' : '安静的沉淀'),
-      stageSubtitle: result.stageSubtitle || (isEnglish ? 'Write down your thoughts, let time keep them for you' : '把你的想法写下来，让时间替你保管'),
-      letterTitle: result.letterTitle || (isEnglish ? 'Write a letter to your future self' : '写信给未来的自己'),
-      letterHint: result.letterHint || (isEnglish ? 'Write down your thoughts at this moment, these words will only belong to you' : '写下你此刻的想法，这些文字将只属于你'),
-      placeholder: result.placeholder || (isEnglish ? 'What are you thinking at this moment?\nWrite down your thoughts, let your future self see...' : '此刻的你，在想什么？\n把想法写下来，让未来的自己看看...'),
-      saveButtonText: result.saveButtonText || (isEnglish ? 'Save this letter' : '保存这封信'),
-      savedMessage: result.savedMessage || (isEnglish ? 'Saved, this letter belongs only to you' : '已保存，这封信只属于你'),
-      continueButtonText: result.continueButtonText || (isEnglish ? 'Continue your journey of transformation' : '继续你的转化之旅')
-    }
-  } catch (error) {
-    console.error('生成内化阶段文本失败:', error)
-    // 返回默认值作为后备
-    return {
-      stageTitle: isEnglish ? 'Quiet Reflection' : '安静的沉淀',
-      stageSubtitle: isEnglish ? 'Write down your thoughts, let time keep them for you' : '把你的想法写下来，让时间替你保管',
-      letterTitle: isEnglish ? 'Write a letter to your future self' : '写信给未来的自己',
-      letterHint: isEnglish ? 'Write down your thoughts at this moment, these words will only belong to you' : '写下你此刻的想法，这些文字将只属于你',
-      placeholder: isEnglish ? 'What are you thinking at this moment?\nWrite down your thoughts, let your future self see...' : '此刻的你，在想什么？\n把想法写下来，让未来的自己看看...',
-      saveButtonText: isEnglish ? 'Save this letter' : '保存这封信',
-      savedMessage: isEnglish ? 'Saved, this letter belongs only to you' : '已保存，这封信只属于你',
-      continueButtonText: isEnglish ? 'Continue your journey of transformation' : '继续你的转化之旅'
-    }
-  }
-}
-
-/**
- * 生成转化阶段内容（真实旅人故事和挑战计划）
- */
-export async function generateTransformationContent(
-  intentData: any,
-  userInput?: string,
-  destination?: string,
-  language: string = 'zh-CN'
-): Promise<{
-  travelerStories: Array<{
-    name: string
-    avatar?: string
-    story: string
-    location: string
-    tags?: string[]
-  }>
-  challengePlan: {
-    title: string
-    description: string
-    goals: Array<{ text: string; completed: boolean }>
-    deadline?: string
-  }
-  stageTitle: string
-  stageSubtitle: string
-  communityTitle: string
-  communityDescription: string
-  endingText: string
-}> {
-  const isEnglish = language.startsWith('en')
-  
-  const systemPrompt = isEnglish
-    ? `You are a travel companion helping users transform inspiration into action. Generate transformation content including real traveler stories and a personalized challenge plan.
-
-Given:
-- Intent type: ${intentData.intentType}
-- Emotion tone: ${intentData.emotionTone || 'calm'}
-- User input: ${userInput || 'Not provided'}
-- Destination: ${destination || 'Not specified'}
-
-Generate:
-
-1. **Traveler Stories** (3 stories):
-   - Each story should be from a "real traveler" who has been inspired
-   - Short, authentic, inspiring (50-80 words each)
-   - Include name, location, personal reflection
-   - Include 2-3 tags per story
-
-2. **Challenge Plan**:
-   - Title: A motivating challenge name (3-6 words)
-   - Description: Inspiring description of the challenge (20-30 words)
-   - Goals: 3-5 actionable, meaningful goals
-   - Each goal should be specific and achievable
-
-3. **Stage Texts**:
-   - Stage Title: Title for transformation stage (2-5 words)
-   - Stage Subtitle: Subtitle motivating action (8-15 words)
-   - Community Title: Inviting community title (3-6 words)
-   - Community Description: Warm invitation text (15-25 words)
-   - Ending Text: Final inspiring message (5-10 words)
-
-Requirements:
-- Stories should feel authentic and relatable
-- Challenge should match the intent type
-- Use warm, encouraging, action-oriented language
-- Avoid generic phrases
-
-Return ONLY a valid JSON object:
-{
-  "travelerStories": [
-    {
-      "name": "Traveler name",
-      "story": "Story text",
-      "location": "Location",
-      "tags": ["tag1", "tag2"]
-    }
-  ],
-  "challengePlan": {
-    "title": "Challenge title",
-    "description": "Challenge description",
-    "goals": [
-      {"text": "Goal text", "completed": false}
-    ]
-  },
-  "stageTitle": "Title",
-  "stageSubtitle": "Subtitle",
-  "communityTitle": "Title",
-  "communityDescription": "Description",
-  "endingText": "Ending text"
-}`
-    : `你是一位旅行陪伴者，帮助用户将灵感转化为行动。生成转化阶段内容，包括真实旅人故事和个性化挑战计划。
-
-给定信息：
-- 意图类型：${intentData.intentType}
-- 情绪基调：${intentData.emotionTone || '平静'}
-- 用户输入：${userInput || '未提供'}
-- 目的地：${destination || '未指定'}
-
-生成：
-
-1. **旅人故事**（3个故事）：
-   - 每个故事应该是来自"真实旅人"的真实体验
-   - 简短、真实、鼓舞人心（每个50-80字）
-   - 包含姓名、地点、个人反思
-   - 每个故事包含2-3个标签
-
-2. **挑战计划**：
-   - 标题：激励性的挑战名称（3-6字）
-   - 描述：鼓舞人心的挑战描述（20-30字）
-   - 目标：3-5个可执行的、有意义的目标
-   - 每个目标应该具体且可达成
-
-3. **阶段文本**：
-   - 阶段标题：转化阶段的标题（2-5字）
-   - 阶段副标题：激励行动的副标题（8-15字）
-   - 社群标题：邀请性的社群标题（3-6字）
-   - 社群描述：温暖的邀请文字（15-25字）
-   - 结尾文字：最终激励信息（5-10字）
-
-要求：
-- 故事应该感觉真实且易产生共鸣
-- 挑战应该匹配意图类型
-- 使用温暖、鼓励、行动导向的语言
-- 避免通用短语
-
-只返回有效的 JSON 对象：
-{
-  "travelerStories": [
-    {
-      "name": "旅人姓名",
-      "story": "故事文本",
-      "location": "地点",
-      "tags": ["标签1", "标签2"]
-    }
-  ],
-  "challengePlan": {
-    "title": "挑战标题",
-    "description": "挑战描述",
-    "goals": [
-      {"text": "目标文字", "completed": false}
-    ]
-  },
-  "stageTitle": "标题",
-  "stageSubtitle": "副标题",
-  "communityTitle": "标题",
-  "communityDescription": "描述",
-  "endingText": "结尾文字"
-}`
-
-  const messages: ChatMessage[] = [
-    { role: 'system' as const, content: systemPrompt },
-    { role: 'user' as const, content: userInput || `我想去${destination || '旅行'}` }
-  ]
-
-  try {
-    const response = await chatWithDeepSeek(messages, {
-      temperature: 0.9,
-      max_tokens: 1200
-    })
-
-    console.log('🤖 AI 生成的转化内容原始响应:', response.substring(0, 500))
-
-    // 解析 JSON
-    let cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      cleaned = jsonMatch[0]
-    }
-
-    const result = JSON.parse(cleaned)
-
-    // 返回生成的结果，确保数据格式正确
-    return {
-      travelerStories: Array.isArray(result.travelerStories) ? result.travelerStories.map((s: any) => ({
-        name: s.name || (isEnglish ? 'Traveler' : '旅人'),
-        avatar: s.avatar || undefined,
-        story: s.story || s.content || '',
-        location: s.location || destination || (isEnglish ? 'Unknown' : '未知'),
-        tags: Array.isArray(s.tags) ? s.tags : []
-      })) : [],
-      challengePlan: {
-        title: result.challengePlan?.title || (isEnglish ? 'Your Journey Challenge' : '你的旅程挑战'),
-        description: result.challengePlan?.description || (isEnglish ? 'Begin your journey and let every choice become part of your growth.' : '开始你的旅程，让每一个选择都成为成长的一部分。'),
-        goals: Array.isArray(result.challengePlan?.goals) ? result.challengePlan.goals.map((g: any) => ({
-          text: g.text || g.goal || '',
-          completed: g.completed === true
-        })) : [],
-        deadline: result.challengePlan?.deadline
-      },
-      stageTitle: result.stageTitle || (isEnglish ? 'Journey Continues' : '旅程的延续'),
-      stageSubtitle: result.stageSubtitle || (isEnglish ? 'From here, let inspiration become reality' : '从这里开始，让灵感成为现实'),
-      communityTitle: result.communityTitle || (isEnglish ? 'Join Fellow Travelers' : '加入同路人'),
-      communityDescription: result.communityDescription || (isEnglish ? 'Find partners on the same journey, share your stories with each other' : '找到和你一样在路上的伙伴，分享彼此的旅程'),
-      endingText: result.endingText || (isEnglish ? 'The journey starts now.' : '旅程，从现在开始。')
-    }
-  } catch (error) {
-    console.error('生成转化内容失败:', error)
-    // 返回默认值作为后备
-    return {
-      travelerStories: [],
-      challengePlan: {
-        title: isEnglish ? 'Your Journey Challenge' : '你的旅程挑战',
-        description: isEnglish ? 'Begin your journey and let every choice become part of your growth.' : '开始你的旅程，让每一个选择都成为成长的一部分。',
-        goals: [
-          { text: isEnglish ? 'Complete this journey' : `完成在${destination || '这里'}的旅行`, completed: false },
-          { text: isEnglish ? 'Record your feelings' : '记录下你的感受和想法', completed: false },
-          { text: isEnglish ? 'Share your story with partners' : '与伙伴分享你的故事', completed: false }
-        ]
-      },
-      stageTitle: isEnglish ? 'Journey Continues' : '旅程的延续',
-      stageSubtitle: isEnglish ? 'From here, let inspiration become reality' : '从这里开始，让灵感成为现实',
-      communityTitle: isEnglish ? 'Join Fellow Travelers' : '加入同路人',
-      communityDescription: isEnglish ? 'Find partners on the same journey, share your stories with each other' : '找到和你一样在路上的伙伴，分享彼此的旅程',
-      endingText: isEnglish ? 'The journey starts now.' : '旅程，从现在开始。'
-    }
-  }
-}
-
-export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string): Promise<any> {
-  const isEnglish = language.startsWith('en')
-  
-  // Build reference catalog from local inspiration DB to ground AI suggestions
-  let referenceCatalog = ''
+  // 生成目的地推荐（本国优先，至少5个国际城市）
+  let recommendedDestinations: Array<{ name: string; country: string; description?: string }> = []
   try {
     const { listDestinations } = await import('@/utils/inspirationDb')
-    const all = listDestinations()
-    // group by country and take up to 3 per country, cap total ~48
-    const grouped: Record<string, { name: string; country: string }[]> = {}
-    for (const d of all) {
-      (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
+    
+    // 1. 优先获取本国目的地（如果有用户国家）
+    if (userCountry) {
+      const domesticDests = listDestinations({ country: userCountry })
+      // 选择3-5个本国目的地
+      const selectedDomestic = domesticDests
+        .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0)) // 按认知密度排序
+        .slice(0, 5)
+        .map(d => ({
+          name: d.name,
+          country: d.country,
+          description: d.description
+        }))
+      recommendedDestinations.push(...selectedDomestic)
+      console.log(`📍 推荐了 ${selectedDomestic.length} 个${userCountry}国内目的地`)
     }
-    const lines: string[] = []
-    const countries = Object.keys(grouped).sort()
-    let total = 0
-    for (const c of countries) {
-      const picks = (grouped[c] || []).slice(0, 3)
-      if (picks.length === 0) continue
-      const names = picks.map(p => p.name).join(', ')
-      lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
-      total += picks.length
-      if (total >= 48) break
+    
+    // 2. 至少推荐5个国际城市（来自不同国家）
+    const allDestinations = listDestinations()
+    const internationalDests = userCountry
+      ? allDestinations.filter(d => d.country !== userCountry)
+      : allDestinations
+    
+    // 按国家分组，确保至少5个不同国家
+    const byCountry: Record<string, typeof internationalDests> = {}
+    for (const dest of internationalDests) {
+      if (!byCountry[dest.country]) {
+        byCountry[dest.country] = []
+      }
+      const countryArray = byCountry[dest.country]
+      if (countryArray) {
+        countryArray.push(dest)
+      }
     }
-    if (lines.length) {
-      referenceCatalog = isEnglish
-        ? `Reference destinations (pick from these when suitable; do not invent nonexistent places):\n${lines.join('\n')}`
-        : `参考目的地（尽量优先从下列中选择，避免凭空捏造地点）：\n${lines.join('\n')}`
+    
+    // 从每个国家选择1-2个目的地，优先选择认知密度高的
+    const selectedInternational: typeof internationalDests = []
+    const countries = Object.keys(byCountry).sort()
+    
+    // 确保至少5个不同国家的城市
+    const minCountries = 5
+    let countryCount = 0
+    
+    for (const country of countries) {
+      if (countryCount >= minCountries && selectedInternational.length >= minCountries) break
+      
+      const countryDests = byCountry[country]
+      if (countryDests && countryDests.length > 0) {
+        const sorted = countryDests
+          .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0))
+          .slice(0, 2) // 每个国家最多2个
+        
+        selectedInternational.push(...sorted)
+        countryCount++
+      }
+    }
+    
+    // 如果没有足够的不同国家，补足到至少5个国际目的地
+    if (selectedInternational.length < minCountries) {
+      const remaining = internationalDests
+        .filter(d => !selectedInternational.find(s => s.id === d.id))
+        .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0))
+        .slice(0, minCountries - selectedInternational.length)
+      selectedInternational.push(...remaining)
+    }
+    
+    // 转换为推荐格式
+    const internationalRecommendations = selectedInternational
+      .slice(0, Math.max(minCountries, selectedInternational.length))
+      .map(d => ({
+        name: d.name,
+        country: d.country,
+        description: d.description
+      }))
+    
+    recommendedDestinations.push(...internationalRecommendations)
+    console.log(`🌍 推荐了 ${internationalRecommendations.length} 个国际城市，来自 ${countryCount} 个国家`)
+  } catch (error) {
+    console.warn('⚠️ 生成目的地推荐失败:', error)
+  }
+  
+  // 生成双轨 JSON（完整结构）
+  const dualTrackData = await generateDualTrackJSON(
+    template,
+    vector,
+    {
+      motivation_detail: personalityProfile.motivation_detail,
+      desired_emotion: personalityProfile.desired_emotion,
+      activity_density: personalityProfile.activity_density,
+      social_intensity: personalityProfile.social_intensity,
+      post_journey_goal: personalityProfile.post_journey_goal
+    },
+    itineraryData
+  )
+  
+  // 合并数据：将双轨 JSON 和行程数据整合
+  const result = {
+    // 标准行程字段（如果有）
+    ...(itineraryData || {}),
+    
+    // 人格画像
+    personaProfile: dualTrackData.personaProfile,
+    
+    // 旅程设计（包含双轨）
+    journeyDesign: dualTrackData.journeyDesign,
+    
+    // 目的地推荐（新增）
+    recommendedDestinations: recommendedDestinations,
+    locations: recommendedDestinations.map(d => d.name),
+    locationDetails: recommendedDestinations.reduce((acc, dest) => {
+      acc[dest.name] = {
+        name: dest.name,
+        country: dest.country,
+        description: dest.description
+      }
+      return acc
+    }, {} as Record<string, { name: string; country: string; description?: string }>),
+    
+    // 兼容字段
+    title: dualTrackData.journeyDesign.title,
+    coreInsight: template.coreInsight,
+    templateName: template.templateName,
+    psychologicalFlow: template.psychologicalFlow,
+    symbolicElements: template.symbolicElements,
+    
+    // 匹配信息
+    matchScore: matchResult.score,
+    matchDetails: matchResult.matchDetails
+  }
+  
+  return result
+}
+
+export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string, selectedDestination?: string): Promise<any> {
+  const isEnglish = language.startsWith('en')
+  
+  // First, detect user intent to understand their travel needs
+  let intentData = null
+  try {
+    intentData = await detectInspirationIntent(input, language)
+    console.log('检测到的用户意图:', intentData)
+  } catch (error) {
+    console.error('意图识别失败，使用默认值:', error)
+    intentData = {
+      intentType: 'general',
+      keywords: [],
+      emotionTone: 'neutral',
+      description: '一般旅行'
+    }
+  }
+  
+  // 如果用户选择了目的地，在意图数据中记录
+  if (selectedDestination) {
+    console.log('📍 用户已选择目的地:', selectedDestination)
+    if (!intentData.keywords) {
+      intentData.keywords = []
+    }
+    // 确保目的地关键词被包含
+    if (!intentData.keywords.includes(selectedDestination)) {
+      intentData.keywords.unshift(selectedDestination)
+    }
+  }
+  
+  // Build reference catalog from local inspiration DB to ground AI suggestions
+  // 如果知道用户国家，优先显示该国家的地点
+  let referenceCatalog = ''
+  let locationGuidance = ''
+  try {
+    const { listDestinations } = await import('@/utils/inspirationDb')
+    const all = listDestinations(userCountry ? { country: userCountry } : undefined)
+    
+    // 如果指定了用户国家，优先显示该国家的地点
+    if (userCountry && all.length > 0) {
+      const userCountryDests = all.filter(d => d.country === userCountry).slice(0, 10)
+      const otherCountryDests = all.filter(d => d.country !== userCountry).slice(0, 8)
+      
+      const lines: string[] = []
+      if (userCountryDests.length > 0) {
+        const names = userCountryDests.map(d => d.name).join(', ')
+        lines.push(isEnglish 
+          ? `- ${userCountry} (PRIORITY - user's country): ${names}`
+          : `- ${userCountry}（优先 - 用户所在国家）：${names}`)
+      }
+      
+      // 按国家分组其他国家的推荐（每个国家最多3个）
+      const grouped: Record<string, { name: string; country: string }[]> = {}
+      for (const d of otherCountryDests) {
+        (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
+      }
+      const otherCountries = Object.keys(grouped).sort()
+      for (const c of otherCountries) {
+        const picks = (grouped[c] || []).slice(0, 2)
+        if (picks.length === 0) continue
+        const names = picks.map(p => p.name).join(', ')
+        lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
+      }
+      
+      if (lines.length) {
+        referenceCatalog = isEnglish
+          ? `Reference destinations (PRIORITIZE destinations in ${userCountry}, then nearby regions):\n${lines.join('\n')}`
+          : `参考目的地（优先推荐${userCountry}国内地点，其次周边地区）：\n${lines.join('\n')}`
+        
+        locationGuidance = isEnglish
+          ? `\n📍 IMPORTANT LOCATION CONSTRAINT: User is located in ${userCountry}. You MUST prioritize destinations within ${userCountry} or nearby regions. Only recommend international destinations if they are very close (e.g., bordering countries) or if user explicitly requests them. Avoid recommending distant international destinations unless absolutely necessary for the psychological journey theme.`
+          : `\n📍 重要地理位置约束：用户位于${userCountry}。你必须优先推荐${userCountry}国内的目的地或周边地区。只有在必要时才推荐较远的国际目的地（例如，明确请求或心理旅程主题必需）。`
+      }
+    } else {
+      // 未指定用户国家，使用原来的逻辑
+      const grouped: Record<string, { name: string; country: string }[]> = {}
+      for (const d of all) {
+        (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
+      }
+      const lines: string[] = []
+      const countries = Object.keys(grouped).sort()
+      let total = 0
+      for (const c of countries) {
+        const picks = (grouped[c] || []).slice(0, 3)
+        if (picks.length === 0) continue
+        const names = picks.map(p => p.name).join(', ')
+        lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
+        total += picks.length
+        if (total >= 48) break
+      }
+      if (lines.length) {
+        referenceCatalog = isEnglish
+          ? `Reference destinations (pick from these when suitable; do not invent nonexistent places):\n${lines.join('\n')}`
+          : `参考目的地（尽量优先从下列中选择，避免凭空捏造地点）：\n${lines.join('\n')}`
+      }
     }
   } catch {}
   
+  const startDate = new Date().toISOString().split('T')[0]
+  const estimatedDays = intentData?.intentType === 'extreme_exploration' ? 7 : intentData?.intentType === 'emotional_healing' ? 5 : 6
+  
+  const intentTypeText = intentData?.intentType || 'general'
+  const emotionToneText = intentData?.emotionTone || 'neutral'
+  const keywordsText = intentData?.keywords?.filter((k: string) => k !== selectedDestination).join('、') || ''
+  
+  // 如果用户选择了目的地，在系统提示词中强调
+  const destinationNote = selectedDestination
+    ? (isEnglish
+        ? `\n📍 **CRITICAL DESTINATION CONSTRAINT**: The user has explicitly selected "${selectedDestination}" as the travel destination. You MUST:\n` +
+          `1. Set the "destination" field to exactly "${selectedDestination}"\n` +
+          `2. Generate all activities within or near "${selectedDestination}"\n` +
+          `3. Do NOT replace or change this destination to any other location\n` +
+          `4. All location names in timeSlots should be related to "${selectedDestination}" or nearby areas`
+        : `\n📍 **重要目的地约束**：用户已明确选择"${selectedDestination}"作为旅行目的地。你必须：\n` +
+          `1. 将"destination"字段设置为精确的"${selectedDestination}"\n` +
+          `2. 所有活动必须在该地点及其附近\n` +
+          `3. 不得替换或更改目的地为其他地点\n` +
+          `4. timeSlots中的所有地点名称应与"${selectedDestination}"或其附近相关`)
+    : ''
+  
   const systemPrompt = isEnglish
-    ? `Role Setting:
-You are an "Inspiration Designer". Your task is not to arrange flights and hotels, but to design a journey of awakening for the soul.
+    ? `🎨 AI Identity: Inspirit Designer (Inspiration Personality Travel Designer)
 
-Core Philosophy:
-- The core product of this journey is "carefully designed cognitive opportunities"
-- The goal is to let participants experience a complete psychological journey from external exploration → internal awareness → action transformation
-- Ultimately, they bring back "thoughts and strength that can nourish future life"
+You are not just a travel planner, but an Inspirit Designer who:
+- Identifies soul states → Designs psychological transformation journeys → Generates actionable paths
+- Your output goal is not just "destinations," but emotional polyphony and meaning renewal
 
-Four Design Pillars (must be reflected in the plan):
-1️⃣ Beneficial Detachment (physical, digital, role disengagement)
-2️⃣ High-Density Cognitive Situations (dialogue with sages, art, nature, texts)
-3️⃣ Internalization Process (solitude guidance, sense of ceremony, recording tools)
-4️⃣ Action-Oriented Transformation (post-journey challenges, community support, life application)
+✨ Four-Persona Collaboration System:
 
-Language Requirements:
-- Use poetic but not pretentious words
-- Each paragraph should evoke imagery and psychological resonance
-- Overall tone: "serene, gentle, philosophical, practical"
+1️⃣ Soul Mapper (灵魂测绘者)
+- Identifies user's psychological rhythm, stress points, emotional tone
+- Tone: Gentle, insightful, quiet
+- Function: Emotion recognition & intent analysis
 
-You MUST include all the above elements in the returned JSON and organize them according to the following structure. For compatibility with the existing system, you also need to provide complete journey information (locations, locationDetails, etc.).
+2️⃣ Journey Weaver (旅程编织者)
+- Combines emotions with geography, stories, and rituals
+- Tone: Visual, symbolic, narrative-rich
+- Function: Scene & story design
 
-You MUST return a valid JSON object with this EXACT structure (add the fields for countries as specified):
+3️⃣ Ground Navigator (现实锚定者)
+- Transforms inspiration into executable plans
+- Tone: Clear, logical, practical
+- Function: Itinerary timeline & action planning
+
+4️⃣ Echo Keeper (记忆引导者)
+- Handles post-journey reflection and extension challenges
+- Tone: Gentle, philosophical
+- Function: Meta-cognition & action transformation
+
+👉 Four personas collaborate to form a complete psychological journey system: "Identify → Design → Execute → Transform"
+
+📋 User Intent Analysis:
+- Intent Type: ${intentTypeText}
+- Emotion Tone: ${emotionToneText}
+- Keywords: ${keywordsText || 'not specified'}
+${destinationNote}
+
+🌿 Core Mission:
+Design a ${estimatedDays}-day dual-track journey (External × Internal) that:
+- External Track: Time, location, activities, transportation, budget (executable itinerary)
+- Internal Track: Emotional stages, psychological tasks, ritual design, transformation questions (experiential journey)
+- Each activity must bridge both tracks: practical execution + psychological meaning
+
+✨ Dual-Track Design Philosophy:
+
+Each activity must have TWO layers:
+
+🪞 Example Structure:
+"09:00 Morning run by the sea"
+→ External: Exercise release, scenic route, practical logistics
+→ Internal: Question trigger—"What speed have I been avoiding lately?"
+→ Ritual Design: After the run, write down "one thing worth slowing down for"
+
+This dual-track design enables you to generate both executable itineraries and experiential psychological scripts.
+
+✨ Writing Style Requirements:
+
+1️⃣ Emotional Introduction (情绪引入)
+- Use poetic language + specific sensory descriptions
+- Build psychological connection through imagery
+- Example: "As dawn breaks over the misty coast, the rhythm of waves becomes a mirror for your inner tempo..."
+
+2️⃣ Action Design (行动设计)
+- Clear, executable steps
+- Balance realism with symbolism
+- Example: "Run along the 3km coastal path; pause at each kilometer marker to observe one sensory detail (sound, scent, texture)"
+
+3️⃣ Reflection Trigger (反思触发)
+- Open-ended questions + sensory anchors
+- Inspire introspection and self-awareness
+- Example: "While running, consider: What am I running from? What am I running toward? Let your pace answer."
+
+4️⃣ Transformation Summary (总结转化)
+- Extract one insight + extension action
+- Help continuous growth post-journey
+- Example: "The insight: True freedom is finding the rhythm between speed and stillness. Action: Set a daily 10-minute pause ritual when you return home."
+
+🗺️ Dual-Track Itinerary Structure Requirements:
+
+Generate ${estimatedDays} days of detailed dual-track journey:
+
+External Track (External) - Practical & Executable:
+- Generate 4-6 time slots per day
+- Arrange activities geographically (minimize travel time)
+- Include transportation details between activities
+- Provide cost estimates and local tips
+- Ensure all activities are logistically feasible
+
+Internal Track (Internal) - Psychological & Experiential:
+- Each day maps to a psychological flow stage (Summon → Mirror → Awaken → Settle → Transform)
+- Each activity includes: psychological question, ritual/action, reflection point
+- Connect activities through emotional narrative arc
+- Design symbolic moments aligned with journey theme
+
+Bridge Between Tracks:
+- Every external activity must have an internal psychological task/question
+- Time slots include both practical and experiential elements
+
+You MUST return a valid JSON object with this EXACT dual-track structure:
 
 {
-  "title": "Journey theme name (must be highly symbolic, e.g., \"Meeting Myself in the Wind\" or \"Forest of Silence\")",
-  "coreInsight": "Core insight (a philosophical sentence that makes people say \"aha\")",
-  "journeyBackground": "Journey background (why is this place suitable for cognitive breakthrough and healing?)",
-  "mentalFlowStages": {
-    "summon": {
-      "theme": "Summon stage theme",
-      "activities": ["Activity 1", "Activity 2"],
-      "emotionalGoal": "Emotional goal",
-      "symbolicElement": "Symbolic element"
-    },
-    "reflection": {
-      "theme": "Reflection stage theme",
-      "activities": ["Activity 1", "Activity 2"],
-      "emotionalGoal": "Emotional goal",
-      "symbolicElement": "Symbolic element"
-    },
-    "awakening": {
-      "theme": "Awakening stage theme",
-      "activities": ["Activity 1", "Activity 2"],
-      "emotionalGoal": "Emotional goal",
-      "symbolicElement": "Symbolic element"
-    },
-    "internalization": {
-      "theme": "Internalization stage theme",
-      "activities": ["Activity 1", "Activity 2"],
-      "emotionalGoal": "Emotional goal",
-      "symbolicElement": "Symbolic element"
-    },
-    "transformation": {
-      "theme": "Transformation stage theme",
-      "activities": ["Activity 1", "Activity 2"],
-      "emotionalGoal": "Emotional goal",
-      "symbolicElement": "Symbolic element"
-    }
-  },
-  "cognitiveTriggers": {
-    "questions": ["Reflective question 1", "Reflective question 2"],
-    "rituals": ["Ritual or symbolic event 1", "Ritual or symbolic event 2"],
-    "moments": ["Trigger moment description 1", "Trigger moment description 2"]
-  },
-  "healingDesign": {
-    "sound": "Sound design (wind, bells, chimes, etc.)",
-    "scent": "Scent design",
-    "light": "Light design",
-    "rhythm": "Rhythm design",
-    "community": "Community interaction design"
-  },
-  "postJourneyChallenge": {
-    "title": "Post-journey challenge title",
-    "description": "Executable actions to help participants integrate travel experiences into daily life",
-    "actions": ["Action 1", "Action 2", "Action 3"]
-  },
-  "keywords": ["Keyword 1", "Keyword 2", "Keyword 3"],
-  "currentCountry": "User's current country (if known)",
-  "locationCountries": { "Location A": "Country", "Location B": "Country" },
-  "destination": "Primary destination (for compatibility)",
-  "locations": ["Location A", "Location B", "Location C", "Location D", "Location E"],
-  "locationDetails": {
-    "Location A": {
-      "name": "Location A",
-      "country": "Country of Location A",
-      "duration": "X days",
-      "budget": "Budget range (e.g., $500-1000)",
-      "highlights": [
-        {
-          "title": "Highlight title",
-          "description": "Detailed experience description that explains why this experience is special, must incorporate the four design pillars",
-          "feeling": "The emotional impact or sensation"
-        }
-      ],
-      "aiMessage": "Custom recommendation message for this location (poetic but not pretentious)"
-    }
-    // ... continue for EACH location in locations array
-  },
-  "duration": "General duration",
-  "budget": "General budget range",
-  "highlights": [
+  "title": "Journey title reflecting psychological transformation (e.g., \"The Burning Path: Redemption of the Weary Soul\")",
+  "destination": "${selectedDestination ? selectedDestination.replace(/"/g, '\\"') : 'Primary destination city/country'}",
+  "duration": ${estimatedDays},
+  "summary": "Overall journey summary (100-150 words): describe both the practical journey and the emotional/psychological transformation arc",
+  "psychologicalFlow": ["Summon", "Mirror", "Awaken", "Settle", "Transform"],
+  "coreInsight": "One core psychological insight that captures the journey's essence (e.g., \"Redemption is not escape, but bringing light back to life\")",
+  "days": [
     {
-      "title": "Highlight title",
-      "description": "Detailed experience description that reflects cognitive opportunities and healing design",
-      "feeling": "The emotional impact or sensation"
+      "day": 1,
+      "date": "${startDate}",
+      "theme": "Daily psychological theme (e.g., \"Summon: The Call\", \"Mirror: Reflection\")",
+      "mood": "Daily mood keyword (e.g., \"exploration\", \"release\", \"awakening\")",
+      "summary": "Daily summary (40-60 words): narrate both the day's activities and the psychological journey",
+      "psychologicalStage": "Summon | Mirror | Awaken | Settle | Transform",
+      "timeSlots": [
+        {
+          "time": "09:00",
+          "title": "Vivid activity title (e.g., \"Morning run by the misty coast\")",
+          "activity": "Activity name",
+          "location": "Specific location name",
+          "type": "attraction | meal | hotel | shopping | transport",
+          "category": "Activity category",
+          "duration": 120,
+          "notes": "Detailed description (40+ words): what to do, why it's special, practical tips, cultural context",
+          "localTip": "One practical or cultural tip",
+          "cost": 0,
+          "coordinates": {"lat": 0, "lng": 0},
+          "internalTrack": {
+            "question": "Psychological reflection question (e.g., \"What speed have I been avoiding lately?\")",
+            "ritual": "Symbolic ritual or action (e.g., \"After the run, write down one thing worth slowing down for\")",
+            "reflection": "Reflection prompt (e.g., \"Notice how your running pace mirrors your inner rhythm\")"
+          }
+        }
+      ]
     }
   ],
-  "story": "Narrative description (incorporating the five-stage mental flow experience)",
-  "aiMessage": "General AI suggestion (poetic but not pretentious)",
-  "concept": "Core concept description (compatibility field)"
+  "totalCost": 0,
+  "recommendations": {
+    "bestTimeToVisit": "Best time to visit",
+    "weatherAdvice": "Weather advice",
+    "packingTips": ["Tip 1", "Tip 2", "Tip 3"],
+    "localTips": ["Local tip 1", "Local tip 2", "Local tip 3"],
+    "emergencyContacts": []
+  }
 }
 
-CRITICAL REQUIREMENTS:
-1. mentalFlowStages must completely include all five stages (summon, reflection, awakening, internalization, transformation), each stage must have theme, activities (array), emotionalGoal, symbolicElement
-2. cognitiveTriggers must include questions (array), rituals (array), moments (array)
-3. healingDesign must include sound, scent, light, rhythm, community dimensions
-4. postJourneyChallenge must include title, description, actions (array)
-5. keywords must be an array of 3-5 keywords
-6. The locationDetails object MUST include an entry for EVERY location in the locations array
-7. Each locationDetails entry MUST have: name, country, duration, budget, highlights, aiMessage
-8. Provide 5-8 alternative destinations in locations array, covering AT LEAST 5 different countries
-9. Include fields: currentCountry and locationCountries (mapping from location to country)
-10. If user is from ${userCountry || 'unknown country'}, include 2-3 domestic destinations overall, AND ensure AT LEAST 3 destinations are outside the user's country
-11. Each location's highlights and description must reflect the four design pillars and cognitive opportunities
-12. All descriptive text must be "poetic but not pretentious", able to evoke imagery and psychological resonance
+CRITICAL REQUIREMENTS - Dual-Track Design:
+
+External Track (Practical):
+1. Generate exactly ${estimatedDays} days of itinerary
+2. Each day must have: day number, date (starting from ${startDate}), theme, mood, summary, psychologicalStage, and timeSlots array
+3. Each timeSlot must have: time (HH:MM), title (vivid, avoid generic words), activity, location, type, category, duration (minutes), notes (40+ words), localTip, cost (estimated), coordinates (lat/lng)
+4. Activities arranged geographically - minimize travel time between consecutive activities
+5. Include 4-6 time slots per day, with appropriate breaks for meals and rest
+6. Total cost should be a realistic estimate based on activities
+
+Internal Track (Psychological):
+7. Each day must map to a psychological flow stage: Summon, Mirror, Awaken, Settle, or Transform
+8. Each timeSlot MUST include an "internalTrack" object with:
+   - question: Open-ended psychological reflection question
+   - ritual: Symbolic ritual or action tied to the activity
+   - reflection: Reflection prompt or sensory anchor
+9. Daily theme should reflect both the practical journey and psychological stage
+10. Daily summaries should bridge external activities with internal psychological journey
+
+Integration:
+11. Activity titles must be vivid (avoid "visit", "see", "taste") and hint at psychological meaning
+12. Notes field should balance practical tips with emotional/sensory descriptions
+13. Each day's theme should match intent type (${intentTypeText}) and emotional tone (${emotionToneText})
+14. Core insight must capture the psychological transformation essence
+15. Recommendations section: bestTimeToVisit, weatherAdvice, packingTips (array), localTips (array)
+${referenceCatalog ? '16. Refer to reference destinations when selecting locations.\n' : ''}${locationGuidance}17. Writing style: poetic where appropriate (emotional introduction), clear for actions, reflective for questions, transformative for insights
 
 JSON VALIDATION RULES:
 - Use double quotes for all strings (never single quotes)
@@ -2034,131 +1341,178 @@ JSON VALIDATION RULES:
 - No comments in JSON
 
 Please respond ONLY with valid JSON, no additional text before or after.`
-    : `角色设定：
-你是一位"灵感设计师"，你的任务不是安排机票酒店，而是设计一场让人觉醒的心灵旅行。
+    : `🎨 AI 身份：灵感人格旅行设计者（Inspirit Designer）
 
-核心理念：
-- 这场旅行的核心产品是"被精心设计的认知契机"
-- 目标是让参与者经历从外部探索 → 内在觉察 → 行动转化的完整心理旅程
-- 最终让他们带回"能滋养未来生活的思想与力量"
+你不仅仅是一位旅行规划师，更是一位灵感人格旅行设计者：
+- 识别灵魂状态 → 设计心理转化旅程 → 生成可实践的路径
+- 你的输出目标不是"目的地"，而是情绪复调与意义重启
 
-四大设计支柱（必须在方案中体现）：
-1️⃣ 有益的脱离（物理、数字、角色的抽离）
-2️⃣ 高密度认知情境（智者、艺术、自然、文本的对话）
-3️⃣ 内化的流程（独处引导、仪式感、记录工具）
-4️⃣ 行动化转化（归来挑战、社群支持、生活应用）
+✨ 四人格协作系统：
 
-语言要求：
-- 用诗性但不虚浮的文字
-- 每一段要能唤起画面感与心理共鸣
-- 整体基调为"静谧、温柔、哲思、可实践"
+1️⃣ 灵魂测绘者（Soul Mapper）
+- 识别用户的心理节奏、压力点、情绪基调
+- 语气：温柔、洞察、安静
+- 功能：情绪识别与意图分析
 
-你必须在返回的 JSON 中包含上述所有要素，并按照以下结构组织。但为了兼容现有系统，你需要同时提供完整的旅程信息（locations、locationDetails 等）。
+2️⃣ 旅程编织者（Journey Weaver）
+- 善于将情绪与地理、故事、仪式相结合
+- 语气：富有画面感、象征性强
+- 功能：场景与故事设计
 
-你必须返回一个有效的 JSON 对象，严格按照以下完整结构（加入国家相关字段）：
+3️⃣ 现实锚定者（Ground Navigator）
+- 把灵感转化为可执行计划
+- 语气：逻辑清晰、实用
+- 功能：行程时间线与行动规划
+
+4️⃣ 记忆引导者（Echo Keeper）
+- 负责旅程后的反思与延伸挑战
+- 语气：温柔、哲思
+- 功能：元认知与行动转化
+
+👉 四人格协作：形成"识别→设计→执行→转化"完整心理旅程系统
+
+📋 用户意图分析：
+- 意图类型：${intentTypeText}
+- 情绪基调：${emotionToneText}
+- 关键词：${keywordsText || '未指定'}
+${destinationNote}
+
+🌿 核心使命：
+设计一份${estimatedDays}天的双轨旅程（外部轨迹 × 内部轨迹）：
+- 外部轨迹：时间、地点、活动、交通、预算（可执行行程）
+- 内部轨迹：情绪阶段、心理任务、仪式设计、转化问题（体验旅程）
+- 每个活动必须桥接两条轨道：实际执行 + 心理意义
+
+✨ 双层旅行模型设计哲学：
+
+每个活动必须具备两层：
+
+🪞 示例结构：
+"09:00 海边晨跑"
+→ 外部：运动释放、风景路线、实用指引
+→ 内部：问题触发——"我最近在逃避什么速度？"
+→ 仪式设计：跑后写下"一件值得慢下来的事"
+
+这种双轨设计，让AI既能生成可执行的旅程表，也能生成可体验的心理剧本。
+
+✨ 写作风格要求：
+
+1️⃣ 情绪引入（情绪引入）
+- 诗性语句 + 具体感官描写
+- 用画面建立心理连接
+- 示例："当晨光穿透海岸的薄雾，海浪的节奏成为你内心节拍的镜子..."
+
+2️⃣ 行动设计（行动设计）
+- 清晰可执行的步骤
+- 兼顾现实性与象征性
+- 示例："沿着3公里海岸步道跑步；在每公里标记处暂停，观察一个感官细节（声音、气味、触感）"
+
+3️⃣ 反思触发（反思触发）
+- 开放式问题 + 感官锚点
+- 激发内省与自觉
+- 示例："跑步时思考：我在逃离什么？我在奔向什么？让你的步伐来回答。"
+
+4️⃣ 总结转化（总结转化）
+- 提炼一句洞见 + 延伸行动
+- 帮助旅程后持续成长
+- 示例："洞察：真正的自由是在速度与静止之间找到节拍。行动：返程后设定每日10分钟的暂停仪式。"
+
+🗺️ 双轨行程结构要求：
+
+生成${estimatedDays}天的详细双轨旅程：
+
+外部轨迹（External）- 实用可执行：
+- 每天生成4-6个时间段
+- 按地理位置安排活动（减少交通时间）
+- 包含活动间的交通细节
+- 提供成本估算和当地提示
+- 确保所有活动在逻辑上可行
+
+内部轨迹（Internal）- 心理体验：
+- 每天映射到心理流程阶段（召唤→映照→觉醒→沉淀→转化）
+- 每个活动包含：心理问题、仪式/行动、反思点
+- 通过情感叙事弧连接活动
+- 设计与旅程主题一致的象征时刻
+
+轨道桥接：
+- 每个外部活动必须有对应的内部心理任务/问题
+- 时间段包含实用和体验两个要素
+
+你必须返回一个有效的 JSON 对象，严格按照以下双轨结构：
 
 {
-  "title": "旅程主题名称（必须富有象征意义，如「在风中遇见自己」或「沉默之森」）",
-  "coreInsight": "核心洞见（一句能让人\"啊哈\"的哲理句）",
-  "journeyBackground": "旅程背景（为什么这个地方适合认知突破与治愈？）",
-  "mentalFlowStages": {
-    "summon": {
-      "theme": "召唤阶段主题",
-      "activities": ["活动1", "活动2"],
-      "emotionalGoal": "情绪目标",
-      "symbolicElement": "象征元素"
-    },
-    "reflection": {
-      "theme": "映照阶段主题",
-      "activities": ["活动1", "活动2"],
-      "emotionalGoal": "情绪目标",
-      "symbolicElement": "象征元素"
-    },
-    "awakening": {
-      "theme": "觉醒阶段主题",
-      "activities": ["活动1", "活动2"],
-      "emotionalGoal": "情绪目标",
-      "symbolicElement": "象征元素"
-    },
-    "internalization": {
-      "theme": "沉淀阶段主题",
-      "activities": ["活动1", "活动2"],
-      "emotionalGoal": "情绪目标",
-      "symbolicElement": "象征元素"
-    },
-    "transformation": {
-      "theme": "转化阶段主题",
-      "activities": ["活动1", "活动2"],
-      "emotionalGoal": "情绪目标",
-      "symbolicElement": "象征元素"
-    }
-  },
-  "cognitiveTriggers": {
-    "questions": ["思考问题1", "思考问题2"],
-    "rituals": ["仪式或象征事件1", "仪式或象征事件2"],
-    "moments": ["契机点描述1", "契机点描述2"]
-  },
-  "healingDesign": {
-    "sound": "声音设计（风声、钟声、铃音等）",
-    "scent": "气味设计",
-    "light": "光线设计",
-    "rhythm": "节奏设计",
-    "community": "社群互动设计"
-  },
-  "postJourneyChallenge": {
-    "title": "延伸挑战标题",
-    "description": "帮助参与者将旅行体验融入日常的可执行行动",
-    "actions": ["行动1", "行动2", "行动3"]
-  },
-  "keywords": ["关键词1", "关键词2", "关键词3"],
-  "currentCountry": "用户当前所在国家（如果已知）",
-  "locationCountries": { "地点A": "国家", "地点B": "国家" },
-  "destination": "主要目的地（用于兼容）",
-  "locations": ["地点A", "地点B", "地点C", "地点D", "地点E"],
-  "locationDetails": {
-    "地点A": {
-      "name": "地点A",
-      "country": "地点所属国家",
-      "duration": "X天",
-      "budget": "预算范围（如：5000-10000元/人）",
-      "highlights": [
-        {
-          "title": "亮点标题",
-          "description": "详细的体验描述，说明这个体验为什么特殊，需融入四大设计支柱",
-          "feeling": "情感感受或体验带来的触动"
-        }
-      ],
-      "aiMessage": "针对此地的定制建议（诗性但不虚浮）"
-    }
-    // ... 为 locations 数组中的每个地点都添加一个条目
-  },
-  "duration": "通用时长",
-  "budget": "通用预算范围",
-  "highlights": [
+  "title": "旅程标题，反映心理转化（如「燃烧之路·下班灵魂的救赎」）",
+  "destination": "${selectedDestination ? selectedDestination.replace(/"/g, '\\"') : '主要目的地城市/国家'}",
+  "duration": ${estimatedDays},
+  "summary": "整体旅程总结（100-150字）：描述实用旅程和情感/心理转化线索",
+  "psychologicalFlow": ["召唤", "映照", "觉醒", "沉淀", "转化"],
+  "coreInsight": "一句核心心理洞察，捕捉旅程本质（如「救赎不是逃离，而是让火光照回生活」）",
+  "days": [
     {
-      "title": "亮点标题",
-      "description": "详细的体验描述，需体现认知契机和治愈性设计",
-      "feeling": "情感感受或体验带来的触动"
+      "day": 1,
+      "date": "${startDate}",
+      "theme": "每日心理主题（如「召唤：召唤之声」、「映照：映照」）",
+      "mood": "每日情绪关键词（如「探索」、「释放」、「觉醒」）",
+      "summary": "每日总结（40-60字）：叙述当天的活动和心理旅程",
+      "psychologicalStage": "召唤 | 映照 | 觉醒 | 沉淀 | 转化",
+      "timeSlots": [
+        {
+          "time": "09:00",
+          "title": "生动的活动标题（如「雨后海边漫步晨跑」）",
+          "activity": "活动名称",
+          "location": "具体地点名称",
+          "type": "attraction | meal | hotel | shopping | transport",
+          "category": "活动类别",
+          "duration": 120,
+          "notes": "详细描述（40+字）：做什么、为什么特别、实用建议、文化背景。应包含感官描写和情绪连接。",
+          "localTip": "一条实用或文化提示",
+          "cost": 0,
+          "coordinates": {"lat": 0, "lng": 0},
+          "internalTrack": {
+            "question": "心理反思问题（如「我最近在逃避什么速度？」）",
+            "ritual": "象征仪式或行动（如「跑后写下'一件值得慢下来的事'」）",
+            "reflection": "反思提示（如「注意你的跑步节奏如何映射内在节拍」）"
+          }
+        }
+      ]
     }
   ],
-  "story": "故事性描述（融入五段心智流体验）",
-  "aiMessage": "通用AI建议（诗性但不虚浮）",
-  "concept": "核心概念描述（兼容字段）"
+  "totalCost": 0,
+  "recommendations": {
+    "bestTimeToVisit": "最佳旅行时间",
+    "weatherAdvice": "天气建议",
+    "packingTips": ["提示1", "提示2", "提示3"],
+    "localTips": ["当地提示1", "当地提示2", "当地提示3"],
+    "emergencyContacts": []
+  }
 }
 
-关键要求：
-1. mentalFlowStages 必须完整包含五个阶段（summon, reflection, awakening, internalization, transformation），每个阶段需有 theme、activities（数组）、emotionalGoal、symbolicElement
-2. cognitiveTriggers 需包含 questions（问题数组）、rituals（仪式数组）、moments（契机点数组）
-3. healingDesign 需包含 sound、scent、light、rhythm、community 五个维度
-4. postJourneyChallenge 需包含 title、description、actions（数组）
-5. keywords 需是3-5个关键词的数组
-6. locationDetails 对象必须包含 locations 数组中每个地点的详细条目
-7. 每个 locationDetails 条目必须包含：name、country、duration、budget、highlights、aiMessage
-8. 在 locations 数组中提供 5-8 个备选目的地，覆盖至少 5 个不同国家
-9. 必须包含：currentCountry 字段，以及 locationCountries（地点到国家的映射）
-10. 如果用户来自 ${userCountry || '未知国家'}，在总体 5-8 个地点中仅推荐 2-3 个该国国内目的地，并且至少 3 个地点必须来自用户国家之外
-11. 每个地点的 highlights 和 description 必须体现四大设计支柱和认知契机
-12. 所有描述性文字必须"诗性但不虚浮"，能唤起画面感与心理共鸣
+关键要求 - 双轨设计：
+
+外部轨迹（实用）：
+1. 生成恰好${estimatedDays}天的行程
+2. 每天必须包含：天数、日期（从${startDate}开始）、theme、mood、summary、psychologicalStage 和 timeSlots 数组
+3. 每个 timeSlot 必须包含：time（HH:MM）、title（生动，避免通用词）、activity、location、type、category、duration（分钟）、notes（40+字）、localTip、cost（估算）、coordinates（lat/lng）
+4. 活动按地理位置排列——尽量减少连续活动之间的旅行时间
+5. 每天包含4-6个时间段，适当安排用餐和休息时间
+6. 总成本应基于活动的现实估算
+
+内部轨迹（心理）：
+7. 每天必须映射到心理流程阶段：召唤、映照、觉醒、沉淀或转化
+8. 每个 timeSlot 必须包含一个 "internalTrack" 对象，包含：
+   - question：开放式心理反思问题
+   - ritual：与活动相关的象征仪式或行动
+   - reflection：反思提示或感官锚点
+9. 每日主题应反映实用旅程和心理阶段
+10. 每日总结应桥接外部活动和内部心理旅程
+
+整合：
+11. 活动标题必须生动（避免"游览"、"参观"、"品尝"）并暗示心理意义
+12. notes 字段应平衡实用建议和情感/感官描述
+13. 每天的主题应与意图类型（${intentTypeText}）和情绪基调（${emotionToneText}）匹配
+14. 核心洞察必须捕捉心理转化本质
+15. 建议部分：bestTimeToVisit、weatherAdvice、packingTips（数组）、localTips（数组）
+${referenceCatalog ? '16. 选择地点时参考推荐目的地。\n' : ''}${locationGuidance}17. 写作风格：情绪引入用诗性（适当处），行动用清晰，问题用反思性，洞察用转化性
 
 JSON 验证规则：
 - 所有字符串必须使用双引号（不要使用单引号）
@@ -2179,8 +1533,13 @@ JSON 验证规则：
   try {
     response = await chatWithDeepSeek(messages, {
       temperature: 0.8, // 降低温度以提高输出稳定性
-      max_tokens: 4000  // 增加token限制以容纳更详细的内容
+      max_tokens: 8192  // DeepSeek API 的最大限制，避免JSON截断
     })
+    
+    // 检查响应是否有效
+    if (!response || response.trim().length === 0) {
+      throw new Error('AI 没有返回有效响应，请重试')
+    }
     
     console.log('🌟 AI 原始响应 (前 1000 字符):', (response || '').substring(0, 1000))
     
@@ -2190,43 +1549,455 @@ JSON 验证规则：
       .replace(/```\n?/g, '')        // 移除其他代码块标记
       .trim()
     
+    // 再次检查清理后的内容是否有效
+    if (!cleaned || cleaned.length === 0) {
+      throw new Error('AI 返回的内容为空，请重试')
+    }
+    
+    // 检查是否以 { 开头（基本的 JSON 格式检查）
+    if (!cleaned.startsWith('{')) {
+      console.warn('⚠️ JSON 不以 { 开头，尝试修复...')
+      // 尝试找到第一个 {
+      const firstBrace = cleaned.indexOf('{')
+      if (firstBrace > 0) {
+        cleaned = cleaned.substring(firstBrace)
+      } else {
+        throw new Error('AI 返回的内容不是有效的 JSON 格式')
+      }
+    }
+    
+    // 保存清理前的内容用于调试
+    const beforeClean = cleaned.substring(0, 100)
+    console.log('🔍 Markdown 清理后的前 100 字符:', beforeClean)
+    
+    // 修复转义问题：AI 可能返回 "field\": \"value" 这样的格式
+    // 需要修复为 "field": "value"
+    // 使用状态机方式处理，避免破坏字符串值中的引号
+    
+    // 检查是否有转义问题
+    // 错误的格式包括："field\":、"\": \"、": \"、\"field":、\"field\":、\":\" 等
+    // 正确的格式是："field": 或 ": "
+    // 使用更全面的检测模式，包括各种转义组合
+    const hasBadEscape = /"([a-zA-Z_][a-zA-Z0-9_]*)\\":/.test(cleaned) ||           // "field\":
+                         /":\s*\\"/.test(cleaned) ||                                 // ": \"
+                         /":\\"/.test(cleaned) ||                                    // ":\"
+                         /\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/.test(cleaned) ||        // \"field":
+                         /\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/.test(cleaned) ||       // \"field\":
+                         /\\":/.test(cleaned) ||                                     // \":
+                         /\\":\\"/.test(cleaned)                                     // \":\"
+    
+    // 始终尝试修复，因为有些转义问题可能不明显但在JSON解析时会失败
+    // 修复是安全的，不会破坏正确的JSON
+    console.log('🔍 检测转义问题，hasBadEscape:', hasBadEscape)
+    console.log('🔍 修复前的示例:', cleaned.substring(0, 100))
+    
+    // 多次修复确保彻底（有些转义可能嵌套或组合出现）
+    let repairAttempts = 0
+    let previousClean = cleaned
+    
+    while (repairAttempts < 10) {
+      // 记录修复前的状态，用于调试
+      const beforeRepair = cleaned.substring(0, 200)
+      
+      // 最高优先级：修复字段名和值前都有转义的完整模式
+      // \"field\":\"value -> "field": "value
+      cleaned = cleaned.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:\s*\\"/g, '"$1": "')
+      cleaned = cleaned.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
+      
+      // 次优先级：修复字段名后有转义，值前也有转义的完整模式
+      // "field\":\"value -> "field": "value
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
+      
+      // 修复字段名和值前都有转义（带空格）：\"field\": \" -> "field": "
+      cleaned = cleaned.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:\s*\\"/g, '"$1": "')
+      
+      // 修复完整的字段定义（字段名前有转义，值前没有）：\"field\": -> "field":
+      cleaned = cleaned.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
+      
+      // 修复字段名前的转义（字段名前有转义，但值前没有）：\"field": -> "field":
+      cleaned = cleaned.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '"$1":')
+      
+      // 修复字段名后的转义（值前有转义，带空格）："field\": \" -> "field": "
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\s*\\"/g, '"$1": "')
+      
+      // 修复字段名后的转义："field\": -> "field":
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+      
+      // 修复值前的转义：": \" -> ": " 和 ":\" -> ": "
+      cleaned = cleaned.replace(/":\s*\\"/g, '": "')
+      cleaned = cleaned.replace(/":\\"/g, '": "')
+      
+      // 修复字段名后的转义（值前有转义）："field\": -> "field":
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
+      
+      // 修复残留的转义：\": -> :
+      cleaned = cleaned.replace(/\\":/g, '":')
+      
+      // 修复连续的转义：\":\" -> : "
+      cleaned = cleaned.replace(/\\":\\"/g, '": "')
+      
+      // 修复字段名开头的转义（在 { 或 , 后）：{\"field -> {"field
+      cleaned = cleaned.replace(/([{,]\s*)\\"/g, '$1"')
+      
+      // 检查是否有变化
+      const afterRepair = cleaned.substring(0, 200)
+      const hasChanged = cleaned !== previousClean
+      
+      if (repairAttempts === 0 && !hasChanged) {
+        console.log('🔍 第一次修复尝试，但未检测到变化')
+        console.log('🔍 修复前的片段:', beforeRepair)
+        console.log('🔍 修复后的片段:', afterRepair)
+        // 强制继续执行至少一次，确保所有规则都被应用
+      }
+      
+      // 如果修复后没有变化，说明修复完成（但至少执行一次）
+      if (!hasChanged && repairAttempts > 0) {
+        break
+      }
+      
+      previousClean = cleaned
+      repairAttempts++
+    }
+    
+    console.log('🔍 转义修复后的前 100 字符:', cleaned.substring(0, 100))
+    console.log('🔍 修复尝试次数:', repairAttempts)
+    
+    // 验证修复后是否还有转义问题
+    const stillHasBadEscape = /"([a-zA-Z_][a-zA-Z0-9_]*)\\":/.test(cleaned) || 
+                              /":\s*\\"/.test(cleaned) || 
+                              /":\\"/.test(cleaned) ||
+                              /\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/.test(cleaned) ||
+                              /\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/.test(cleaned) ||
+                              /\\":/.test(cleaned) ||
+                              /\\":\\"/.test(cleaned)
+    
+    if (stillHasBadEscape) {
+      console.warn('⚠️ 修复后仍存在转义问题，将在后续阶段继续修复')
+    } else {
+      console.log('✅ 转义问题已修复')
+    }
+    
+    // 移除可能的 # 或其他意外字符（比如 #timoSlots 应该是 timeSlots）
+    // 但要小心，只在非字符串位置替换（在引号外的位置）
+    let result = ''
+    let inString = false
+    let escapeNext = false
+    for (let i = 0; i < cleaned.length; i++) {
+      const char = cleaned[i]
+      if (escapeNext) {
+        result += char
+        escapeNext = false
+        continue
+      }
+      if (char === '\\') {
+        escapeNext = true
+        result += char
+        continue
+      }
+      if (char === '"') {
+        inString = !inString
+        result += char
+        continue
+      }
+      if (!inString && char === '#') {
+        // 只在非字符串位置移除 #
+        continue
+      }
+      result += char
+    }
+    cleaned = result
+    
     // 查找 JSON 对象（从第一个 { 开始）
     const jsonStart = cleaned.indexOf('{')
     const jsonEnd = cleaned.lastIndexOf('}')
     
-    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    if (jsonStart >= 0) {
+      if (jsonEnd > jsonStart) {
       cleaned = cleaned.substring(jsonStart, jsonEnd + 1)
+      } else {
+        // 如果没有找到结束的 }，从第一个 { 开始到字符串末尾
+        cleaned = cleaned.substring(jsonStart)
+      }
+    } else {
+      // 如果没有找到 {，尝试查找可能的 JSON 开头
+      const possibleStart = cleaned.search(/["\[]/) || 0
+      cleaned = cleaned.substring(possibleStart)
+    }
+    
+    // 验证并修复 JSON 开头的格式问题
+    // 确保开头是 { 并且后面紧跟的格式正确
+    cleaned = cleaned.trim()
+    if (!cleaned.startsWith('{')) {
+      // 如果开头不是 {，尝试修复
+      const braceIndex = cleaned.indexOf('{')
+      if (braceIndex > 0) {
+        cleaned = cleaned.substring(braceIndex)
+      } else if (braceIndex === -1) {
+        // 如果完全没有 {，尝试添加
+        cleaned = '{' + cleaned
+      }
+    }
+    
+    // 检查开头是否有格式错误（比如多余的空格、引号等）
+    // 确保 { 后面紧跟的格式是 "field" 或空格
+    const afterBrace = cleaned.substring(1, 20).trim()
+    if (afterBrace && !afterBrace.startsWith('"') && !afterBrace.startsWith('}')) {
+      // 如果 { 后面不是引号或 }，可能有问题
+      // 移除 { 和第一个引号之间的非法字符
+      cleaned = cleaned.replace(/^\{[^"]*/, '{')
+    }
+    
+    // 调试：输出清理后的前 100 个字符
+    console.log('🔍 最终清理后的 JSON 开头 (前 100 字符):', cleaned.substring(0, 100))
+    
+    // 最终验证：只在确实有问题时才修复
+    // 检查是否有错误的转义模式（\"field\": 或 \":）
+    // 但不要修复正常的 JSON（"field": "value"）
+    const hasBadEscapeFinal = /"([a-zA-Z_][a-zA-Z0-9_]*)\\":/.test(cleaned) || /":\s*\\"/.test(cleaned)
+    if (hasBadEscapeFinal) {
+      console.warn('⚠️ 最终检查：检测到转义问题，进行最后修复...')
+      // 只修复确实有问题的转义
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+      cleaned = cleaned.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:\s*\\"/g, '"$1": "')
+      console.log('🔍 最后修复后的前 50 字符:', cleaned.substring(0, 50))
     }
     
     // 尝试解析JSON，如果失败则尝试修复
     let parsed: any
+    
+    // 先尝试直接解析
     try {
       parsed = JSON.parse(cleaned)
-    } catch (parseError) {
+      console.log('✅ 首次解析成功')
+    } catch (parseError: any) {
+      const errorPos = parseError.message.match(/position (\d+)/)?.[1]
+      const errorPosNum = errorPos ? parseInt(errorPos) : 0
+      
       console.warn('⚠️ 首次解析失败，尝试修复 JSON...', parseError)
+      console.warn('⚠️ 错误位置:', parseError.message)
+      if (errorPosNum > 0) {
+        const start = Math.max(0, errorPosNum - 50)
+        const end = Math.min(cleaned.length, errorPosNum + 50)
+        console.warn('⚠️ 错误位置附近的 JSON:', cleaned.substring(start, end))
+        console.warn('⚠️ 错误位置标记:', ' '.repeat(errorPosNum - start) + '^')
+      }
+      
+      // 在修复前，先尝试直接修复错误位置的明显问题
+      if (errorPosNum > 0 && errorPosNum < cleaned.length) {
+        const charAtError = cleaned[errorPosNum]
+        const beforeError = cleaned.substring(Math.max(0, errorPosNum - 20), errorPosNum)
+        const afterError = cleaned.substring(errorPosNum, Math.min(cleaned.length, errorPosNum + 20))
+        
+        console.warn('⚠️ 错误位置的字符:', charAtError)
+        console.warn('⚠️ 错误位置前 20 字符:', beforeError)
+        console.warn('⚠️ 错误位置后 20 字符:', afterError)
+        
+        // 如果错误位置是 \，可能是转义问题
+        if (charAtError === '\\' || beforeError.includes('\\":')) {
+          // 尝试修复该位置的转义问题
+          cleaned = cleaned.substring(0, Math.max(0, errorPosNum - 20)) +
+                    cleaned.substring(Math.max(0, errorPosNum - 20), Math.min(cleaned.length, errorPosNum + 20))
+                    .replace(/\\":/g, '":')
+                    .replace(/":\\"/g, '": "') +
+                    cleaned.substring(Math.min(cleaned.length, errorPosNum + 20))
+        }
+      }
       
       // 尝试更激进的修复
       cleaned = fixJSONResponse(cleaned)
       
       try {
         parsed = JSON.parse(cleaned)
-      } catch (secondError) {
+      } catch (secondError: any) {
+        const secondErrorPos = secondError.message.match(/position (\d+)/)?.[1]
+        const secondErrorPosNum = secondErrorPos ? parseInt(secondErrorPos) : 0
+        
         console.error('❌ 二次解析仍失败:', secondError)
-        console.error('❌ 清理后的 JSON:', cleaned.substring(0, 2000))
+        console.error('❌ 错误位置:', secondError.message)
+        if (secondErrorPosNum > 0) {
+          const start = Math.max(0, secondErrorPosNum - 100)
+          const end = Math.min(cleaned.length, secondErrorPosNum + 100)
+          console.error('❌ 错误位置附近的 JSON:', cleaned.substring(start, end))
+        }
+        console.error('❌ 修复后的 JSON (前 2000 字符):', cleaned.substring(0, 2000))
+        
+        // 最后一次尝试：更激进的手动修复
+        try {
+          let finalClean = cleaned
+          
+          // 先输出修复前的状态用于调试
+          console.log('🔧 开始激进修复，修复前的前 100 字符:', finalClean.substring(0, 100))
+          
+          // 使用更彻底的修复策略：逐步修复所有转义问题
+          
+          // 多次迭代修复，确保所有模式都被处理
+          let repairCount = 0
+          let lastClean = finalClean
+          
+          while (repairCount < 10) {
+            // 最高优先级：修复字段名和值前都有转义的完整模式
+            // \"field\":\"value -> "field": "value
+            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:\s*\\"/g, '"$1": "')
+            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
+            
+            // 次优先级：修复字段名后有转义，值前也有转义的完整模式
+            // "field\":\"value -> "field": "value
+            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
+            
+            // 修复字段名后的转义（值前有转义，带空格）："field\": \" -> "field": "
+            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\s*\\"/g, '"$1": "')
+            
+            // 1. 修复字段名后的转义："field\": -> "field":
+            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+            
+            // 2. 修复值前的转义：": \" -> ": " 和 ":\" -> ": "
+            finalClean = finalClean.replace(/":\s*\\"/g, '": "')
+            finalClean = finalClean.replace(/":\\"/g, '": "')
+            
+            // 3. 修复完整的字段定义：\"field\": -> "field":
+            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
+            
+            // 4. 修复字段名前的转义（字段名前有转义，但值前没有）：\"field": -> "field":
+            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '"$1":')
+            
+            // 5. 修复字段名后的转义（值前有转义）："field\": -> "field":
+            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
+            
+            // 6. 修复残留的转义：\": -> :
+            finalClean = finalClean.replace(/\\":/g, '":')
+            
+            // 修复连续的转义：\":\" -> : "
+            finalClean = finalClean.replace(/\\":\\"/g, '": "')
+            
+            // 7. 修复字段名中的单独转义引号：\"field -> "field（不在冒号前）
+            // 但要小心，只在JSON结构位置（不在字符串值中）修复
+            finalClean = finalClean.replace(/([{,]\s*)\\"/g, '$1"')
+            
+            // 如果修复后没有变化，说明修复完成
+            if (finalClean === lastClean) {
+              break
+            }
+            lastClean = finalClean
+            repairCount++
+          }
+          
+          console.log('🔧 正则修复迭代次数:', repairCount)
+          
+          // 8. 使用状态机处理复杂情况：修复残留的转义问题
+          let fixed = ''
+          let inString = false
+          let escapeNext = false
+          
+          for (let i = 0; i < finalClean.length; i++) {
+            const char = finalClean[i]
+            const beforeContext = finalClean.substring(Math.max(0, i - 15), i)
+            
+            if (escapeNext) {
+              // 处理转义字符
+              if (char === '"') {
+                // 判断这是否是错误转义
+                // 如果前面是字段名或冒号，这可能是错误转义
+                if (!inString) {
+                  // 在字段定义位置
+                  if (beforeContext.match(/":\s*$/) || beforeContext.match(/"\w+\\$/)) {
+                    // 这是错误的转义，移除反斜杠，直接使用引号
+                    fixed += '"'
+                    escapeNext = false
+                    continue
+                  }
+                }
+              }
+              // 正常的转义字符，保留
+              fixed += '\\' + char
+              escapeNext = false
+              continue
+            }
+            
+            if (char === '\\') {
+              // 检查上下文，判断是否是错误转义
+              if (!inString) {
+                // 在字段定义位置
+                // 检查后面是否跟着引号，如果是，且前面是字段名或冒号，可能是错误转义
+                const nextChar = i < finalClean.length - 1 ? finalClean[i + 1] : ''
+                if (nextChar === '"') {
+                  if (beforeContext.match(/":\s*$/) || beforeContext.match(/"\w+$/)) {
+                    // 这是错误转义，跳过反斜杠
+                    continue
+                  }
+                }
+              }
+              escapeNext = true
+              continue
+            }
+            
+            if (char === '"') {
+              inString = !inString
+              fixed += char
+              continue
+            }
+            
+            fixed += char
+          }
+          
+          finalClean = fixed
+          
+          // 9. 最后再次修复可能的残留转义（多重修复确保彻底）
+          // 再次应用所有修复规则，确保没有遗漏
+          finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+          finalClean = finalClean.replace(/":\s*\\"/g, '": "')
+          finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
+          finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '"$1":')
+          finalClean = finalClean.replace(/\\":/g, '":')
+          
+          console.log('🔧 激进修复后的前 100 字符:', finalClean.substring(0, 100))
+          
+          // 4. 尝试解析
+          parsed = JSON.parse(finalClean)
+          console.warn('⚠️ 通过激进修复成功解析 JSON')
+        } catch (thirdError: any) {
+          // 最后尝试：如果 JSON 被截断，尝试提取已完成的 days
+          try {
+            const partialResult = tryExtractPartialJSON(cleaned)
+            if (partialResult && partialResult.days && partialResult.days.length > 0) {
+              console.warn('⚠️ 使用部分解析的结果，包含', partialResult.days.length, '天的数据')
+              parsed = partialResult
+            } else {
+              // 输出更多调试信息
+              console.error('❌ 无法提取部分 JSON')
+              console.error('❌ cleaned 长度:', cleaned.length)
+              console.error('❌ cleaned 是否包含 days:', cleaned.includes('days'))
         throw new Error('AI返回的JSON格式无效，请重试')
+            }
+          } catch (extractError: any) {
+            console.error('❌ 提取部分 JSON 也失败:', extractError)
+            throw new Error('AI返回的JSON格式无效，请重试')
+          }
+        }
       }
     }
     
     console.log('🌟 解析后的数据:', {
       title: parsed.title,
-      locationsCount: parsed.locations?.length || 0,
-      locationDetailsCount: parsed.locationDetails ? Object.keys(parsed.locationDetails).length : 0,
-      hasAllRequiredFields: !!(parsed.title && parsed.concept && parsed.destination && parsed.locations && parsed.locationDetails)
+      destination: parsed.destination,
+      duration: parsed.duration,
+      daysCount: parsed.days?.length || 0,
+      hasItineraryFormat: !!(parsed.days && Array.isArray(parsed.days)),
+      hasLegacyFormat: !!(parsed.locations && parsed.locationDetails)
     })
     
-    // 验证必要字段
+    // 验证必要字段（支持新的行程计划格式和旧的灵感格式）
+    if (parsed.days && Array.isArray(parsed.days)) {
+      // 新的行程计划格式
+      if (!parsed.title || !parsed.destination || !parsed.days || parsed.days.length === 0) {
+        throw new Error('AI返回的行程计划数据缺少必要字段')
+      }
+    } else if (parsed.locations && parsed.locationDetails) {
+      // 旧的灵感格式（向后兼容）
     if (!parsed.title || !parsed.locations || !parsed.locationDetails) {
       throw new Error('AI返回的数据缺少必要字段')
+      }
+    } else {
+      throw new Error('AI返回的数据格式不正确，既不是行程计划格式也不是灵感格式')
     }
     
     return parsed
@@ -2241,9 +2012,6 @@ JSON 验证规则：
     
     throw new Error('生成灵感旅程失败，请重试')
 }
-
-// 兼容旧调用名：部分模块仍调用 generateInspirationContent
-// 导出兼容别名（放在文件末尾可能更安全）
 
 /**
  * 修复JSON响应的常见问题
@@ -2262,20 +2030,378 @@ function fixJSONResponse(jsonString: string): string {
   // 1. 移除注释（如果有）
   fixed = fixed.replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '')
   
+  // 1.5. 修复转义问题（修复 \": \" 这样的错误转义）
+  // 但要小心，只在确实有问题的位置修复，不要破坏正常的 JSON
+  // 检查是否有转义问题
+  const hasEscapeIssueInFix = /"([a-zA-Z_][a-zA-Z0-9_]*)\\":/.test(fixed) || /":\s*\\"/.test(fixed)
+  if (hasEscapeIssueInFix) {
+    // 先修复字段名后的转义：\"field\": -> "field":
+    fixed = fixed.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+    // 再修复值前的转义：": \" -> ": "
+    fixed = fixed.replace(/":\s*\\"/g, '": "')
+    // 修复残留的 \":
+    fixed = fixed.replace(/\\":/g, '":')
+  }
+  
+  // 1.6. 移除可能导致问题的特殊字符（如 #），但只在非字符串位置
+  // 这个已经在主清理阶段处理了
+  
   // 2. 修复末尾的尾随逗号
   fixed = fixed.replace(/,(\s*[}\]])/g, '$1')
   
   // 3. 修复单引号（如果AI使用了单引号）
   fixed = fixed.replace(/([{,]\s*)'([^']+)':\s*'([^']*)'/g, '$1"$2": "$3"')
   
-  // 4. 移除多余的空白字符
-  fixed = fixed.replace(/\s+/g, ' ')
+  // 4. 修复字符串中的未转义引号（关键修复）
+  // 使用逐字符遍历的方式，更可靠地处理字符串中的引号
+  let quoteFixed = ''
+  let inStringForQuote = false
+  let escapeNextForQuote = false
+  let lastWasColon = false
   
-  // 5. 尝试修复未闭合的字符串
-  // 查找所有未闭合的双引号对
-  let quoteCount = 0
-  // 简化处理，直接返回当前修复后的字符串，避免未闭合导致的编译错误
+  for (let i = 0; i < fixed.length; i++) {
+    const char = fixed[i]
+    const nextChar = i < fixed.length - 1 ? fixed[i + 1] : ''
+    
+    if (escapeNextForQuote) {
+      quoteFixed += char
+      escapeNextForQuote = false
+      lastWasColon = false
+      continue
+    }
+    
+    if (char === '\\') {
+      escapeNextForQuote = true
+      quoteFixed += char
+      lastWasColon = false
+      continue
+    }
+    
+    if (char === ':') {
+      quoteFixed += char
+      lastWasColon = true
+      continue
+    }
+    
+    if (char === '"') {
+      if (!inStringForQuote) {
+        // 字符串开始
+        inStringForQuote = true
+        quoteFixed += char
+      } else {
+        // 在字符串内遇到引号
+        // 判断这是字符串结束还是字符串内的引号
+        // 如果下一个字符是逗号、右括号、右方括号或空白，说明是字符串结束
+        if (nextChar === ',' || nextChar === '}' || nextChar === ']' || (nextChar && /\s/.test(nextChar)) || nextChar === '') {
+          quoteFixed += char
+          inStringForQuote = false
+        } else {
+          // 这是字符串内的引号，需要转义
+          quoteFixed += '\\"'
+        }
+      }
+      lastWasColon = false
+    } else {
+      quoteFixed += char
+      lastWasColon = false
+    }
+  }
+  
+  fixed = quoteFixed
+  
+  // 5. 修复未闭合的字符串引号
+  // 查找可能未闭合的字符串值（后面直接跟着逗号、右括号或右方括号）
+  fixed = fixed.replace(/":\s*"([^"]*?)(?=\s*[,}\]]|$)/g, (match, content) => {
+    // 如果内容不为空且后面直接是逗号或括号，说明可能未闭合
+    if (content && !content.endsWith('"')) {
+      // 转义内容中的特殊字符并闭合引号
+      const escaped = content.replace(/"/g, '\\"')
+      return `": "${escaped}"`
+    }
+    return match
+  })
+  
+  // 6. 修复截断的JSON - 查找最后一个完整的对象
+  let braceCount = 0
+  let bracketCount = 0
+  let lastValidIndex = fixed.length
+  let inStringForBrace = false
+  let escapeNextForBrace = false
+  
+  for (let i = 0; i < fixed.length; i++) {
+    const char = fixed[i]
+    
+    if (escapeNextForBrace) {
+      escapeNextForBrace = false
+      continue
+    }
+    
+    if (char === '\\') {
+      escapeNextForBrace = true
+      continue
+    }
+    
+    if (char === '"') {
+      inStringForBrace = !inStringForBrace
+      continue
+    }
+    
+    if (!inStringForBrace) {
+      if (char === '{') braceCount++
+      if (char === '}') {
+        braceCount--
+        if (braceCount === 0 && bracketCount === 0) {
+          lastValidIndex = i + 1
+        }
+      }
+      if (char === '[') bracketCount++
+      if (char === ']') bracketCount--
+    }
+  }
+  
+  // 如果JSON结构不完整，截取到最后一个完整对象
+  if (braceCount !== 0 || bracketCount !== 0) {
+    console.warn('⚠️ JSON结构不完整，尝试截取到最后一个完整对象')
+    fixed = fixed.substring(0, lastValidIndex)
+    
+    // 如果截取后末尾不是 }，添加闭合括号
+    if (!fixed.trim().endsWith('}')) {
+      // 计算需要添加的闭合括号数
+      let openBraces = (fixed.match(/{/g) || []).length
+      let closeBraces = (fixed.match(/}/g) || []).length
+      const neededBraces = openBraces - closeBraces
+      
+      let openBrackets = (fixed.match(/\[/g) || []).length
+      let closeBrackets = (fixed.match(/\]/g) || []).length
+      const neededBrackets = openBrackets - closeBrackets
+      
+      // 添加缺失的闭合括号
+      if (neededBrackets > 0) {
+        fixed += ']'.repeat(neededBrackets)
+      }
+      if (neededBraces > 0) {
+        fixed += '}'.repeat(neededBraces)
+      }
+    }
+  }
+  
+  // 7. 最后尝试移除可能导致问题的控制字符
+  fixed = fixed.replace(/[\x00-\x1F\x7F]/g, '')
+  
   return fixed
+}
+
+/**
+ * 尝试从截断的 JSON 中提取部分有效数据
+ */
+function tryExtractPartialJSON(jsonString: string): any | null {
+  try {
+    console.log('🔍 尝试提取部分 JSON，输入长度:', jsonString.length)
+    
+    // 首先尝试提取基本字段（title, destination, summary, duration）
+    const title = extractField(jsonString, 'title')
+    const destination = extractField(jsonString, 'destination')
+    const summary = extractField(jsonString, 'summary')
+    const duration = extractField(jsonString, 'duration')
+    
+    console.log('🔍 提取到的基本字段:', { 
+      title, 
+      destination, 
+      summary: summary?.substring(0, 50),
+      duration 
+    })
+    
+    // 尝试找到 days 数组的开始位置
+    const daysStartPattern = /"days"\s*:\s*\[/g
+    const daysMatch = daysStartPattern.exec(jsonString)
+    
+    if (!daysMatch) {
+      console.warn('⚠️ 未找到 days 数组')
+      // 即使没有 days，也尝试返回基本字段
+      if (title || destination || summary) {
+        return {
+          title: title || '旅行行程',
+          destination: destination || '',
+          duration: duration ? parseInt(duration) : 0,
+          summary: summary || '',
+          days: []
+        }
+      }
+      return null
+    }
+    
+    // 从 days 数组开始位置提取内容
+    const daysStartPos = daysMatch.index + daysMatch[0].length
+    const daysContent = jsonString.substring(daysStartPos)
+    
+    // 查找所有完整的 day 对象（包括处理嵌套的 timeSlots）
+    const dayObjects: any[] = []
+    let braceDepth = 0
+    let bracketDepth = 0
+    let currentDay = ''
+    let inString = false
+    let escapeNext = false
+    
+    for (let i = 0; i < daysContent.length; i++) {
+      const char = daysContent[i]
+      
+      if (escapeNext) {
+        currentDay += char
+        escapeNext = false
+        continue
+      }
+      
+      if (char === '\\') {
+        escapeNext = true
+        currentDay += char
+        continue
+      }
+      
+      if (char === '"') {
+        inString = !inString
+        currentDay += char
+        continue
+      }
+      
+      if (!inString) {
+        if (char === '{') {
+          braceDepth++
+          currentDay += char
+        } else if (char === '}') {
+          braceDepth--
+          currentDay += char
+          if (braceDepth === 0 && bracketDepth === 0) {
+            // 找到一个完整的 day 对象
+            try {
+              // 先尝试修复可能的转义问题
+              let dayStr = currentDay
+              dayStr = dayStr.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
+              dayStr = dayStr.replace(/":\s*\\"/g, '": "')
+              
+              const dayObj = JSON.parse(dayStr)
+              dayObjects.push(dayObj)
+              console.log(`✅ 成功提取第 ${dayObjects.length} 天的数据`)
+            } catch (parseError: any) {
+              // 如果解析失败，尝试修复后再次解析
+              try {
+                // 更激进的修复
+                let dayStr = currentDay
+                // 修复所有常见的转义问题
+                dayStr = dayStr.replace(/\\"/g, '"')
+                dayStr = dayStr.replace(/\\'/g, "'")
+                // 移除末尾的逗号
+                dayStr = dayStr.replace(/,(\s*[}\]])/g, '$1')
+                
+                const dayObj = JSON.parse(dayStr)
+                dayObjects.push(dayObj)
+                console.log(`✅ 通过修复成功提取第 ${dayObjects.length} 天的数据`)
+              } catch {
+                console.warn(`⚠️ 无法解析第 ${dayObjects.length + 1} 天的数据，跳过`)
+                // 继续处理下一个
+              }
+            }
+            currentDay = ''
+          }
+        } else if (char === '[') {
+          bracketDepth++
+          currentDay += char
+        } else if (char === ']') {
+          bracketDepth--
+          currentDay += char
+          // 如果数组关闭且不在字符串中，继续处理
+        } else {
+          currentDay += char
+        }
+      } else {
+        currentDay += char
+      }
+    }
+    
+    console.log(`🔍 提取到 ${dayObjects.length} 个完整的 day 对象`)
+    
+    if (dayObjects.length > 0) {
+      // 尝试构建部分完整的 JSON
+      const partialJSON = {
+        title: title || '旅行行程',
+        destination: destination || '',
+        duration: duration ? parseInt(duration) : dayObjects.length,
+        summary: summary || '',
+        days: dayObjects,
+        recommendations: null,
+        totalCost: 0
+      }
+      
+      console.log('✅ 成功构建部分 JSON，包含', dayObjects.length, '天的数据')
+      return partialJSON
+    } else if (title || destination || summary) {
+      // 即使没有 days，也返回基本字段
+      console.log('⚠️ 没有提取到完整的 day 对象，但返回基本字段')
+      return {
+        title: title || '旅行行程',
+        destination: destination || '',
+        duration: duration ? parseInt(duration) : 0,
+        summary: summary || '',
+        days: []
+      }
+    }
+  } catch (error: any) {
+    console.warn('⚠️ 提取部分 JSON 失败:', error.message || error)
+  }
+  
+  return null
+}
+
+/**
+ * 从 JSON 字符串中提取指定字段的值
+ * 支持正常的 JSON 格式和错误的转义格式
+ */
+function extractField(jsonString: string, fieldName: string): string | null {
+  // 尝试多种模式来提取字段值
+  
+  // 1. 正常格式："field": "value"
+  let pattern = new RegExp(`"${fieldName}"\\s*:\\s*"([^"]*(?:\\\\.[^"]*)*)"`, 'g')
+  let match = pattern.exec(jsonString)
+  
+  if (match && match[1]) {
+    return match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\\\/g, '\\')
+  }
+  
+  // 2. 正常格式（无引号值，如数字）："field": 123
+  pattern = new RegExp(`"${fieldName}"\\s*:\\s*([0-9.]+)`, 'g')
+  match = pattern.exec(jsonString)
+  
+  if (match && match[1]) {
+    return match[1]
+  }
+  
+  // 3. 错误转义格式："field\": \"value"
+  pattern = new RegExp(`"${fieldName}\\"?:\\s*\\\\?"([^"]*(?:\\\\.[^"]*)*)\\"?`, 'g')
+  match = pattern.exec(jsonString)
+  
+  if (match && match[1]) {
+    let value = match[1]
+    value = value.replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\\\/g, '\\')
+    return value
+  }
+  
+  // 4. 字段名前有转义：\"field\": "value"
+  pattern = new RegExp(`\\\\?"${fieldName}\\"?\\s*:\\s*"([^"]*(?:\\\\.[^"]*)*)"`, 'g')
+  match = pattern.exec(jsonString)
+  
+  if (match && match[1]) {
+    return match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\\\/g, '\\')
+  }
+  
+  // 5. 尝试提取到字符串结束或下一个字段（处理截断的JSON）
+  pattern = new RegExp(`"${fieldName}"\\s*:\\s*"([^"]*)`, 'g')
+  match = pattern.exec(jsonString)
+  
+  if (match && match[1]) {
+    // 即使字符串未闭合，也返回已提取的部分
+    return match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\\\/g, '\\')
+  }
+  
+  return null
 }
 
 }

@@ -91,8 +91,8 @@
             </a-button>
           </div>
 
-          <!-- 本地灵感库建议（当未生成结果时显示） -->
-          <div v-if="!inspirationResult && localSuggestions.length" style="margin-top: 1rem;">
+          <!-- 本地灵感库建议（当未生成结果时显示，但不显示在问卷模式下） -->
+          <div v-if="mode !== 'questionnaire' && !inspirationResult && localSuggestions.length" style="margin-top: 1rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
               <a-divider style="flex:1;margin:0 8px 0 0;">本地灵感库建议</a-divider>
               <a-button type="link" @click="randomizeSuggestions" style="padding:0;">换一批</a-button>
@@ -121,8 +121,14 @@
             style="margin: 1rem 0"
           />
 
+          <!-- 加载状态 -->
+          <div v-if="loading" class="loading-section" style="text-align: center; padding: 3rem;">
+            <a-spin size="large" />
+            <p style="margin-top: 1rem; color: #666;">正在分析你的心理画像并生成推荐目的地...</p>
+          </div>
+
           <!-- 灵感卡片结果 -->
-          <div v-if="inspirationResult" class="result-section">
+          <div v-else-if="inspirationResult" class="result-section">
             <a-divider style="height: 8px; background-color: #f0f0f0;" />
             
             <div class="inspiration-result">
@@ -217,6 +223,25 @@
                 </div>
               </div>
 
+              <!-- 如果已选择目的地，显示推荐理由和判断思路 -->
+              <div v-if="mode === 'questionnaire' && selectedLocation && currentLocationDetail" class="recommendation-reasoning">
+                <a-divider style="margin: 1.5rem 0;" />
+                <div class="reasoning-content">
+                  <div class="reasoning-header">
+                    <h5>💡 AI 推荐理由</h5>
+                  </div>
+                  <div class="reasoning-text" v-if="currentLocationDetail.reason">
+                    <p>{{ currentLocationDetail.reason }}</p>
+                  </div>
+                  <div class="reasoning-header" style="margin-top: 1rem;" v-if="currentLocationDetail.reasoning">
+                    <h5>🔍 AI 判断思路</h5>
+                  </div>
+                  <div class="reasoning-text" v-if="currentLocationDetail.reasoning">
+                    <p>{{ currentLocationDetail.reasoning }}</p>
+                  </div>
+                </div>
+              </div>
+
               <div class="ai-message">
                 <div class="ai-avatar-wrapper">
                   <a-avatar size="large" class="ai-avatar">🤖</a-avatar>
@@ -227,9 +252,14 @@
                     <h5>{{ t('home.inspiration.aiTravelPartnerSays') }}</h5>
                     <span class="ai-badge">AI 智能助手</span>
                   </div>
-                  <div class="message-text">
+                  <div class="message-text" v-if="displayAiMessage">
                     <span class="quote-mark">"</span>
                     <p>"{{ displayAiMessage }}"</p>
+                    <span class="quote-mark">"</span>
+                  </div>
+                  <div class="message-text" v-else>
+                    <span class="quote-mark">"</span>
+                    <p>"{{ mode === 'questionnaire' ? '正在为你分析心理画像并推荐目的地...' : '请输入你的旅行灵感，让我为你创造独特的旅程体验。' }}"</p>
                     <span class="quote-mark">"</span>
                   </div>
                 </div>
@@ -237,7 +267,21 @@
 
               <!-- 操作按钮 -->
               <div class="action-buttons">
+                <!-- 如果是问卷模式且已生成推荐但未生成完整行程，显示"生成旅程"按钮 -->
+                <!-- 条件：问卷模式 && 有推荐结果 && (没有完整行程 || 没有days字段) && 已选择目的地 -->
                 <a-button
+                  v-if="mode === 'questionnaire' && inspirationResult && (!inspirationResult.hasFullItinerary && !inspirationResult.days) && selectedLocation"
+                  type="primary"
+                  size="large"
+                  :loading="travelStore.loading"
+                  @click="handleGenerateItinerary"
+                  class="convert-button"
+                >
+                  {{ travelStore.loading ? '生成中...' : '生成旅程' }} ✈️
+                </a-button>
+                <!-- 如果是问卷模式且已生成完整行程，或输入模式，显示"创建旅程"按钮 -->
+                <a-button
+                  v-else-if="(mode === 'questionnaire' && inspirationResult?.hasFullItinerary) || mode === 'input'"
                   type="primary"
                   size="large"
                   @click="createTravel"
@@ -288,11 +332,21 @@ const mode = ref<'questionnaire' | 'input'>('input')
 const inspirationInput = ref('')
 const loading = computed(() => travelStore.loading)
 const error = computed(() => travelStore.error)
-const inspirationResult = computed(() => travelStore.inspirationData)
+const inspirationResult = computed(() => {
+  const data = travelStore.inspirationData
+  console.log('🔄 inspirationResult computed 触发，数据:', {
+    hasData: !!data,
+    locationsCount: data?.locations?.length || 0,
+    title: data?.title
+  })
+  return data
+})
 const selectedLocation = ref<string>('')
 const aiHint = ref('')
 const hintLoading = ref(false)
 const debounceTimer = ref<NodeJS.Timeout | null>(null)
+// 保存原始问卷数据，用于生成完整行程时使用
+const savedPersonalityProfile = ref<PersonalityProfile | null>(null)
 
 // 本地灵感库建议（默认取前 12 个）
 const localSuggestions = ref<Array<{ name: string; country: string }>>([])
@@ -464,7 +518,6 @@ watch(inspirationInput, async (newValue) => {
 
 const handleQuestionnaireSubmit = async (profile: PersonalityProfile) => {
   console.log('问卷提交:', profile)
-  console.log('当前选中地点:', selectedLocation.value)
   
   // 详细调试信息
   const storeMethods = {
@@ -490,19 +543,94 @@ const handleQuestionnaireSubmit = async (profile: PersonalityProfile) => {
   }
   
   try {
-    console.log('✅ 开始调用 generatePsychologicalJourney...')
-    console.log('📍 用户选择的目的地:', selectedLocation.value)
-    // 传递用户选择的目的地
-    await travelStore.generatePsychologicalJourney(profile, selectedLocation.value)
-    console.log('✅ generatePsychologicalJourney 调用完成')
+    console.log('✅ 开始调用 generatePsychologicalJourney（第一步：推荐目的地）...')
+    // 保存原始问卷数据，用于后续生成完整行程
+    savedPersonalityProfile.value = profile
     
-    // 如果生成成功，跳转到详情页
-    if (travelStore.inspirationData) {
-      createTravel()
+    // 显示加载提示
+    message.loading('正在分析你的心理画像并生成推荐目的地...', 0)
+    
+    // 第一步：不传递目的地，只生成推荐列表
+    await travelStore.generatePsychologicalJourney(profile)
+    
+    // 关闭加载提示
+    message.destroy()
+    
+    console.log('✅ 目的地推荐生成完成')
+    console.log('📊 travelStore.inspirationData:', travelStore.inspirationData)
+    console.log('📍 locations:', travelStore.inspirationData?.locations)
+    console.log('📍 recommendedDestinations:', travelStore.inspirationData?.recommendedDestinations)
+    
+    // 等待一下确保响应式更新
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
+    // 如果生成了推荐列表，显示给用户选择
+    if (travelStore.inspirationData?.locations && travelStore.inspirationData.locations.length > 0) {
+      console.log(`✅ 成功生成 ${travelStore.inspirationData.locations.length} 个推荐目的地`)
+      message.success(`成功生成 ${travelStore.inspirationData.locations.length} 个推荐目的地！`)
+      // 如果还没有选择目的地，提示用户选择
+      if (!selectedLocation.value) {
+        setTimeout(() => {
+          message.info('请从推荐列表中选择一个目的地，选择后点击"生成旅程"按钮')
+        }, 1000)
+      }
+    } else {
+      console.warn('⚠️ 未生成推荐目的地列表')
+      console.warn('⚠️ inspirationData 内容:', JSON.stringify(travelStore.inspirationData, null, 2))
+      message.warning('未能生成推荐目的地，请稍后重试或检查网络连接')
     }
   } catch (error: any) {
-    console.error('❌ 生成心理旅程失败:', error)
-    message.error(error.message || '生成心理旅程失败，请重试')
+    message.destroy() // 关闭加载提示
+    console.error('❌ 生成目的地推荐失败:', error)
+    console.error('❌ 错误详情:', error.stack || error)
+    message.error(error.message || '生成目的地推荐失败，请重试')
+  }
+}
+
+// 用户选择目的地后生成完整行程
+const handleGenerateItinerary = async () => {
+  if (!selectedLocation.value) {
+    message.warning('请先选择一个目的地')
+    return
+  }
+  
+  // 使用保存的原始问卷数据
+  if (!savedPersonalityProfile.value) {
+    message.error('人格问卷数据缺失，请重新填写问卷')
+    return
+  }
+  
+  try {
+    console.log('✅ 开始生成完整行程，选择的目的地:', selectedLocation.value)
+    message.loading('正在生成完整的行程规划...', 0)
+    
+    // 第二步：传递选择的目的地，生成完整行程
+    await travelStore.generatePsychologicalJourney(savedPersonalityProfile.value, selectedLocation.value)
+    
+    message.destroy()
+    console.log('✅ 完整行程生成完成')
+    console.log('📊 生成的行程数据:', {
+      hasFullItinerary: travelStore.inspirationData?.hasFullItinerary,
+      hasDays: !!travelStore.inspirationData?.days,
+      daysCount: travelStore.inspirationData?.days?.length || 0,
+      destination: travelStore.inspirationData?.destination,
+      title: travelStore.inspirationData?.title
+    })
+    
+    // 检查是否生成了完整行程（有 days 字段或 hasFullItinerary 为 true）
+    if (travelStore.inspirationData?.hasFullItinerary || travelStore.inspirationData?.days) {
+      console.log('✅ 完整行程已生成，准备跳转到详情页')
+      message.success('行程生成成功！')
+      createTravel()
+    } else {
+      console.warn('⚠️ 未检测到完整行程数据')
+      console.warn('⚠️ inspirationData 内容:', JSON.stringify(travelStore.inspirationData, null, 2))
+      message.error('行程生成失败，请重试或检查网络连接')
+    }
+  } catch (error: any) {
+    message.destroy()
+    console.error('❌ 生成完整行程失败:', error)
+    message.error(error.message || '生成完整行程失败，请重试')
   }
 }
 
@@ -1124,6 +1252,46 @@ const exploreMore = () => {
   line-height: 1.6;
   position: relative;
   padding: 0 16px;
+}
+
+/* AI 推荐理由和判断思路 */
+.recommendation-reasoning {
+  margin-top: 1rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border-left: 4px solid #3b82f6;
+}
+
+.reasoning-content {
+  color: #1e40af;
+}
+
+.reasoning-header h5 {
+  color: #1e40af !important;
+  margin: 0 0 0.75rem 0 !important;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reasoning-text {
+  margin-bottom: 1rem;
+}
+
+.reasoning-text p {
+  color: #1e40af !important;
+  margin: 0 !important;
+  font-size: 0.95rem !important;
+  line-height: 1.7 !important;
+  font-style: normal !important;
+  padding: 0 !important;
+}
+
+.reasoning-text:last-child {
+  margin-bottom: 0;
 }
 
 /* 操作按钮 */

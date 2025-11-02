@@ -32,10 +32,14 @@ export interface HighlightDetail {
 
 export interface LocationDetail {
   name: string
-  duration: string
-  budget: string
-  highlights: string[] | HighlightDetail[]
+  country?: string
+  duration?: string
+  budget?: string
+  highlights?: string[] | HighlightDetail[]
   aiMessage?: string
+  description?: string
+  reason?: string // AI推荐理由
+  reasoning?: string // AI判断思路
 }
 
 export interface InspirationData {
@@ -500,6 +504,12 @@ export const useTravelStore = defineStore('travel', () => {
       // 传递用户选择的目的地
       const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination)
       console.log('心理旅程模式：生成完成', inspirationData)
+      console.log('📦 返回的数据包含:', {
+        locations: inspirationData.locations?.length || 0,
+        recommendedDestinations: inspirationData.recommendedDestinations?.length || 0,
+        hasTitle: !!inspirationData.title,
+        hasAiMessage: !!inspirationData.aiMessage
+      })
       
       // 补充国家信息（如果需要）
       if (inspirationData.locations) {
@@ -522,8 +532,16 @@ export const useTravelStore = defineStore('travel', () => {
         inspirationData.locationCountries = inspirationData.locationCountries || locationCountries
       }
       
+      // 确保数据正确设置
+      console.log('📝 准备设置 inspirationData，locations数量:', inspirationData.locations?.length || 0)
       setInspirationData(inspirationData)
       setCurrentMode('inspiration')
+      
+      // 验证数据是否设置成功
+      const currentData = inspirationData.value
+      console.log('✅ 数据已设置到 store')
+      console.log('✅ 验证：当前 inspirationData.locations:', currentData?.locations?.length || 0)
+      console.log('✅ 验证：当前 inspirationData.title:', currentData?.title)
     } catch (err) {
       console.error('生成心理旅程失败:', err)
       setError('生成心理旅程失败，请重试')

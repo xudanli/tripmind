@@ -184,7 +184,12 @@ const inspirationTitle = computed(() => {
 })
 
 const destination = computed(() => {
-  const dest = itineraryData.value?.destination || travel.value?.location || travel.value?.data?.location
+  // 优先级：1. travel.location (用户选择的目的地) 2. data.selectedLocation 3. itineraryData.destination 4. data.location
+  const dest = travel.value?.location || 
+               travel.value?.data?.selectedLocation || 
+               itineraryData.value?.destination || 
+               travel.value?.data?.location ||
+               travel.value?.data?.destination
   if (dest) {
     // 如果包含国家信息，格式化显示
     const country = travel.value?.data?.currentCountry || ''

@@ -1,4 +1,5 @@
 import { API_CONFIG } from '@/config/api'
+import { extractJSONObject, cleanMarkdownCodeBlocks, safeParseJSON, extractField } from '@/utils/jsonParser'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -512,10 +513,16 @@ Please respond in English.`
       max_tokens: 500
     })
     
-    const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    return JSON.parse(cleaned)
-  } catch (error) {
-    console.error('Failed to detect intent:', error)
+    console.log('🔍 detectInspirationIntent 原始响应:', response.substring(0, 500))
+    
+    // 使用统一的 JSON 解析工具
+    const parsed = safeParseJSON(response)
+    console.log('✅ 检测到的用户意图:', parsed)
+    return parsed
+  } catch (error: any) {
+    console.error('❌ Failed to detect intent:', error)
+    console.error('❌ 错误详情:', error.message)
+    // 返回默认值而不是抛出错误，避免阻塞整个流程
     return {
       intentType: 'photography_exploration',
       keywords: [],
@@ -884,148 +891,308 @@ Create a travel itinerary that embodies this psychological journey.`
   
   console.log('🎯 生成心理旅程，用户选择的目的地:', selectedDestination || '未指定')
   
-  // 调用生成函数生成实际行程，传递选择的目的地
-  let itineraryData = null
-  try {
-    itineraryData = await generateInspirationJourney(psychologicalPrompt, language, userCountry, selectedDestination)
-    
-    // 如果用户选择了目的地，但AI生成的目的地不匹配，强制替换
-    if (selectedDestination && itineraryData && itineraryData.destination !== selectedDestination) {
-      console.warn(`⚠️ AI生成的目的地(${itineraryData.destination})与用户选择(${selectedDestination})不一致，强制替换`)
-      itineraryData.destination = selectedDestination
-      // 更新标题以反映正确目的地
-      if (itineraryData.title && !itineraryData.title.includes(selectedDestination)) {
-        itineraryData.title = `${itineraryData.title.split('·')[0] || itineraryData.title.split('：')[0] || '心理旅程'}·${selectedDestination}`
-      }
-    }
-  } catch (error) {
-    console.warn('⚠️ 行程生成失败，仅返回心理旅程模板', error)
-  }
+  // 第一步：使用AI生成目的地推荐（基于人格画像和模板）
+  // 如果用户未选择目的地，才生成推荐列表；如果已选择，则跳过此步骤
+  let recommendedDestinations: Array<{ name: string; country: string; reason: string; reasoning?: string; description?: string }> = []
   
-  // 生成目的地推荐（本国优先，至少5个国际城市）
-  let recommendedDestinations: Array<{ name: string; country: string; description?: string }> = []
-  try {
-    const { listDestinations } = await import('@/utils/inspirationDb')
-    
-    // 1. 优先获取本国目的地（如果有用户国家）
-    if (userCountry) {
-      const domesticDests = listDestinations({ country: userCountry })
-      // 选择3-5个本国目的地
-      const selectedDomestic = domesticDests
-        .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0)) // 按认知密度排序
-        .slice(0, 5)
-        .map(d => ({
-          name: d.name,
-          country: d.country,
-          description: d.description
-        }))
-      recommendedDestinations.push(...selectedDomestic)
-      console.log(`📍 推荐了 ${selectedDomestic.length} 个${userCountry}国内目的地`)
+  // 如果用户已选择目的地，跳过推荐步骤
+  if (!selectedDestination) {
+    try {
+    // 构建推荐目的地的AI提示词
+    const recommendationPrompt = isEnglish
+      ? `You are an Inspirit Designer analyzing a traveler's psychological profile to recommend destinations.
+
+**Psychological Profile:**
+- Motivation: ${personalityProfile.motivation} (seeking: ${personalityProfile.motivation_detail})
+- Emotion: From ${personalityProfile.dominant_emotion} to ${personalityProfile.desired_emotion}
+- Rhythm: ${personalityProfile.travel_rhythm}, Activity Density: ${personalityProfile.activity_density}
+- Social: ${personalityProfile.social_preference} (intensity: ${personalityProfile.social_intensity}/5)
+- Need: ${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+
+**Matched Psychological Template:**
+- Template Name: ${template.templateName}
+- Psychological Flow: ${template.psychologicalFlow.join(' → ')}
+- Symbolic Elements: ${template.symbolicElements.join(', ')}
+- Core Insight: ${template.coreInsight}
+- Recommended Rhythm: ${template.recommendedRhythm}
+- Social Mode: ${template.socialMode}
+
+**User Location:** ${userCountry || 'Unknown'}
+
+Based on this psychological profile and template, recommend travel destinations that would support this psychological journey.
+
+**Requirements:**
+1. Recommend 8-12 destinations total
+2. If user is in a specific country (${userCountry || 'unknown'}), prioritize 3-5 destinations within that country
+3. Include at least 5 international destinations from different countries
+4. Each recommendation MUST include:
+   - name: Destination name (specific location, e.g., "Mount Kailash Sacred Circuit" not just "Tibet")
+   - country: Country name
+   - reason: A concise recommendation reason (2-3 sentences) explaining why this destination matches their psychological profile
+   - reasoning: Your analytical thinking process (2-3 sentences) explaining the connection between their personality traits and this destination
+
+**Analysis Approach:**
+Consider:
+- How the destination's symbolic meaning aligns with their motivation (${personalityProfile.motivation})
+- How the destination supports their emotional transformation (from ${personalityProfile.dominant_emotion} to ${personalityProfile.desired_emotion})
+- How the destination's pace matches their rhythm preference (${personalityProfile.travel_rhythm})
+- How the destination facilitates their cognitive need (${personalityProfile.cognitive_need})
+- How the destination supports their social preference (${personalityProfile.social_preference})
+
+Return a valid JSON array with this structure:
+[
+  {
+    "name": "Destination Name",
+    "country": "Country Name",
+    "reason": "Why this destination matches their profile (2-3 sentences)",
+    "reasoning": "Your analytical thinking: how you connected their traits to this destination (2-3 sentences)"
+  }
+]`
+      : `你是一位灵感人格旅行设计者，需要根据用户的心理画像推荐旅行目的地。
+
+**用户心理画像：**
+- 动机：${personalityProfile.motivation}（寻求：${personalityProfile.motivation_detail}）
+- 情绪：从 ${personalityProfile.dominant_emotion} 到 ${personalityProfile.desired_emotion}
+- 节奏：${personalityProfile.travel_rhythm}，活动密度：${personalityProfile.activity_density}
+- 社交：${personalityProfile.social_preference}（强度：${personalityProfile.social_intensity}/5）
+- 需求：${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+
+**匹配的心理旅程模板：**
+- 模板名称：${template.templateName}
+- 心理流程：${template.psychologicalFlow.join(' → ')}
+- 象征元素：${template.symbolicElements.join('、')}
+- 核心洞察：${template.coreInsight}
+- 推荐节奏：${template.recommendedRhythm}
+- 社交模式：${template.socialMode}
+
+**用户地理位置：** ${userCountry || '未知'}
+
+基于这个心理画像和模板，推荐适合这个心理旅程的旅行目的地。
+
+**要求：**
+1. 总共推荐8-12个目的地
+2. 如果用户位于特定国家（${userCountry || '未知'}），优先推荐3-5个该国国内目的地
+3. 至少包含5个来自不同国家的国际目的地
+4. 每个推荐必须包含：
+   - name: 目的地名称（具体地点，例如"冈仁波齐·神山环线"而不是仅仅"西藏"）
+   - country: 国家名称
+   - reason: 推荐理由（2-3句话），说明为什么这个目的地匹配用户的心理画像
+   - reasoning: 你的判断思路（2-3句话），解释你如何将用户的性格特质与这个目的地连接起来
+
+**分析思路：**
+考虑：
+- 目的地的象征意义如何匹配用户的动机（${personalityProfile.motivation}）
+- 目的地如何支持用户的情绪转化（从 ${personalityProfile.dominant_emotion} 到 ${personalityProfile.desired_emotion}）
+- 目的地的节奏如何匹配用户的节奏偏好（${personalityProfile.travel_rhythm}）
+- 目的地如何满足用户的认知需求（${personalityProfile.cognitive_need}）
+- 目的地如何支持用户的社交偏好（${personalityProfile.social_preference}）
+
+返回有效的JSON数组，格式如下：
+[
+  {
+    "name": "目的地名称",
+    "country": "国家名称",
+    "reason": "推荐理由（2-3句话）：为什么这个目的地匹配用户画像",
+    "reasoning": "判断思路（2-3句话）：你是如何将用户的性格特质与这个目的地连接起来的"
+  }
+]`
+
+    // 调用AI生成推荐
+  const messages: ChatMessage[] = [
+      { 
+        role: 'system', 
+        content: isEnglish
+          ? 'You are an Inspirit Designer specializing in recommending travel destinations based on psychological profiles. You must return valid JSON arrays only, with no additional text.'
+          : '你是一位灵感人格旅行设计者，专门根据心理画像推荐旅行目的地。你必须只返回有效的JSON数组，不要任何额外文字。'
+      },
+      { role: 'user', content: recommendationPrompt }
+    ]
+
+    console.log('🚀 开始调用AI生成目的地推荐...')
+    const response = await chatWithDeepSeek(messages, {
+      temperature: 0.8,
+      max_tokens: 4000
+    })
+
+    if (!response || response.trim().length === 0) {
+      throw new Error('AI返回空响应')
     }
+
+    console.log('📥 AI原始响应长度:', response.length)
+    console.log('📥 AI原始响应 (前500字符):', response.substring(0, 500))
+
+    // 清理并解析响应
+    let cleaned = response.trim()
+    cleaned = cleaned.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
     
-    // 2. 至少推荐5个国际城市（来自不同国家）
-    const allDestinations = listDestinations()
-    const internationalDests = userCountry
-      ? allDestinations.filter(d => d.country !== userCountry)
-      : allDestinations
+    console.log('🧹 清理后的响应 (前500字符):', cleaned.substring(0, 500))
     
-    // 按国家分组，确保至少5个不同国家
-    const byCountry: Record<string, typeof internationalDests> = {}
-    for (const dest of internationalDests) {
-      if (!byCountry[dest.country]) {
-        byCountry[dest.country] = []
-      }
-      const countryArray = byCountry[dest.country]
-      if (countryArray) {
-        countryArray.push(dest)
-      }
+    // 尝试提取JSON数组
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/)
+    if (jsonMatch) {
+      cleaned = jsonMatch[0]
+      console.log('✅ 提取到JSON数组')
+    } else {
+      console.warn('⚠️ 未找到JSON数组，尝试其他方式提取')
     }
-    
-    // 从每个国家选择1-2个目的地，优先选择认知密度高的
-    const selectedInternational: typeof internationalDests = []
-    const countries = Object.keys(byCountry).sort()
-    
-    // 确保至少5个不同国家的城市
-    const minCountries = 5
-    let countryCount = 0
-    
-    for (const country of countries) {
-      if (countryCount >= minCountries && selectedInternational.length >= minCountries) break
+
+    try {
+      const parsed = JSON.parse(cleaned)
+      console.log('✅ JSON解析成功，类型:', Array.isArray(parsed) ? '数组' : typeof parsed)
       
-      const countryDests = byCountry[country]
-      if (countryDests && countryDests.length > 0) {
-        const sorted = countryDests
-          .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0))
-          .slice(0, 2) // 每个国家最多2个
-        
-        selectedInternational.push(...sorted)
-        countryCount++
+      if (Array.isArray(parsed)) {
+        recommendedDestinations = parsed.map((dest: any) => ({
+          name: dest.name || '',
+          country: dest.country || '',
+          reason: dest.reason || dest.description || '',
+          reasoning: dest.reasoning || '',
+          description: dest.description || dest.reason || ''
+        }))
+        console.log(`✅ AI推荐了 ${recommendedDestinations.length} 个目的地`)
+        console.log('📍 推荐列表:', recommendedDestinations.map(d => `${d.name} (${d.country})`).join(', '))
+      } else {
+        console.error('❌ AI返回的不是数组格式，类型:', typeof parsed, '内容:', parsed)
+        throw new Error('AI返回的不是数组格式')
       }
+    } catch (parseError: any) {
+      console.error('❌ 解析AI推荐目的地失败:', parseError.message || parseError)
+      console.error('❌ 尝试解析的内容 (前1000字符):', cleaned.substring(0, 1000))
+      // 如果解析失败，可以返回空数组或使用备用逻辑
+      recommendedDestinations = []
+    }
+    } catch (error: any) {
+      console.error('❌ AI生成目的地推荐失败:', error.message || error)
+      console.error('❌ 错误堆栈:', error.stack)
+      recommendedDestinations = []
     }
     
-    // 如果没有足够的不同国家，补足到至少5个国际目的地
-    if (selectedInternational.length < minCountries) {
-      const remaining = internationalDests
-        .filter(d => !selectedInternational.find(s => s.id === d.id))
-        .sort((a, b) => (b.cognitiveDensity || 0) - (a.cognitiveDensity || 0))
-        .slice(0, minCountries - selectedInternational.length)
-      selectedInternational.push(...remaining)
+    // 确保至少有基本推荐（如果AI失败）
+    if (recommendedDestinations.length === 0) {
+      console.warn('⚠️ AI未生成推荐，使用默认推荐')
+      recommendedDestinations = [
+        {
+          name: '冈仁波齐·神山环线',
+          country: '中国',
+          reason: '适合追求精神体验和内心转化的旅行者',
+          reasoning: '根据你的心理画像，这是一个支持深度内省和转化的目的地'
+        }
+      ]
     }
     
-    // 转换为推荐格式
-    const internationalRecommendations = selectedInternational
-      .slice(0, Math.max(minCountries, selectedInternational.length))
-      .map(d => ({
-        name: d.name,
-        country: d.country,
-        description: d.description
-      }))
-    
-    recommendedDestinations.push(...internationalRecommendations)
-    console.log(`🌍 推荐了 ${internationalRecommendations.length} 个国际城市，来自 ${countryCount} 个国家`)
-  } catch (error) {
-    console.warn('⚠️ 生成目的地推荐失败:', error)
+    console.log(`✅ 最终推荐了 ${recommendedDestinations.length} 个目的地`)
+    console.log('📍 推荐目的地详情:', recommendedDestinations)
+  } else {
+    // 用户已选择目的地，不需要推荐列表
+    console.log('✅ 用户已选择目的地，跳过推荐生成步骤')
+    recommendedDestinations = []
   }
   
-  // 生成双轨 JSON（完整结构）
-  const dualTrackData = await generateDualTrackJSON(
-    template,
-    vector,
-    {
-      motivation_detail: personalityProfile.motivation_detail,
-      desired_emotion: personalityProfile.desired_emotion,
-      activity_density: personalityProfile.activity_density,
-      social_intensity: personalityProfile.social_intensity,
-      post_journey_goal: personalityProfile.post_journey_goal
-    },
-    itineraryData
-  )
+  // 生成AI推荐消息
+  let aiRecommendationMessage = ''
+  if (selectedDestination) {
+    // 用户已选择目的地，生成行程中
+    aiRecommendationMessage = isEnglish
+      ? `I'm creating a personalized ${template.templateName} journey itinerary for ${selectedDestination} based on your psychological profile.`
+      : `我正在为 ${selectedDestination} 创建个性化的 ${template.templateName} 旅程行程，基于你的心理画像。`
+  } else if (recommendedDestinations.length > 0) {
+    // 显示推荐列表，等待用户选择
+    const topDestinations = recommendedDestinations.slice(0, 3).map(d => d.name).join('、')
+    aiRecommendationMessage = isEnglish
+      ? `Based on your psychological profile (${template.templateName}), I've carefully selected ${recommendedDestinations.length} destinations that align with your journey from ${personalityProfile.dominant_emotion} to ${personalityProfile.desired_emotion}. The top recommendations include ${topDestinations}. Each destination has been thoughtfully matched to support your ${personalityProfile.motivation} motivation and ${personalityProfile.cognitive_need} needs. Please choose one that resonates with you, and I'll create a personalized itinerary for your ${template.templateName} journey.`
+      : `根据你的心理画像（${template.templateName}），我为你精心选择了 ${recommendedDestinations.length} 个目的地，它们与你从 ${personalityProfile.dominant_emotion} 到 ${personalityProfile.desired_emotion} 的情绪转化路径相契合。重点推荐包括 ${topDestinations} 等。每个目的地都经过深思熟虑，匹配你的 ${personalityProfile.motivation} 动机和 ${personalityProfile.cognitive_need} 需求。请选择一个让你心动的地方，我将为你量身定制一份 ${template.templateName} 旅程。`
+  }
+  
+  // 第二步：如果用户选择了目的地，生成完整行程；否则只返回推荐列表
+  let itineraryData = null
+  let dualTrackData = null
+  
+  // 如果用户已选择目的地，跳过推荐步骤，直接生成完整行程
+  if (selectedDestination) {
+    // 用户已选择目的地，基于问卷内容和目的地生成完整行程
+    console.log('✅ 用户已选择目的地，跳过推荐步骤，直接生成完整行程...')
+    console.log('📍 生成行程基于：问卷内容 + 目的地:', selectedDestination)
+    
+    // 当用户已选择目的地时，不需要生成推荐列表，直接使用选择的目的地
+    recommendedDestinations = [{
+      name: selectedDestination,
+      country: userCountry || '未知',
+      reason: '您已选择此目的地',
+      reasoning: '基于您的选择生成个性化行程'
+    }]
+    
+    try {
+      // 传递用户选择的目的地，AI会严格按照该目的地生成行程
+      itineraryData = await generateInspirationJourney(psychologicalPrompt, language, userCountry, selectedDestination)
+      
+      // 验证AI是否正确使用了用户选择的目的地（仅记录日志，不强制替换）
+      if (itineraryData && itineraryData.destination !== selectedDestination) {
+        console.warn(`⚠️ 注意：AI生成的目的地(${itineraryData.destination})与用户选择(${selectedDestination})不一致，但系统信任AI的生成结果`)
+      } else {
+        console.log(`✅ AI正确使用了用户选择的目的地: ${selectedDestination}`)
+      }
+      
+      // 生成双轨 JSON（完整结构）
+      dualTrackData = await generateDualTrackJSON(
+        template,
+        vector,
+        {
+          motivation_detail: personalityProfile.motivation_detail,
+          desired_emotion: personalityProfile.desired_emotion,
+          activity_density: personalityProfile.activity_density,
+          social_intensity: personalityProfile.social_intensity,
+          post_journey_goal: personalityProfile.post_journey_goal
+        },
+        itineraryData
+      )
+  } catch (error) {
+      console.warn('⚠️ 行程生成失败，仅返回心理旅程模板和推荐列表', error)
+      // 即使行程生成失败，也返回推荐列表和模板信息
+    }
+  } else {
+    // 用户未选择目的地，只返回推荐列表和模板信息，不生成行程
+    console.log('ℹ️ 用户未选择目的地，仅返回推荐列表')
+  }
+  
+  // 使用AI生成的目的地，或用户选择的目的地
+  let finalDestination = itineraryData?.destination || selectedDestination
   
   // 合并数据：将双轨 JSON 和行程数据整合
-  const result = {
-    // 标准行程字段（如果有）
-    ...(itineraryData || {}),
-    
+  const result: any = {
     // 人格画像
-    personaProfile: dualTrackData.personaProfile,
+    personaProfile: dualTrackData?.personaProfile || {
+      type: template.templateName,
+      motivation: personalityProfile.motivation,
+      motivation_detail: personalityProfile.motivation_detail,
+      dominantEmotion: personalityProfile.dominant_emotion,
+      desiredEmotion: personalityProfile.desired_emotion,
+      travelRhythm: personalityProfile.travel_rhythm,
+      activityDensity: personalityProfile.activity_density,
+      socialPreference: personalityProfile.social_preference,
+      socialIntensity: personalityProfile.social_intensity,
+      cognitiveNeed: personalityProfile.cognitive_need,
+      postJourneyGoal: personalityProfile.post_journey_goal
+    },
     
-    // 旅程设计（包含双轨）
-    journeyDesign: dualTrackData.journeyDesign,
+    // 旅程设计（如果有完整行程）
+    journeyDesign: dualTrackData?.journeyDesign,
     
-    // 目的地推荐（新增）
+    // 目的地推荐（AI生成，包含推荐理由和判断思路）
     recommendedDestinations: recommendedDestinations,
     locations: recommendedDestinations.map(d => d.name),
     locationDetails: recommendedDestinations.reduce((acc, dest) => {
       acc[dest.name] = {
         name: dest.name,
         country: dest.country,
-        description: dest.description
+        description: dest.description || dest.reason,
+        reason: dest.reason, // 推荐理由
+        reasoning: dest.reasoning // AI的判断思路
       }
       return acc
-    }, {} as Record<string, { name: string; country: string; description?: string }>),
+    }, {} as Record<string, { name: string; country: string; description?: string; reason?: string; reasoning?: string }>),
     
     // 兼容字段
-    title: dualTrackData.journeyDesign.title,
+    title: dualTrackData?.journeyDesign?.title || `${template.templateName}旅程`,
+    subtitle: `基于你的心理画像推荐的目的地`,
     coreInsight: template.coreInsight,
     templateName: template.templateName,
     psychologicalFlow: template.psychologicalFlow,
@@ -1033,8 +1200,40 @@ Create a travel itinerary that embodies this psychological journey.`
     
     // 匹配信息
     matchScore: matchResult.score,
-    matchDetails: matchResult.matchDetails
+    matchDetails: matchResult.matchDetails,
+    
+    // 标记是否已生成完整行程
+    hasFullItinerary: !!itineraryData,
+    
+    // AI推荐消息（用于"AI 旅行伙伴说"区域）
+    aiMessage: aiRecommendationMessage || (isEnglish 
+      ? `I've prepared ${recommendedDestinations.length} destination recommendations for you based on your psychological profile. Please select one that speaks to your heart.`
+      : `我根据你的心理画像为你准备了 ${recommendedDestinations.length} 个目的地推荐，请选择一个让你心动的地方。`)
   }
+  
+  // 如果已生成完整行程，添加行程相关字段
+  if (itineraryData && dualTrackData) {
+    result.destination = finalDestination
+    result.location = finalDestination
+    result.days = itineraryData.days
+    result.duration = itineraryData.duration
+    result.summary = itineraryData.summary
+    result.recommendations = itineraryData.recommendations
+    result.totalCost = itineraryData.totalCost
+    
+    // 合并标准行程字段
+    Object.assign(result, itineraryData)
+  }
+  
+  console.log('📤 准备返回结果，包含推荐目的地数量:', result.recommendedDestinations?.length || 0)
+  console.log('📤 返回的locations数量:', result.locations?.length || 0)
+  console.log('📤 hasFullItinerary:', result.hasFullItinerary)
+  console.log('📤 result结构:', {
+    hasRecommendedDestinations: !!result.recommendedDestinations,
+    hasLocations: !!result.locations,
+    locationsLength: result.locations?.length || 0,
+    recommendedDestinationsLength: result.recommendedDestinations?.length || 0
+  })
   
   return result
 }
@@ -1114,25 +1313,25 @@ export async function generateInspirationJourney(input: string, language: string
       }
     } else {
       // 未指定用户国家，使用原来的逻辑
-      const grouped: Record<string, { name: string; country: string }[]> = {}
-      for (const d of all) {
-        (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
-      }
-      const lines: string[] = []
-      const countries = Object.keys(grouped).sort()
-      let total = 0
-      for (const c of countries) {
-        const picks = (grouped[c] || []).slice(0, 3)
-        if (picks.length === 0) continue
-        const names = picks.map(p => p.name).join(', ')
-        lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
-        total += picks.length
-        if (total >= 48) break
-      }
-      if (lines.length) {
-        referenceCatalog = isEnglish
-          ? `Reference destinations (pick from these when suitable; do not invent nonexistent places):\n${lines.join('\n')}`
-          : `参考目的地（尽量优先从下列中选择，避免凭空捏造地点）：\n${lines.join('\n')}`
+    const grouped: Record<string, { name: string; country: string }[]> = {}
+    for (const d of all) {
+      (grouped[d.country] ||= []).push({ name: d.name, country: d.country })
+    }
+    const lines: string[] = []
+    const countries = Object.keys(grouped).sort()
+    let total = 0
+    for (const c of countries) {
+      const picks = (grouped[c] || []).slice(0, 3)
+      if (picks.length === 0) continue
+      const names = picks.map(p => p.name).join(', ')
+      lines.push(isEnglish ? `- ${c}: ${names}` : `- ${c}：${names}`)
+      total += picks.length
+      if (total >= 48) break
+    }
+    if (lines.length) {
+      referenceCatalog = isEnglish
+        ? `Reference destinations (pick from these when suitable; do not invent nonexistent places):\n${lines.join('\n')}`
+        : `参考目的地（尽量优先从下列中选择，避免凭空捏造地点）：\n${lines.join('\n')}`
       }
     }
   } catch {}
@@ -1543,11 +1742,8 @@ JSON 验证规则：
     
     console.log('🌟 AI 原始响应 (前 1000 字符):', (response || '').substring(0, 1000))
     
-    // 清理响应中的 markdown 代码块
-    let cleaned = response
-      .replace(/```json\n?/gi, '')  // 移除 json 代码块标记
-      .replace(/```\n?/g, '')        // 移除其他代码块标记
-      .trim()
+    // 使用统一的清理工具
+    let cleaned = cleanMarkdownCodeBlocks(response)
     
     // 再次检查清理后的内容是否有效
     if (!cleaned || cleaned.length === 0) {
@@ -1762,218 +1958,21 @@ JSON 验证规则：
       console.log('🔍 最后修复后的前 50 字符:', cleaned.substring(0, 50))
     }
     
-    // 尝试解析JSON，如果失败则尝试修复
+    // 使用统一的 JSON 解析工具（带多重修复尝试）
     let parsed: any
     
-    // 先尝试直接解析
+    // 使用安全解析工具
     try {
-      parsed = JSON.parse(cleaned)
-      console.log('✅ 首次解析成功')
+      parsed = safeParseJSON(cleaned)
+      console.log('✅ JSON 解析成功')
     } catch (parseError: any) {
       const errorPos = parseError.message.match(/position (\d+)/)?.[1]
       const errorPosNum = errorPos ? parseInt(errorPos) : 0
       
-      console.warn('⚠️ 首次解析失败，尝试修复 JSON...', parseError)
-      console.warn('⚠️ 错误位置:', parseError.message)
-      if (errorPosNum > 0) {
-        const start = Math.max(0, errorPosNum - 50)
-        const end = Math.min(cleaned.length, errorPosNum + 50)
-        console.warn('⚠️ 错误位置附近的 JSON:', cleaned.substring(start, end))
-        console.warn('⚠️ 错误位置标记:', ' '.repeat(errorPosNum - start) + '^')
-      }
-      
-      // 在修复前，先尝试直接修复错误位置的明显问题
-      if (errorPosNum > 0 && errorPosNum < cleaned.length) {
-        const charAtError = cleaned[errorPosNum]
-        const beforeError = cleaned.substring(Math.max(0, errorPosNum - 20), errorPosNum)
-        const afterError = cleaned.substring(errorPosNum, Math.min(cleaned.length, errorPosNum + 20))
-        
-        console.warn('⚠️ 错误位置的字符:', charAtError)
-        console.warn('⚠️ 错误位置前 20 字符:', beforeError)
-        console.warn('⚠️ 错误位置后 20 字符:', afterError)
-        
-        // 如果错误位置是 \，可能是转义问题
-        if (charAtError === '\\' || beforeError.includes('\\":')) {
-          // 尝试修复该位置的转义问题
-          cleaned = cleaned.substring(0, Math.max(0, errorPosNum - 20)) +
-                    cleaned.substring(Math.max(0, errorPosNum - 20), Math.min(cleaned.length, errorPosNum + 20))
-                    .replace(/\\":/g, '":')
-                    .replace(/":\\"/g, '": "') +
-                    cleaned.substring(Math.min(cleaned.length, errorPosNum + 20))
-        }
-      }
-      
-      // 尝试更激进的修复
-      cleaned = fixJSONResponse(cleaned)
-      
-      try {
-        parsed = JSON.parse(cleaned)
-      } catch (secondError: any) {
-        const secondErrorPos = secondError.message.match(/position (\d+)/)?.[1]
-        const secondErrorPosNum = secondErrorPos ? parseInt(secondErrorPos) : 0
-        
-        console.error('❌ 二次解析仍失败:', secondError)
-        console.error('❌ 错误位置:', secondError.message)
-        if (secondErrorPosNum > 0) {
-          const start = Math.max(0, secondErrorPosNum - 100)
-          const end = Math.min(cleaned.length, secondErrorPosNum + 100)
-          console.error('❌ 错误位置附近的 JSON:', cleaned.substring(start, end))
-        }
-        console.error('❌ 修复后的 JSON (前 2000 字符):', cleaned.substring(0, 2000))
-        
-        // 最后一次尝试：更激进的手动修复
-        try {
-          let finalClean = cleaned
-          
-          // 先输出修复前的状态用于调试
-          console.log('🔧 开始激进修复，修复前的前 100 字符:', finalClean.substring(0, 100))
-          
-          // 使用更彻底的修复策略：逐步修复所有转义问题
-          
-          // 多次迭代修复，确保所有模式都被处理
-          let repairCount = 0
-          let lastClean = finalClean
-          
-          while (repairCount < 10) {
-            // 最高优先级：修复字段名和值前都有转义的完整模式
-            // \"field\":\"value -> "field": "value
-            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:\s*\\"/g, '"$1": "')
-            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
-            
-            // 次优先级：修复字段名后有转义，值前也有转义的完整模式
-            // "field\":\"value -> "field": "value
-            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\\"/g, '"$1": "')
-            
-            // 修复字段名后的转义（值前有转义，带空格）："field\": \" -> "field": "
-            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":\s*\\"/g, '"$1": "')
-            
-            // 1. 修复字段名后的转义："field\": -> "field":
-            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
-            
-            // 2. 修复值前的转义：": \" -> ": " 和 ":\" -> ": "
-            finalClean = finalClean.replace(/":\s*\\"/g, '": "')
-            finalClean = finalClean.replace(/":\\"/g, '": "')
-            
-            // 3. 修复完整的字段定义：\"field\": -> "field":
-            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
-            
-            // 4. 修复字段名前的转义（字段名前有转义，但值前没有）：\"field": -> "field":
-            finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '"$1":')
-            
-            // 5. 修复字段名后的转义（值前有转义）："field\": -> "field":
-            finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
-            
-            // 6. 修复残留的转义：\": -> :
-            finalClean = finalClean.replace(/\\":/g, '":')
-            
-            // 修复连续的转义：\":\" -> : "
-            finalClean = finalClean.replace(/\\":\\"/g, '": "')
-            
-            // 7. 修复字段名中的单独转义引号：\"field -> "field（不在冒号前）
-            // 但要小心，只在JSON结构位置（不在字符串值中）修复
-            finalClean = finalClean.replace(/([{,]\s*)\\"/g, '$1"')
-            
-            // 如果修复后没有变化，说明修复完成
-            if (finalClean === lastClean) {
-              break
-            }
-            lastClean = finalClean
-            repairCount++
-          }
-          
-          console.log('🔧 正则修复迭代次数:', repairCount)
-          
-          // 8. 使用状态机处理复杂情况：修复残留的转义问题
-          let fixed = ''
-          let inString = false
-          let escapeNext = false
-          
-          for (let i = 0; i < finalClean.length; i++) {
-            const char = finalClean[i]
-            const beforeContext = finalClean.substring(Math.max(0, i - 15), i)
-            
-            if (escapeNext) {
-              // 处理转义字符
-              if (char === '"') {
-                // 判断这是否是错误转义
-                // 如果前面是字段名或冒号，这可能是错误转义
-                if (!inString) {
-                  // 在字段定义位置
-                  if (beforeContext.match(/":\s*$/) || beforeContext.match(/"\w+\\$/)) {
-                    // 这是错误的转义，移除反斜杠，直接使用引号
-                    fixed += '"'
-                    escapeNext = false
-                    continue
-                  }
-                }
-              }
-              // 正常的转义字符，保留
-              fixed += '\\' + char
-              escapeNext = false
-              continue
-            }
-            
-            if (char === '\\') {
-              // 检查上下文，判断是否是错误转义
-              if (!inString) {
-                // 在字段定义位置
-                // 检查后面是否跟着引号，如果是，且前面是字段名或冒号，可能是错误转义
-                const nextChar = i < finalClean.length - 1 ? finalClean[i + 1] : ''
-                if (nextChar === '"') {
-                  if (beforeContext.match(/":\s*$/) || beforeContext.match(/"\w+$/)) {
-                    // 这是错误转义，跳过反斜杠
-                    continue
-                  }
-                }
-              }
-              escapeNext = true
-              continue
-            }
-            
-            if (char === '"') {
-              inString = !inString
-              fixed += char
-              continue
-            }
-            
-            fixed += char
-          }
-          
-          finalClean = fixed
-          
-          // 9. 最后再次修复可能的残留转义（多重修复确保彻底）
-          // 再次应用所有修复规则，确保没有遗漏
-          finalClean = finalClean.replace(/"([a-zA-Z_][a-zA-Z0-9_]*)\\":/g, '"$1":')
-          finalClean = finalClean.replace(/":\s*\\"/g, '": "')
-          finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)\\"\s*:/g, '"$1":')
-          finalClean = finalClean.replace(/\\"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:/g, '"$1":')
-          finalClean = finalClean.replace(/\\":/g, '":')
-          
-          console.log('🔧 激进修复后的前 100 字符:', finalClean.substring(0, 100))
-          
-          // 4. 尝试解析
-          parsed = JSON.parse(finalClean)
-          console.warn('⚠️ 通过激进修复成功解析 JSON')
-        } catch (thirdError: any) {
-          // 最后尝试：如果 JSON 被截断，尝试提取已完成的 days
-          try {
-            const partialResult = tryExtractPartialJSON(cleaned)
-            if (partialResult && partialResult.days && partialResult.days.length > 0) {
-              console.warn('⚠️ 使用部分解析的结果，包含', partialResult.days.length, '天的数据')
-              parsed = partialResult
-            } else {
-              // 输出更多调试信息
-              console.error('❌ 无法提取部分 JSON')
-              console.error('❌ cleaned 长度:', cleaned.length)
-              console.error('❌ cleaned 是否包含 days:', cleaned.includes('days'))
-        throw new Error('AI返回的JSON格式无效，请重试')
-            }
-          } catch (extractError: any) {
-            console.error('❌ 提取部分 JSON 也失败:', extractError)
-            throw new Error('AI返回的JSON格式无效，请重试')
-          }
-        }
-      }
+      console.error('❌ JSON 解析失败:', parseError.message)
+      console.error('❌ cleaned 长度:', cleaned.length)
+      console.error('❌ cleaned 是否包含 days:', cleaned.includes('days'))
+      throw new Error('AI返回的JSON格式无效，请重试')
     }
     
     console.log('🌟 解析后的数据:', {
@@ -1984,6 +1983,15 @@ JSON 验证规则：
       hasItineraryFormat: !!(parsed.days && Array.isArray(parsed.days)),
       hasLegacyFormat: !!(parsed.locations && parsed.locationDetails)
     })
+    
+    // 如果用户选择了目的地，验证AI是否正确使用（仅记录日志，不强制替换）
+    if (selectedDestination) {
+      if (parsed.destination !== selectedDestination) {
+        console.warn(`⚠️ 注意：AI生成的目的地(${parsed.destination})与用户选择(${selectedDestination})不一致，但系统信任AI的生成结果`)
+      } else {
+        console.log(`✅ AI正确使用了用户选择的目的地: ${selectedDestination}`)
+      }
+    }
     
     // 验证必要字段（支持新的行程计划格式和旧的灵感格式）
     if (parsed.days && Array.isArray(parsed.days)) {

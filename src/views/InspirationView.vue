@@ -57,26 +57,6 @@
                 class="inspiration-input"
                 @keydown.enter.ctrl="handleSubmit"
               />
-              <!-- 动态AI提示 -->
-              <div v-if="aiHint" class="ai-hint-section">
-                <div class="ai-hint-header">
-                  <span class="hint-icon">💡</span>
-                  <span class="hint-title">{{ t('inspiration.hint.title') }}：</span>
-                </div>
-                <div class="ai-hint-content">
-                  <div v-for="(hint, index) in formattedAiHints" :key="index" class="ai-hint-item">
-                    {{ hint }}
-                  </div>
-                </div>
-              </div>
-              
-              <!-- 静态提示（当没有AI提示时显示） -->
-              <div v-else class="input-hints">
-                <a-space direction="vertical" size="small">
-                  <span class="hint">{{ t('inspiration.tips.title') }}：</span>
-                  <span v-for="(example, index) in inspirationExamples" :key="index" class="hint">• {{ example }}</span>
-                </a-space>
-              </div>
             </div>
 
             <a-button
@@ -91,8 +71,8 @@
             </a-button>
           </div>
 
-          <!-- 本地灵感库建议（当未生成结果时显示，但不显示在问卷模式下） -->
-          <div v-if="mode !== 'questionnaire' && !inspirationResult && localSuggestions.length" style="margin-top: 1rem;">
+          <!-- 本地灵感库建议（当未生成结果时显示，但不显示在问卷模式下，也不显示在加载中） -->
+          <div v-if="mode !== 'questionnaire' && !inspirationResult && !travelStore.loading && localSuggestions.length" style="margin-top: 1rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
               <a-divider style="flex:1;margin:0 8px 0 0;">本地灵感库建议</a-divider>
               <a-button type="link" @click="randomizeSuggestions" style="padding:0;">换一批</a-button>
@@ -142,8 +122,8 @@
 
               <div class="result-details">
                 <a-row :gutter="[16, 16]">
-                  <!-- 如果有多 destination -->
-                  <a-col v-if="inspirationResult.locations && inspirationResult.locations.length > 0" :xs="24" :sm="24">
+                  <!-- 如果有推荐目的地列表且没有明确目的地，显示推荐列表 -->
+                  <a-col v-if="shouldShowRecommendedDestinations" :xs="24" :sm="24">
                     <div class="detail-item locations-item">
                       <div class="detail-icon">📍</div>
                       <div class="detail-content locations-wrapper">
@@ -163,13 +143,13 @@
                     </div>
                   </a-col>
                   
-                  <!-- 单个目的地（兼容旧数据） -->
-                  <a-col v-else :xs="24" :sm="8">
+                  <!-- 如果有明确目的地，显示单个目的地 -->
+                  <a-col v-else-if="hasSpecificDestination || (inspirationResult.location && (!inspirationResult.locations || inspirationResult.locations.length === 0))" :xs="24" :sm="8">
                     <div class="detail-item">
                       <div class="detail-icon">📍</div>
                       <div class="detail-content">
                         <span class="detail-label">{{ t('home.inspiration.recommendedLocation') }}</span>
-                        <span class="detail-value">{{ inspirationResult.location }}</span>
+                        <span class="detail-value">{{ inspirationResult.destination || inspirationResult.location }}</span>
                       </div>
                     </div>
                   </a-col>
@@ -306,7 +286,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelStore } from '@/stores/travel'
@@ -342,9 +322,6 @@ const inspirationResult = computed(() => {
   return data
 })
 const selectedLocation = ref<string>('')
-const aiHint = ref('')
-const hintLoading = ref(false)
-const debounceTimer = ref<NodeJS.Timeout | null>(null)
 // 保存原始问卷数据，用于生成完整行程时使用
 const savedPersonalityProfile = ref<PersonalityProfile | null>(null)
 
@@ -433,6 +410,36 @@ const displayAiMessage = computed(() => {
   return currentLocationDetail.value?.aiMessage || inspirationResult.value?.aiMessage || ''
 })
 
+// 判断是否有明确目的地（不显示推荐目的地列表）
+const hasSpecificDestination = computed(() => {
+  if (!inspirationResult.value) return false
+  // 如果有完整行程，说明已有明确目的地
+  if (inspirationResult.value.hasFullItinerary || inspirationResult.value.days) {
+    return true
+  }
+  // 如果有明确的 destination 字段，且不是推荐列表
+  if (inspirationResult.value.destination && 
+      (!inspirationResult.value.locations || inspirationResult.value.locations.length === 0)) {
+    return true
+  }
+  // 在输入模式下，如果 location 存在且 locations 不存在，说明是单一明确目的地
+  if (mode.value === 'input' && 
+      inspirationResult.value.location && 
+      (!inspirationResult.value.locations || inspirationResult.value.locations.length === 0)) {
+    return true
+  }
+  return false
+})
+
+// 判断是否应该显示推荐目的地列表
+const shouldShowRecommendedDestinations = computed(() => {
+  if (!inspirationResult.value) return false
+  // 如果有明确目的地，不显示推荐列表
+  if (hasSpecificDestination.value) return false
+  // 只有在有推荐列表且数量 > 0 时才显示
+  return inspirationResult.value.locations && inspirationResult.value.locations.length > 0
+})
+
 // 显示地点（附加国家）
 function formatLocationLabel(loc: string): string {
   const country = inspirationResult.value?.locationCountries?.[loc]
@@ -455,66 +462,6 @@ const getHighlightIcon = (highlight: string) => {
   return '✨'
 }
 
-const inspirationExamples = computed(() => {
-  const result = t('inspiration.tips.examples')
-  console.log('inspirationExamples result:', result, 'Type:', typeof result, 'IsArray:', Array.isArray(result))
-  // 确保返回数组
-  if (Array.isArray(result)) {
-    return result
-  }
-  // 如果不是数组，返回空数组
-  console.warn('inspiration.tips.examples is not an array, returning empty array')
-  return []
-})
-
-// 格式化AI提示
-const formattedAiHints = computed(() => {
-  if (!aiHint.value) return []
-  
-  // 按行分割，过滤空行
-  return aiHint.value
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line.length > 0)
-})
-
-// 监听输入变化，生成AI提示
-watch(inspirationInput, async (newValue) => {
-  // 清除之前的定时器
-  if (debounceTimer.value) {
-    clearTimeout(debounceTimer.value)
-  }
-  
-  // 如果输入为空，清除AI提示
-  if (!newValue.trim()) {
-    aiHint.value = ''
-    return
-  }
-  
-  // 如果输入少于5个字符，不生成提示
-  if (newValue.trim().length < 5) {
-    aiHint.value = ''
-    return
-  }
-  
-  // 防抖处理，500ms后调用
-  debounceTimer.value = setTimeout(async () => {
-    try {
-      hintLoading.value = true
-      const { generateInspirationHint } = await import('@/services/deepseekAPI')
-      const currentLanguage = locale.value || 'zh-CN'
-      const hint = await generateInspirationHint(newValue, currentLanguage as string)
-      
-      if (hint) {
-        aiHint.value = hint
-      }
-    } catch (error) {
-      console.error('生成AI提示失败:', error)
-    } finally {
-      hintLoading.value = false
-    }
-  }, 800)
-})
 
 const handleQuestionnaireSubmit = async (profile: PersonalityProfile) => {
   console.log('问卷提交:', profile)
@@ -858,79 +805,6 @@ const exploreMore = () => {
 .inspiration-input:focus {
   border-color: #11998e !important;
   box-shadow: 0 0 0 2px rgba(17, 153, 142, 0.2) !important;
-}
-
-.input-hints {
-  margin-top: 1rem;
-  text-align: left;
-  background: #f8f9fa;
-  padding: 1rem;
-  border-radius: 8px;
-  border-left: 4px solid #11998e;
-}
-
-.hint {
-  color: #666 !important;
-  font-size: 0.9rem;
-}
-
-/* AI提示区域 */
-.ai-hint-section {
-  margin-top: 1rem;
-  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-  padding: 1rem 1.25rem;
-  border-radius: 8px;
-  border-left: 4px solid #11998e;
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.ai-hint-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.hint-icon {
-  font-size: 1.1rem;
-}
-
-.hint-title {
-  color: #11998e;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.ai-hint-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.ai-hint-item {
-  color: #333;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 6px;
-  transition: all 0.2s ease;
-}
-
-.ai-hint-item:hover {
-  background: rgba(255, 255, 255, 0.9);
-  transform: translateX(4px);
 }
 
 .submit-button {

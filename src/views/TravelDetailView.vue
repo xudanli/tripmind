@@ -161,11 +161,16 @@
         <template #content>
           <p>{{ aiSuggestion }}</p>
         </template>
-        <a-float-button type="primary" :badge="{ count: 1 }" :shape="'circle'" :style="{ right: '24px', bottom: '24px' }">
+        <a-button 
+          type="primary" 
+          shape="circle" 
+          size="large"
+          :style="{ width: '56px', height: '56px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }"
+        >
           <template #icon>
             <bulb-outlined />
           </template>
-        </a-float-button>
+        </a-button>
       </a-popover>
     </div>
     </template>
@@ -770,8 +775,7 @@ const getBudgetColor = () => {
   z-index: 1000;
 }
 
-.ai-float-button :deep(.ant-float-btn) {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.ai-float-button :deep(.ant-btn) {
   animation: float 3s ease-in-out infinite;
 }
 

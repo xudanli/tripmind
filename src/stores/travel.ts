@@ -178,6 +178,78 @@ export interface InspirationData {
         ritual?: string
         reflection?: string
       }
+      // 详细信息（新增）
+      details?: {
+        // 名称信息
+        name?: {
+          chinese?: string
+          english?: string
+          local?: string // 当地语言名称
+        }
+        // 地址信息
+        address?: {
+          chinese?: string
+          english?: string
+          local?: string
+          landmark?: string // 附近地标（如"靠近历史广场"）
+        }
+        // 交通信息
+        transportation?: {
+          fromStation?: {
+            distance?: string // 如"12分钟步行"
+            walkTime?: string
+            busTime?: string
+          }
+          busLines?: string[] // 公交路线，如["1", "2", "8", "19"]
+          busStop?: string // 公交站名（当地语言）
+          subway?: {
+            available: boolean
+            lines?: string[]
+            station?: string
+          }
+          parking?: string // 停车信息
+        }
+        // 营业/开放时间
+        openingHours?: {
+          days?: string // 如"周一至周日"
+          hours?: string // 如"11:30-14:30, 17:30-22:00"
+          holidays?: string // 节假日安排
+          closedDays?: string[] // 关闭日期
+        }
+        // 费用明细
+        pricing?: {
+          general?: number // 一般估计费用
+          detail?: {
+            setMeal?: { min: number; max: number; unit: string } // 套餐价格
+            aLaCarte?: { min: number; max: number; unit: string } // 单点价格
+            children?: { price: number; ageLimit?: number; unit: string } // 儿童价格
+            groupDiscount?: { percentage?: number; minPeople?: number } // 团体折扣
+          }
+        }
+        // 评分
+        rating?: {
+          score?: number // 0-5
+          platform?: string // 评分平台（如"Google", "TripAdvisor"）
+          reviewCount?: number
+        }
+        // 推荐和建议
+        recommendations?: {
+          bestTime?: string // 最佳时间，如"晚餐时间(18:00-20:00)"
+          bookingRequired?: boolean
+          bookingAdvance?: string // 预订提前时间，如"2-3天"
+          suggestedDuration?: string // 建议停留时间，如"90-120分钟"
+          dressCode?: string // 着装要求
+          seasonal?: string // 季节特色/注意事项
+          specialNotes?: string[] // 特殊注意事项
+        }
+        // 描述和特色
+        description?: {
+          cuisine?: string // 菜系/类型
+          specialty?: string // 特色
+          atmosphere?: string // 氛围
+          highlights?: string[] // 亮点
+        }
+      }
     }>
   }>
   

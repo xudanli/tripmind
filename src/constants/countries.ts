@@ -104,6 +104,24 @@ export const PRESET_COUNTRIES: Record<string, CountryInfo> = {
     language: '英语'
   },
   
+  // 加拿大
+  'CA': { 
+    name: '加拿大', 
+    code: 'CA', 
+    flag: '🇨🇦',
+    currency: 'CAD',
+    language: '英语/法语'
+  },
+  
+  // 新西兰
+  'NZ': { 
+    name: '新西兰', 
+    code: 'NZ', 
+    flag: '🇳🇿',
+    currency: 'NZD',
+    language: '英语'
+  },
+  
   // 英国
   'GB': { 
     name: '英国', 
@@ -147,6 +165,15 @@ export const PRESET_COUNTRIES: Record<string, CountryInfo> = {
     flag: '🇪🇸',
     currency: 'EUR',
     language: '西班牙语'
+  },
+  
+  // 芬兰
+  'FI': { 
+    name: '芬兰', 
+    code: 'FI', 
+    flag: '🇫🇮',
+    currency: 'EUR',
+    language: '芬兰语'
   },
   
   // 中国台湾

@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container" :class="{ 'inspiration-container': travel?.mode === 'inspiration' }">
     <!-- 加载状态或数据不存在 -->
     <div v-if="travel === null || travel === undefined" class="loading-container">
       <a-spin size="large" />
@@ -9,17 +9,15 @@
     <!-- 正常内容 -->
     <template v-else>
     <!-- 根据模式切换Hero组件 -->
-    <!-- 注意：Inspiration模式的返回按钮已集成在ExperienceDay组件的封面设计中 -->
-    <template v-if="travel?.mode !== 'inspiration'">
-      <div class="header">
-        <a-button @click="router.back()" class="back-button">
-          <template #icon>
-            <arrow-left-outlined />
-          </template>
-          {{ t('travelDetail.backToJourney') }}
-        </a-button>
-      </div>
-    </template>
+    <!-- 所有模式统一显示返回按钮 -->
+    <div class="header">
+      <a-button @click="router.back()" class="back-button">
+        <template #icon>
+          <arrow-left-outlined />
+        </template>
+        {{ t('travelDetail.backToJourney') }}
+      </a-button>
+    </div>
     <PlannerHero
       v-if="travel?.mode === 'planner'"
       :title="travel?.title || ''"
@@ -43,8 +41,8 @@
     <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' }">
       <a-row :gutter="[24, 24]">
         <!-- 左侧面板 - 根据模式切换 -->
-        <!-- 灵感模式：全宽显示 (24列) -->
-        <a-col :xs="24" :lg="travel?.mode === 'inspiration' ? 24 : 16" :class="{ 'inspiration-full-width': travel?.mode === 'inspiration' }">
+        <!-- 灵感模式：16列，右侧8列显示公共组件 -->
+        <a-col :xs="24" :lg="travel?.mode === 'inspiration' ? 16 : 16" :class="{ 'inspiration-full-width': travel?.mode === 'inspiration' }">
           <!-- Planner 模式：详细时间表 -->
           <PlannerTimeline v-if="travel?.mode === 'planner'" :itinerary="(travel?.data as any)?.plannerItinerary || null" />
 
@@ -52,7 +50,17 @@
           <SeekerMoodNotes v-else-if="travel?.mode === 'seeker'" />
 
           <!-- Inspiration 模式：体验日 -->
-          <ExperienceDay v-else-if="travel?.mode === 'inspiration'" />
+          <template v-else-if="travel?.mode === 'inspiration'">
+            <!-- 签证指引（Inspiration模式显示在顶部） -->
+            <VisaGuide 
+              v-if="visaInfo && destinationCountry"
+              :visa-info="visaInfo"
+              :destination-country="destinationCountry"
+              :destination-name="destinationName"
+              style="margin-bottom: 24px;"
+            />
+            <ExperienceDay />
+          </template>
 
           <!-- 默认时间表 -->
           <a-card :title="t('travelDetail.timeline')" class="timeline-card" :bordered="false" v-else>
@@ -92,41 +100,53 @@
           </a-card>
         </a-col>
 
-        <!-- 右侧面板 - 根据模式切换（灵感模式隐藏） -->
+        <!-- 右侧面板 - 所有模式都显示 -->
         <a-col 
           :xs="24" 
           :lg="8" 
-          style="position: relative;"
-          v-if="travel?.mode !== 'inspiration'"
+          :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
         >
           <!-- Planner 模式：效率工具 -->
-          <PlannerSidebar v-if="travel?.mode === 'planner'" />
+          <PlannerSidebar v-if="travel?.mode === 'planner'" :travel-id="travel?.id" />
 
           <!-- Seeker 模式：陪伴与记录 -->
-          <SeekerSidebar v-else-if="travel?.mode === 'seeker'" />
+          <SeekerSidebar v-else-if="travel?.mode === 'seeker'" :travel-id="travel?.id" />
+
+          <!-- Inspiration 模式：公共组件 -->
+          <template v-else-if="travel?.mode === 'inspiration'">
+            <a-space direction="vertical" size="large" style="width: 100%">
+              <VisaGuide 
+                v-if="visaInfo && destinationCountry"
+                :visa-info="visaInfo"
+                :destination-country="destinationCountry"
+                :destination-name="destinationName"
+                style="margin-bottom: 24px;"
+              />
+              <DiscussionArea :travel-id="travel?.id" />
+              <TaskList :travel-id="travel?.id" />
+              <BudgetManager :travel-id="travel?.id" :initial-spent="travel?.spent || 0" :initial-total="travel?.budget || 0" />
+            </a-space>
+          </template>
+          
+          <!-- 签证指引（所有模式显示在右侧边栏顶部，如果有目的地信息） -->
+          <VisaGuide 
+            v-if="visaInfo && destinationCountry && travel?.mode !== 'inspiration'"
+            :visa-info="visaInfo"
+            :destination-country="destinationCountry"
+            :destination-name="destinationName"
+            style="margin-bottom: 24px;"
+          />
 
           <!-- 默认侧边栏 -->
           <a-space direction="vertical" size="large" style="width: 100%" v-if="!travel?.mode || (travel?.mode !== 'planner' && travel?.mode !== 'seeker' && travel?.mode !== 'inspiration')">
             <!-- 讨论区 -->
-            <a-card :title="t('travelDetail.discussion')" class="sidebar-card" :bordered="false">
-              <div class="chat-area">
-                <div class="chat-messages">
-                  <div class="chat-placeholder">
-                    <message-outlined :style="{ fontSize: '32px', color: '#ccc' }" />
-                    <p>{{ t('travelDetail.chatPlaceholder') }}</p>
-                  </div>
-                </div>
-                <a-input 
-                  placeholder="输入消息..."
-                  v-model:value="chatInput"
-                  @pressEnter="sendMessage"
-                >
-                  <template #suffix>
-                    <thunderbolt-outlined />
-                  </template>
-                </a-input>
-              </div>
-            </a-card>
+            <DiscussionArea :travel-id="travel?.id" />
+            
+            <!-- 任务清单 -->
+            <TaskList :travel-id="travel?.id" />
+            
+            <!-- 预算管理 -->
+            <BudgetManager :travel-id="travel?.id" :initial-spent="travel?.spent || 0" :initial-total="travel?.budget || 0" />
 
             <!-- 成员管理 -->
             <a-card :title="t('travelDetail.members')" class="sidebar-card" :bordered="false">
@@ -152,33 +172,16 @@
             </a-card>
           </a-space>
         </a-col>
+        
       </a-row>
     </div>
 
-    <!-- AI 浮动助手 -->
-    <div class="ai-float-button" v-if="aiSuggestion">
-      <a-popover placement="leftTop" :title="t('travelDetail.aiAssistant')">
-        <template #content>
-          <p>{{ aiSuggestion }}</p>
-        </template>
-        <a-button 
-          type="primary" 
-          shape="circle" 
-          size="large"
-          :style="{ width: '56px', height: '56px', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }"
-        >
-          <template #icon>
-            <bulb-outlined />
-          </template>
-        </a-button>
-      </a-popover>
-    </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
@@ -191,7 +194,13 @@ import SeekerMoodNotes from '@/components/TravelDetail/SeekerMoodNotes.vue'
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
 import PlannerSidebar from '@/components/TravelDetail/PlannerSidebar.vue'
 import SeekerSidebar from '@/components/TravelDetail/SeekerSidebar.vue'
-import { getTravelSuggestion } from '@/services/deepseekAPI'
+import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
+import DiscussionArea from '@/components/TravelDetail/DiscussionArea.vue'
+import TaskList from '@/components/TravelDetail/TaskList.vue'
+import BudgetManager from '@/components/TravelDetail/BudgetManager.vue'
+import { getUserNationalityCode } from '@/config/userProfile'
+import { getVisaInfo } from '@/config/visa'
+import { PRESET_COUNTRIES } from '@/constants/countries'
 
 const { t } = useI18n()
 import {
@@ -199,7 +208,6 @@ import {
   EnvironmentOutlined,
   CalendarOutlined,
   UserOutlined,
-  BulbOutlined,
   EditOutlined,
   ShareAltOutlined,
   MessageOutlined,
@@ -217,51 +225,120 @@ const travelListStore = useTravelListStore()
 const travelStore = useTravelStore()
 
 const travel = ref<Travel | null>(null)
-const chatInput = ref('')
-const aiSuggestion = ref<string>('')
 
-// 根据模式设置AI建议
-const setAISuggestion = async () => {
-  if (!travel.value) return
+// 从目的地字符串提取国家代码（统一的提取函数）
+const extractCountryCodeFromDestination = (destStr: string): string | null => {
+  if (!destStr) return null
   
-  // 使用 DeepSeek API 获取真实 AI 建议
-  try {
-    const suggestion = await getTravelSuggestion(
-      travel.value.mode as 'planner' | 'seeker' | 'inspiration',
-      `旅行标题：${travel.value.title}`
-    )
-    aiSuggestion.value = suggestion
-  } catch (error) {
-    console.error('Failed to get AI suggestion:', error)
-    // 失败时使用静态建议
-    const suggestions: { [key: string]: string[] } = {
-      planner: [
-        t('travelDetail.aiSuggestion.planner1'),
-        t('travelDetail.aiSuggestion.planner2'),
-        t('travelDetail.aiSuggestion.planner3')
-      ],
-      seeker: [
-        t('travelDetail.aiSuggestion.seeker1'),
-        t('travelDetail.aiSuggestion.seeker2'),
-        t('travelDetail.aiSuggestion.seeker3')
-      ],
-      inspiration: [
-        t('travelDetail.aiSuggestion.inspiration1'),
-        t('travelDetail.aiSuggestion.inspiration2'),
-        t('travelDetail.aiSuggestion.inspiration3')
-      ]
-    }
-    const modeSuggestions = suggestions[travel.value.mode] || []
-    aiSuggestion.value = modeSuggestions[Math.floor(Math.random() * modeSuggestions.length)]
+  const destLower = destStr.toLowerCase()
+  
+  // 国家别名映射（地名、常见英文名称等）
+  const countryAliases: Record<string, string[]> = {
+    'US': ['alaska', '阿拉斯加', 'fairbanks', '费尔班克斯', 'usa', 'united states', '美国', 'america'],
+    'JP': ['japan', '日本'],
+    'KR': ['korea', 'south korea', '韩国'],
+    'TH': ['thailand', '泰国'],
+    'SG': ['singapore', '新加坡'],
+    'MY': ['malaysia', '马来西亚'],
+    'ID': ['indonesia', '印尼'],
+    'PH': ['philippines', '菲律宾'],
+    'VN': ['vietnam', '越南'],
+    'AU': ['australia', '澳大利亚'],
+    'CA': ['canada', '加拿大'],
+    'NZ': ['new zealand', '新西兰'],
+    'GB': ['united kingdom', 'uk', '英国', 'britain'],
+    'FR': ['france', '法国'],
+    'DE': ['germany', '德国'],
+    'IT': ['italy', '意大利'],
+    'ES': ['spain', '西班牙'],
+    'FI': ['finland', '芬兰'],
+    'TW': ['taiwan', '台湾'],
+    'HK': ['hong kong', '香港'],
+    'MO': ['macau', 'macao', '澳门']
   }
+  
+  // 遍历PRESET_COUNTRIES，匹配国家名称或代码
+  for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+    // 1. 匹配国家名称（中文）
+    if (destLower.includes(country.name.toLowerCase())) {
+      return code
+    }
+    
+    // 2. 匹配国家代码
+    if (destLower.includes(code.toLowerCase())) {
+      return code
+    }
+    
+    // 3. 匹配别名
+    const aliases = countryAliases[code] || []
+    if (aliases.some(alias => destLower.includes(alias.toLowerCase()))) {
+      return code
+    }
+  }
+  
+  return null
 }
 
-// 监听travel变化，更新AI建议
-const initAI = () => {
-  if (travel.value) {
-    setAISuggestion()
+// 提取目的地国家代码
+const destinationCountry = computed(() => {
+  if (!travel.value) return null
+  
+  // 尝试从不同数据源提取目的地
+  const data = travel.value.data as any
+  
+  // 1. 从 location 字段提取（优先级最高，因为可能被用户或AI更新）
+  if (travel.value.location) {
+    const countryCode = extractCountryCodeFromDestination(travel.value.location)
+    if (countryCode) return countryCode
   }
-}
+  
+  // 2. 从 destination 字段提取
+  if (travel.value.destination) {
+    const countryCode = extractCountryCodeFromDestination(travel.value.destination)
+    if (countryCode) return countryCode
+  }
+  
+  // 3. 从 itineraryData 或 plannerItinerary 中提取
+  if (data?.itineraryData?.destination) {
+    const countryCode = extractCountryCodeFromDestination(data.itineraryData.destination)
+    if (countryCode) return countryCode
+  }
+  
+  // 4. 从 days 数组中的 locations 提取
+  if (data?.days && Array.isArray(data.days)) {
+    for (const day of data.days) {
+      if (day.location) {
+        const countryCode = extractCountryCodeFromDestination(day.location)
+        if (countryCode) return countryCode
+      }
+    }
+  }
+  
+  return null
+})
+
+// 获取目的地名称
+const destinationName = computed(() => {
+  if (!destinationCountry.value) return ''
+  const country = PRESET_COUNTRIES[destinationCountry.value as keyof typeof PRESET_COUNTRIES]
+  return country?.name || ''
+})
+
+// 获取签证信息
+const visaInfo = computed(() => {
+  const countryCode = destinationCountry.value
+  if (!countryCode) return null
+  
+  const nationalityCode = getUserNationalityCode()
+  if (!nationalityCode) return null
+  
+  const visaInfos = getVisaInfo(countryCode, nationalityCode, null)
+  if (visaInfos.length === 0) return null
+  
+  // 返回第一个签证信息（通常是主要的）
+  return visaInfos[0]
+})
+
 
 // 加载旅程数据
 onMounted(() => {
@@ -270,6 +347,126 @@ onMounted(() => {
   travel.value = travelListStore.getTravel(id)
   console.log('Loaded travel:', travel.value)
   console.log('Travel mode:', travel.value?.mode)
+  
+  // 修复Inspiration模式的滚动问题
+  const fixScroll = () => {
+    if (travel.value?.mode === 'inspiration') {
+      // 强制设置body和html的滚动属性
+      const body = document.body
+      const html = document.documentElement
+      
+      // 移除所有可能阻止滚动的样式
+      body.style.overflow = 'auto'
+      body.style.overflowY = 'auto'
+      body.style.height = 'auto'
+      body.style.minHeight = '100vh'
+      body.style.maxHeight = 'none'
+      body.style.position = 'relative'
+      
+      html.style.overflow = 'auto'
+      html.style.overflowY = 'auto'
+      html.style.height = 'auto'
+      html.style.minHeight = '100vh'
+      html.style.maxHeight = 'none'
+      
+      // 确保容器也可以滚动
+      const container = document.querySelector('.container.inspiration-container')
+      if (container) {
+        const containerEl = container as HTMLElement
+        containerEl.style.overflowY = 'visible'
+        containerEl.style.height = 'auto'
+        containerEl.style.minHeight = '100vh'
+        containerEl.style.position = 'relative'
+      }
+      
+      // 确保#app可以滚动
+      const app = document.getElementById('app')
+      if (app) {
+        app.style.overflowY = 'auto'
+        app.style.height = 'auto'
+        app.style.minHeight = '100vh'
+        app.style.position = 'relative'
+      }
+      
+      // 确保main-content可以滚动（桌面端）
+      if (window.innerWidth > 991) {
+        const mainContent = document.querySelector('.main-content.inspiration-mode')
+        if (mainContent) {
+          const mainEl = mainContent as HTMLElement
+          mainEl.style.overflow = 'visible'
+          mainEl.style.overflowY = 'visible'
+          mainEl.style.overflowX = 'hidden'
+          mainEl.style.height = 'auto'
+          mainEl.style.minHeight = '200vh'
+          mainEl.style.maxHeight = 'none'
+        }
+      }
+      
+      // 强制启用页面滚动 - 添加滚动事件监听
+      const enableScroll = () => {
+        // 允许所有滚动事件
+        document.body.style.overscrollBehavior = 'auto'
+        document.body.style.overscrollBehaviorY = 'auto'
+        html.style.overscrollBehavior = 'auto'
+        html.style.overscrollBehaviorY = 'auto'
+        
+        // 确保可以滚动 - 添加滚动监听器
+        const handleWheel = (e: WheelEvent) => {
+          // 允许滚动事件正常传播
+          e.stopPropagation = () => {} // 重写阻止传播
+        }
+        
+        // 移除旧的事件监听器（如果存在）
+        document.removeEventListener('wheel', handleWheel as any, { passive: true } as any)
+        // 添加新的事件监听器
+        document.addEventListener('wheel', handleWheel as any, { passive: true, capture: true } as any)
+      }
+      enableScroll()
+      
+      // 确保可以滚动
+      console.log('Scroll fix applied:', {
+        bodyOverflow: body.style.overflowY,
+        htmlOverflow: html.style.overflowY,
+        bodyHeight: body.style.height,
+        htmlHeight: html.style.height,
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight
+      })
+      
+      // 强制触发重排，确保样式生效
+      void document.body.offsetHeight
+      void document.documentElement.offsetHeight
+    }
+  }
+  
+  // 延迟执行，确保DOM已完全渲染
+  setTimeout(() => {
+    fixScroll()
+    // 强制触发滚动检查
+    window.scrollTo(0, 0)
+    // 测试滚动
+    setTimeout(() => {
+      window.scrollTo(0, 1)
+      window.scrollTo(0, 0)
+    }, 200)
+  }, 100)
+  
+  // 监听travel变化，重新修复滚动
+  watch(() => travel.value?.mode, () => {
+    setTimeout(() => {
+      fixScroll()
+      window.scrollTo(0, 0)
+    }, 100)
+  })
+  
+  // 监听窗口大小变化，重新修复滚动
+  window.addEventListener('resize', () => {
+    if (travel.value?.mode === 'inspiration') {
+      setTimeout(() => {
+        fixScroll()
+      }, 100)
+    }
+  })
   
   // 调试信息：检查模式判断
   if (!travel.value) {
@@ -327,16 +524,8 @@ onMounted(() => {
     }
   }
 
-  initAI()
 })
 
-// 发送消息
-const sendMessage = () => {
-  if (chatInput.value.trim()) {
-    console.log('发送消息:', chatInput.value)
-    chatInput.value = ''
-  }
-}
 
 // 获取当前天数
 const getCurrentDay = () => {
@@ -448,7 +637,60 @@ const getBudgetColor = () => {
 .container {
   min-height: 100vh;
   background: #f5f5f5;
+  position: relative;
+  overflow-x: hidden;
 }
+
+/* Inspiration模式：确保容器可以滚动 */
+.container.inspiration-container {
+  overflow-y: visible;
+  height: auto;
+  min-height: 100vh;
+}
+
+/* 桌面端：确保main-content可以滚动 */
+@media (min-width: 992px) {
+  .main-content.inspiration-mode {
+    overflow: visible !important;
+    overflow-y: visible !important;
+    overflow-x: hidden !important;
+    height: auto !important;
+    /* 移除固定的min-height，让内容自然决定高度 */
+    position: relative;
+    max-height: none !important;
+  }
+  
+  .container.inspiration-container {
+    /* 移除固定的min-height，让内容自然决定高度 */
+    overflow-y: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  
+  /* 强制body和html可以滚动 */
+  body {
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    max-height: none !important;
+  }
+  
+  html {
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    max-height: none !important;
+  }
+  
+  #app {
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    max-height: none !important;
+  }
+}
+
+/* 确保body可以滚动 - 通过JavaScript动态设置 */
 
 .header {
   padding: 1rem 2rem;
@@ -594,10 +836,46 @@ const getBudgetColor = () => {
   transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* 灵感模式：全宽布局 */
+/* 灵感模式布局调整 */
 .main-content.inspiration-mode {
-  max-width: 1800px;
-  padding: 0 clamp(1.5rem, 5vw, 4rem);
+  max-width: 1600px;
+  padding: 0 clamp(1.5rem, 4vw, 3rem);
+  margin-top: 0 !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
+  overflow-x: hidden !important;
+  height: auto !important;
+  /* 移除固定的min-height，让内容自然决定高度 */
+  position: relative;
+}
+
+/* 灵感模式：与其他模式保持一致，不需要特殊宽度处理 */
+
+/* 桌面端：灵感模式封面样式 - 与其他模式保持一致 */
+@media (min-width: 992px) {
+  .main-content.inspiration-mode :deep(.inspiration-hero) {
+    /* 与其他模式保持一致，使用标准布局，不需要特殊宽度处理 */
+  }
+}
+
+/* 移动端：与其他模式保持一致 */
+@media (max-width: 991px) {
+  .main-content.inspiration-mode :deep(.inspiration-hero) {
+    /* 与其他模式保持一致 */
+    min-height: 100vh;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+}
+
+.main-content.inspiration-mode :deep(.hero-layer *) {
+  pointer-events: auto; /* 恢复内部元素的交互 */
+}
+
+/* 确保滚动容器正确 */
+.main-content.inspiration-mode {
+  overflow: visible !important;
+  height: auto !important;
 }
 
 .main-content :deep(.ant-col) {
@@ -610,14 +888,80 @@ const getBudgetColor = () => {
 }
 
 .main-content.inspiration-mode :deep(.ant-col.inspiration-full-width) {
-  max-width: 100%;
-  flex: 0 0 100%;
-  padding: 0;
+  /* Inspiration模式现在使用16:8布局，不再需要全宽 */
 }
 
 /* 隐藏空白的右侧面板 */
 .main-content :deep(.ant-col[class*="lg-8"]:empty) {
   display: none;
+}
+
+/* Inspiration模式：右侧边栏正常显示，使用sticky定位 */
+@media (min-width: 992px) {
+  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
+    display: block !important; /* 确保显示 */
+    position: sticky;
+    top: 68vh; /* 从顶部开始显示，与左侧内容对齐 */
+    align-self: flex-start;
+    z-index: 10;
+    max-height: none !important; /* 移除高度限制，允许完整显示内容 */
+    overflow-y: visible !important; /* 允许内容自然显示 */
+    height: auto !important;
+  }
+}
+
+/* 移动端：使用相对定位 */
+@media (max-width: 991px) {
+  .main-content.inspiration-mode :deep(.hero-layer) {
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
+    position: relative !important;
+    top: auto !important;
+  }
+}
+
+/* 确保Inspiration模式的左侧内容正常显示（不再需要margin-top，因为封面现在是sticky） */
+@media (min-width: 992px) {
+  .main-content.inspiration-mode :deep(.ant-col[class*="lg-16"]) {
+    margin-top: 0; /* sticky定位不需要margin-top */
+    position: relative;
+    z-index: 2;
+    /* 移除固定的min-height和padding-bottom，让内容自然决定高度 */
+  }
+}
+
+/* 确保experience-journey自然显示，不强制最小高度 */
+.main-content.inspiration-mode :deep(.experience-journey) {
+  /* 移除固定的min-height，让内容自然决定高度 */
+}
+
+/* 确保itinerary-timeline部分正常显示和滚动 */
+.main-content.inspiration-mode :deep(.itinerary-timeline) {
+  position: relative;
+  z-index: 2;
+  background: #f5f5f7;
+}
+
+/* 确保main-content不会覆盖封面 */
+.main-content.inspiration-mode {
+  margin-top: 0;
+  position: relative;
+}
+
+@media (max-width: 991px) {
+  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
+    position: relative !important;
+    top: auto !important;
+    right: auto !important;
+    width: 100% !important;
+    margin-top: 24px !important;
+  }
 }
 
 /* 响应式断点 */
@@ -767,34 +1111,6 @@ const getBudgetColor = () => {
   }
 }
 
-/* AI 浮动助手 */
-.ai-float-button {
-  position: fixed;
-  right: 24px;
-  bottom: 80px;
-  z-index: 1000;
-}
-
-.ai-float-button :deep(.ant-btn) {
-  animation: float 3s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-/* 响应式调整 */
-@media (max-width: 768px) {
-  .ai-float-button {
-    right: 16px;
-    bottom: 70px;
-  }
-}
 
 /* 加载状态 */
 .loading-container {

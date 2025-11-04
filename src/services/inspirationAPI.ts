@@ -72,6 +72,18 @@ export async function detectInspirationIntent(
   language: string = 'zh-CN'
 ): Promise<any> {
   const isEnglish = language.startsWith('en')
+  
+  // 首先使用本地评分作为快速fallback和增强
+  let localScore: any = null
+  try {
+    const { scoreIntent } = await import('@/utils/inspiration/core/intent')
+    const lang: 'zh' | 'en' = isEnglish ? 'en' : 'zh'
+    localScore = scoreIntent(userInput, lang)
+    logger.log('🔍 本地意图评分:', JSON.stringify(localScore), 500)
+  } catch (err) {
+    logger.warn('⚠️ 本地意图评分失败，继续使用AI:', err)
+  }
+  
   const intentOptions = buildIntentOptionsPrompt(language)
   
   const systemPrompt = isEnglish
@@ -113,11 +125,42 @@ ${intentOptions}`
     // 使用统一的 JSON 解析工具
     const parsed = parseJSONSafe(response)
     if (parsed) {
+      // 如果AI返回的意图置信度较低，使用本地评分作为补充
+      if (localScore && localScore.confidence > 0.3 && localScore.primary) {
+        // 如果本地评分与AI结果不一致，且本地置信度较高，优先使用本地评分
+        if (parsed.intentType !== localScore.primary && localScore.confidence > 0.6) {
+          logger.log(`⚠️ AI意图(${parsed.intentType})与本地评分(${localScore.primary})不一致，使用本地评分`, '', 0)
+          parsed.intentType = localScore.primary
+        }
+        // 如果AI没有返回keywords，从本地评分中提取
+        if (!parsed.keywords || (Array.isArray(parsed.keywords) && parsed.keywords.length === 0)) {
+          const scores = localScore.scores || {}
+          const topKeywords = Object.entries(scores)
+            .sort((a, b) => (b[1] as number) - (a[1] as number))
+            .slice(0, 3)
+            .map(([intent]) => intent)
+          parsed.keywords = topKeywords
+        }
+      }
+      
       logger.log('✅ 检测到的用户意图:', JSON.stringify(parsed), 500)
       return parsed
     }
     
-    // 解析失败，返回默认值
+    // AI解析失败，使用本地评分作为fallback
+    if (localScore && localScore.primary) {
+      logger.log('✅ AI解析失败，使用本地评分结果:', localScore.primary, 0)
+      return {
+        intentType: localScore.primary,
+        keywords: localScore.secondary ? [localScore.primary, localScore.secondary] : [localScore.primary],
+        emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
+        description: isEnglish 
+          ? `Intent detected: ${localScore.primary} (confidence: ${localScore.confidence.toFixed(2)})`
+          : `检测到的意图：${localScore.primary}（置信度：${(localScore.confidence * 100).toFixed(0)}%）`
+      }
+    }
+    
+    // 完全fallback，返回默认值
     return {
       intentType: 'photography_exploration',
       keywords: [],
@@ -126,6 +169,20 @@ ${intentOptions}`
     }
   } catch (error: any) {
     logger.error('❌ Failed to detect intent:', error)
+    
+    // 错误时也尝试使用本地评分
+    if (localScore && localScore.primary) {
+      logger.log('✅ AI调用失败，使用本地评分结果:', localScore.primary, 0)
+      return {
+        intentType: localScore.primary,
+        keywords: localScore.secondary ? [localScore.primary, localScore.secondary] : [localScore.primary],
+        emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
+        description: isEnglish 
+          ? `Intent detected: ${localScore.primary} (confidence: ${localScore.confidence.toFixed(2)})`
+          : `检测到的意图：${localScore.primary}（置信度：${(localScore.confidence * 100).toFixed(0)}%）`
+      }
+    }
+    
     // 返回默认值而不是抛出错误，避免阻塞整个流程
     return {
       intentType: 'photography_exploration',
@@ -326,8 +383,13 @@ export async function generatePsychologicalJourney(
     post_journey_goal: string
   },
   language: string = 'zh-CN',
-  userCountry?: string,
-  selectedDestination?: string
+  userCountry?: string, // 用户所在国家/地区（用于推荐目的地）
+  selectedDestination?: string,
+  userNationality?: string, // 用户国籍（用于显示格式，如货币、日期格式等）
+  userPermanentResidency?: string, // 用户永久居民身份（如绿卡，用于签证判断）
+  heldVisas?: string[], // 用户已持有的签证（国家代码数组）
+  visaFreeDestinations?: string[], // 对用户免签或落地签的目的地国家代码列表
+  visaInfoSummary?: string | null // 选定目的地的签证信息摘要
 ): Promise<any> {
   const { 
     calculatePersonalityVector, 
@@ -418,7 +480,17 @@ Create a travel itinerary that embodies this psychological journey.`
 - Recommended Rhythm: ${template.recommendedRhythm}
 - Social Mode: ${template.socialMode}
 
-**User Location:** ${userCountry || 'Unknown'}
+**User Location (for destination recommendations):** ${userCountry || 'Unknown'}
+${userNationality ? `**User Nationality (for display format & visa requirements):** ${userNationality}` : ''}
+${userPermanentResidency ? `**User Permanent Residency (for visa requirements):** ${userPermanentResidency} (e.g., Green Card, Permanent Residence)` : ''}
+${heldVisas && heldVisas.length > 0 ? `**Held Visas:** User already holds visas for countries with codes: ${heldVisas.join(', ')}. These destinations should be prioritized when recommending travel options since no additional visa is needed.` : ''}
+
+**Important Context:**
+- User Location (${userCountry || 'Unknown'}): This is where the user currently lives. Use this to prioritize nearby destinations (within their country or nearby regions).
+- User Nationality (${userNationality || 'Not specified'}): This is the user's passport nationality, used for:
+  1. Cultural preferences: currency format, date format, etc.
+  2. Visa requirements: When recommending destinations, consider visa requirements based on the user's nationality. For example, if the user has Chinese nationality, recommend destinations that are visa-free or have easier visa processes for Chinese passport holders. If the user's nationality matches their location country, prioritize domestic destinations to avoid visa issues.
+${userPermanentResidency ? `- User Permanent Residency (${userPermanentResidency}): The user holds permanent residency status (e.g., Green Card, Permanent Residence) in ${userPermanentResidency}. This may provide additional visa benefits or exemptions when traveling to certain destinations. Consider this when recommending destinations and providing visa advice.` : ''}
 
 Based on this psychological profile and template, recommend travel destinations that would support this psychological journey.
 
@@ -426,7 +498,15 @@ Based on this psychological profile and template, recommend travel destinations 
 1. Recommend 8-12 destinations total
 2. If user is in a specific country (${userCountry || 'unknown'}), prioritize 3-5 destinations within that country
 3. Include at least 5 international destinations from different countries
-4. Each recommendation MUST include:
+4. **Visa considerations:** ${userNationality || userPermanentResidency || heldVisas?.length || visaFreeDestinations?.length ? `When recommending international destinations:
+${heldVisas && heldVisas.length > 0 ? `- **HIGHEST PRIORITY - User already holds visas:** Countries with codes: ${heldVisas.join(', ')}. These destinations should be given the HIGHEST priority since the user already has valid visas and can travel immediately without additional visa applications.` : ''}
+${visaFreeDestinations && visaFreeDestinations.length > 0 ? `- **Visa-free/Visa-on-arrival destinations for this user:** Countries with codes: ${visaFreeDestinations.join(', ')}. These destinations should be prioritized when recommending international travel options.` : ''}
+${visaInfoSummary ? `- **Visa information for selected destination:** ${visaInfoSummary}` : ''}
+${userPermanentResidency ? `- If user holds permanent residency in ${userPermanentResidency}, consider visa benefits or exemptions that may apply to permanent residents (e.g., some countries offer visa-free or simplified visa processes for permanent residents of certain countries like the US, Canada, etc.).` : ''}
+${userNationality ? `- For a user with ${userNationality} nationality, prioritize destinations that are visa-free or have visa-on-arrival for ${userNationality} passport holders.` : ''}
+- If the user's nationality (${userNationality || 'unknown'}) matches their location (${userCountry || 'unknown'}), domestic destinations are preferred to avoid visa requirements.
+${userPermanentResidency && userNationality ? `- Note: If user has ${userNationality} nationality but holds permanent residency in ${userPermanentResidency}, both factors should be considered for visa requirements.` : ''}` : 'Consider visa requirements when recommending international destinations.'}
+5. Each recommendation MUST include:
    - name: Destination name (specific location, e.g., "Mount Kailash Sacred Circuit" not just "Tibet")
    - country: Country name
    - reason: A concise recommendation reason (2-3 sentences) explaining why this destination matches their psychological profile
@@ -466,7 +546,17 @@ Return a valid JSON array with this structure:
 - 推荐节奏：${template.recommendedRhythm}
 - 社交模式：${template.socialMode}
 
-**用户地理位置：** ${userCountry || '未知'}
+**用户地理位置（用于推荐目的地）：** ${userCountry || '未知'}
+${userNationality ? `**用户国籍（用于显示格式和签证需求）：** ${userNationality}` : ''}
+${userPermanentResidency ? `**用户永久居民身份（用于签证需求）：** ${userPermanentResidency}（如绿卡、永久居留权等）` : ''}
+${heldVisas && heldVisas.length > 0 ? `**已持有签证：** 用户已持有以下国家的签证（国家代码：${heldVisas.join('、')}）。推荐目的地时应优先考虑这些国家，因为无需再申请签证。` : ''}
+
+**重要说明：**
+- 用户地理位置（${userCountry || '未知'}）：用户当前所在的国家/地区。用于优先推荐附近的目的地（优先推荐该国国内或周边地区）。
+- 用户国籍（${userNationality || '未指定'}）：用户的护照国籍，用于：
+  1. 文化偏好设置：货币格式、日期格式等
+  2. 签证需求判断：推荐目的地时，需考虑基于用户国籍的签证要求。例如，如果用户是中国国籍，优先推荐对中国护照免签或签证便利的目的地。如果用户国籍与居住国一致，优先推荐国内目的地以避免签证问题。
+${userPermanentResidency ? `- 用户永久居民身份（${userPermanentResidency}）：用户持有${userPermanentResidency}的永久居民身份（如绿卡、永久居留权等）。这可能在访问某些目的地时提供额外的签证便利或豁免。推荐目的地和提供签证建议时需考虑此因素。` : ''}
 
 基于这个心理画像和模板，推荐适合这个心理旅程的旅行目的地。
 
@@ -474,7 +564,15 @@ Return a valid JSON array with this structure:
 1. 总共推荐8-12个目的地
 2. 如果用户位于特定国家（${userCountry || '未知'}），优先推荐3-5个该国国内目的地
 3. 至少包含5个来自不同国家的国际目的地
-4. 每个推荐必须包含：
+4. **签证考虑：** ${userNationality || userPermanentResidency || heldVisas?.length || visaFreeDestinations?.length ? `推荐国际目的地时：
+${heldVisas && heldVisas.length > 0 ? `- **最高优先级 - 用户已持有签证：** 国家代码：${heldVisas.join('、')}。这些目的地应给予最高优先级，因为用户已持有有效签证，可以立即出行，无需再申请签证。` : ''}
+${visaFreeDestinations && visaFreeDestinations.length > 0 ? `- **对用户免签/落地签的目的地：** 国家代码：${visaFreeDestinations.join('、')}。推荐国际旅行时应优先考虑这些目的地。` : ''}
+${visaInfoSummary ? `- **选定目的地的签证信息：** ${visaInfoSummary}` : ''}
+${userPermanentResidency ? `- 如果用户持有${userPermanentResidency}的永久居民身份（如绿卡），考虑永久居民可能享有的签证便利或豁免（例如，某些国家对美国、加拿大等国的永久居民提供免签或简化签证流程）。` : ''}
+${userNationality ? `- 对于${userNationality}国籍的用户，优先推荐对${userNationality}护照免签或落地签的目的地。` : ''}
+- 如果用户国籍（${userNationality || '未知'}）与居住国（${userCountry || '未知'}）一致，优先推荐国内目的地以避免签证问题。
+${userPermanentResidency && userNationality ? `- 注意：如果用户是${userNationality}国籍但持有${userPermanentResidency}的永久居民身份，推荐时需同时考虑这两个因素对签证要求的影响。` : ''}` : '推荐国际目的地时，需考虑签证要求。'}
+5. 每个推荐必须包含：
    - name: 目的地名称（具体地点，例如"冈仁波齐·神山环线"而不是仅仅"西藏"）
    - country: 国家名称
    - reason: 推荐理由（2-3句话），说明为什么这个目的地匹配用户的心理画像
@@ -582,7 +680,46 @@ Return a valid JSON array with this structure:
     
     try {
       // 传递用户选择的目的地，AI会严格按照该目的地生成行程
-      itineraryData = await generateInspirationJourney(psychologicalPrompt, language, userCountry, selectedDestination)
+      // 获取用户已持有的签证
+      let heldVisas: string[] = []
+      try {
+        const { getHeldVisas } = await import('@/config/userProfile')
+        heldVisas = getHeldVisas()
+        if (heldVisas.length > 0) {
+          console.log('🎫 用户已持有签证（国家代码）:', heldVisas.join('、'))
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取已持有签证失败', err)
+      }
+      
+      // 获取签证信息（如果有选定目的地）
+      let visaInfoSummary: string | null = null
+      let visaFreeDestinations: string[] = []
+      if (selectedDestination) {
+        try {
+          const { getVisaDescription, getVisaFreeDestinations } = await import('@/config/visa')
+          const { PRESET_COUNTRIES } = await import('@/constants/countries')
+          const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
+          
+          const nationalityCode = getUserNationalityCode()
+          const residencyCode = getUserPermanentResidencyCode()
+          
+          visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode)
+          
+          // 尝试从目的地字符串中提取国家代码
+          const destCountryInfo = Object.values(PRESET_COUNTRIES).find(country => 
+            selectedDestination.includes(country.name) || 
+            selectedDestination.includes(country.code)
+          )
+          if (destCountryInfo) {
+            visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode)
+          }
+        } catch (err) {
+          console.warn('⚠️ 获取签证信息失败', err)
+        }
+      }
+      
+      itineraryData = await generateInspirationJourney(psychologicalPrompt, language, userCountry, selectedDestination, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
       
       // 验证AI是否正确使用了用户选择的目的地（仅记录日志，不强制替换）
       if (itineraryData && itineraryData.destination !== selectedDestination) {
@@ -703,7 +840,7 @@ Return a valid JSON array with this structure:
   return result
 }
 
-export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string, selectedDestination?: string): Promise<any> {
+export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string, selectedDestination?: string, userNationality?: string, userPermanentResidency?: string, heldVisas?: string[], visaFreeDestinations?: string[], visaInfoSummary?: string | null): Promise<any> {
   const isEnglish = language.startsWith('en')
   
   // First, detect user intent to understand their travel needs
@@ -782,6 +919,14 @@ You are not just a travel planner, but an Inspirit Designer who:
 - Emotion Tone: ${emotionToneText}
 - Keywords: ${keywordsText || 'not specified'}
 ${destinationNote}
+${userCountry ? `\n📍 User Location (for destination recommendations): User is located in ${userCountry}. Prioritize destinations within ${userCountry} or nearby regions.` : ''}
+${userNationality ? `\n🌍 User Nationality (for display format & visa requirements): User's passport nationality is ${userNationality}. Use this for:
+  1. Cultural preferences: currency format, date format, etc.
+  2. Visa requirements: When recommending destinations, consider visa requirements based on the user's nationality. If the user's nationality matches their location country, prioritize domestic destinations. If different, consider visa-free or visa-on-arrival destinations for their nationality.` : ''}
+${userPermanentResidency ? `\n🪪 User Permanent Residency: User holds permanent residency status (e.g., Green Card, Permanent Residence) in ${userPermanentResidency}. This may provide visa benefits or exemptions when traveling to certain destinations. Consider this when recommending destinations and providing visa advice.` : ''}
+${heldVisas && heldVisas.length > 0 ? `\n🎫 User Already Holds Visas: User already has valid visas for countries with codes: ${heldVisas.join(', ')}. These destinations should be given HIGHEST PRIORITY when recommending travel options since no additional visa is needed.` : ''}
+${visaFreeDestinations && visaFreeDestinations.length > 0 ? `\n✅ Visa-free/Visa-on-arrival destinations for this user (country codes): ${visaFreeDestinations.join(', ')}. Prioritize these destinations when recommending international travel.` : ''}
+${visaInfoSummary ? `\n📋 Visa information for destination: ${visaInfoSummary}` : ''}
 
 🌿 Core Mission:
 Design a ${estimatedDays}-day dual-track journey (External × Internal) that:
@@ -988,8 +1133,8 @@ Integration:
 12. Notes field should balance practical tips with emotional/sensory descriptions
 13. Each day's theme should match intent type (${intentTypeText}) and emotional tone (${emotionToneText})
 14. Core insight must capture the psychological transformation essence
-15. Recommendations section: bestTimeToVisit, weatherAdvice, packingTips (array), localTips (array)
-${referenceCatalog ? '16. Refer to reference destinations when selecting locations.\n' : ''}${locationGuidance}17. Writing style: poetic where appropriate (emotional introduction), clear for actions, reflective for questions, transformative for insights
+15. Recommendations section: bestTimeToVisit, weatherAdvice, packingTips (array), localTips (array)${userNationality ? `\n16. **Important - Visa information:** Include visa-related tips in localTips if the destination requires a visa for ${userNationality} passport holders. If visa-free or visa-on-arrival, mention this convenience. If the user's nationality (${userNationality}) matches their location (${userCountry || 'unknown'}), this is a domestic trip and no visa is needed.` : ''}
+${referenceCatalog ? `${userNationality ? '17' : '16'}. Refer to reference destinations when selecting locations.\n` : ''}${locationGuidance}${referenceCatalog && !userNationality ? '17' : userNationality ? '18' : '17'}. Writing style: poetic where appropriate (emotional introduction), clear for actions, reflective for questions, transformative for insights
 
 JSON VALIDATION RULES:
 - Use double quotes for all strings (never single quotes)
@@ -1034,6 +1179,14 @@ Please respond ONLY with valid JSON, no additional text before or after.`
 - 情绪基调：${emotionToneText}
 - 关键词：${keywordsText || '未指定'}
 ${destinationNote}
+${userCountry ? `\n📍 用户地理位置（用于推荐目的地）：用户位于${userCountry}。优先推荐${userCountry}国内或周边地区的目的地。` : ''}
+${userNationality ? `\n🌍 用户国籍（用于显示格式和签证需求）：用户的护照国籍是${userNationality}。用于：
+  1. 文化偏好设置：货币格式、日期格式等
+  2. 签证需求判断：推荐目的地时，需考虑基于用户国籍的签证要求。如果用户国籍与居住国一致，优先推荐国内目的地。如果不同，考虑对该国籍免签或落地签的目的地。` : ''}
+${userPermanentResidency ? `\n🪪 用户永久居民身份：用户持有${userPermanentResidency}的永久居民身份（如绿卡、永久居留权等）。这可能在访问某些目的地时提供签证便利或豁免。推荐目的地和提供签证建议时需考虑此因素。` : ''}
+${heldVisas && heldVisas.length > 0 ? `\n🎫 用户已持有签证：用户已持有以下国家的有效签证（国家代码：${heldVisas.join('、')}）。推荐目的地时应给予最高优先级，因为无需再申请签证即可立即出行。` : ''}
+${visaFreeDestinations && visaFreeDestinations.length > 0 ? `\n✅ 对用户免签/落地签的目的地（国家代码）：${visaFreeDestinations.join('、')}。推荐国际旅行时应优先考虑这些目的地。` : ''}
+${visaInfoSummary ? `\n📋 目的地签证信息：${visaInfoSummary}` : ''}
 
 🌿 核心使命：
 设计一份${estimatedDays}天的双轨旅程（外部轨迹 × 内部轨迹）：
@@ -1240,8 +1393,8 @@ ${destinationNote}
 12. notes 字段应平衡实用建议和情感/感官描述
 13. 每天的主题应与意图类型（${intentTypeText}）和情绪基调（${emotionToneText}）匹配
 14. 核心洞察必须捕捉心理转化本质
-15. 建议部分：bestTimeToVisit、weatherAdvice、packingTips（数组）、localTips（数组）
-${referenceCatalog ? '16. 选择地点时参考推荐目的地。\n' : ''}${locationGuidance}17. 写作风格：情绪引入用诗性（适当处），行动用清晰，问题用反思性，洞察用转化性
+15. 建议部分：bestTimeToVisit、weatherAdvice、packingTips（数组）、localTips（数组）${userNationality ? `\n16. **重要 - 签证信息：** 如果目的地对${userNationality}护照需要签证，请在localTips中包含签证相关提示。如果是免签或落地签，请提及这一便利。如果用户国籍（${userNationality}）与居住国（${userCountry || '未知'}）一致，这是国内旅行，无需签证。` : ''}
+${referenceCatalog ? `${userNationality ? '17' : '16'}. 选择地点时参考推荐目的地。\n` : ''}${locationGuidance}${referenceCatalog && !userNationality ? '17' : userNationality ? '18' : '17'}. 写作风格：情绪引入用诗性（适当处），行动用清晰，问题用反思性，洞察用转化性
 
 JSON 验证规则：
 - 所有字符串必须使用双引号（不要使用单引号）
@@ -1274,7 +1427,7 @@ JSON 验证规则：
     logger.log('🌟 AI 原始响应', response, 1000)
     
     // 使用统一的 JSON 解析工具（自动处理 markdown 代码块）
-    // 启用详细日志和部分解析以处理可能的截断 JSON
+    // 已默认启用详细日志和部分解析以处理可能的截断 JSON
     const parsed = parseJSONSafe(response)
     
     if (!parsed) {
@@ -1287,12 +1440,12 @@ JSON 验证规则：
     
     // JSON 解析和修复已由 parseJSONSafe 统一处理，无需额外处理
     logger.log('🌟 解析后的数据', JSON.stringify({
-      title: parsed.title,
-      destination: parsed.destination,
-      duration: parsed.duration,
-      daysCount: parsed.days?.length || 0,
-      hasItineraryFormat: !!(parsed.days && Array.isArray(parsed.days)),
-      hasLegacyFormat: !!(parsed.locations && parsed.locationDetails)
+      title: parsed?.title,
+      destination: parsed?.destination,
+      duration: parsed?.duration,
+      daysCount: parsed?.days && Array.isArray(parsed.days) ? parsed.days.length : 0,
+      hasItineraryFormat: !!(parsed?.days && Array.isArray(parsed.days)),
+      hasLegacyFormat: !!(parsed?.locations && parsed?.locationDetails)
     }), 500)
     
     // 如果用户选择了目的地，验证AI是否正确使用（仅记录日志，不强制替换）
@@ -1301,6 +1454,84 @@ JSON 验证规则：
         logger.warn(`⚠️ 注意：AI生成的目的地(${parsed.destination})与用户选择(${selectedDestination})不一致`, '', 0)
       } else {
         logger.log(`✅ AI正确使用了用户选择的目的地: ${selectedDestination}`, '', 0)
+      }
+    }
+    
+    // 检查并补齐天数：确保days数组长度与duration一致
+    if (parsed.days && Array.isArray(parsed.days)) {
+      const actualDays = parsed.days.length
+      const parsedDuration = typeof parsed.duration === 'number' ? parsed.duration : parseInt(String(parsed.duration || estimatedDays))
+      const targetDuration = parsedDuration > 0 ? parsedDuration : estimatedDays
+      
+      if (actualDays < targetDuration) {
+        logger.warn(`⚠️ AI生成的天数(${actualDays})少于目标天数(${targetDuration})，正在补齐...`, '', 0)
+        
+        // 补齐缺失的天数
+        const startDateStr = startDate || new Date().toISOString().split('T')[0]
+        if (!startDateStr) {
+          logger.warn('⚠️ 无法获取开始日期，跳过天数补齐', '', 0)
+        } else {
+          const startDateObj = new Date(startDateStr)
+          for (let i = actualDays; i < targetDuration; i++) {
+            const currentDate = new Date(startDateObj)
+            currentDate.setDate(startDateObj.getDate() + i)
+            const dateStr = currentDate.toISOString().split('T')[0]
+            
+            // 根据心理流程阶段安排
+            const psychologicalStages = ['召唤', '映照', '觉醒', '沉淀', '转化']
+            const stageIndex = i % psychologicalStages.length
+            const stage = psychologicalStages[stageIndex]
+            
+            // 基于已有天数生成合理的行程内容
+            const baseDay = parsed.days[0] || {}
+            const newDay: any = {
+              day: i + 1,
+              date: dateStr,
+              theme: `${stage}：${stage === '召唤' ? '召唤之声' : stage === '映照' ? '映照' : stage === '觉醒' ? '觉醒时刻' : stage === '沉淀' ? '沉淀时光' : '转化完成'}`,
+              mood: stage === '召唤' ? '探索' : stage === '映照' ? '反思' : stage === '觉醒' ? '觉醒' : stage === '沉淀' ? '沉淀' : '转化',
+              summary: `${stage}阶段的旅程，继续探索${parsed.destination || '目的地'}的深层体验。`,
+              psychologicalStage: stage,
+              timeSlots: []
+            }
+            
+            // 如果baseDay有timeSlots，可以基于它创建类似但不同的活动
+            if (baseDay.timeSlots && baseDay.timeSlots.length > 0) {
+              // 基于第一天的活动创建变体（避免完全重复）
+              const baseSlot = baseDay.timeSlots[0]
+              const timeOffset = i * 2 // 每天时间稍有不同
+              newDay.timeSlots = [
+                {
+                  time: `09:${String((0 + timeOffset) % 60).padStart(2, '0')}`,
+                  title: baseSlot.title || '探索活动',
+                  activity: baseSlot.activity || '探索',
+                  location: baseSlot.location || parsed.destination || '',
+                  type: baseSlot.type || 'attraction',
+                  category: baseSlot.category || '探索',
+                  duration: baseSlot.duration || 120,
+                  notes: `${stage}阶段的体验：${baseSlot.notes || '继续旅程探索'}`,
+                  localTip: baseSlot.localTip || '',
+                  cost: baseSlot.cost || 0,
+                  coordinates: baseSlot.coordinates || { lat: 0, lng: 0 },
+                  internalTrack: {
+                    question: `${stage}阶段的问题：你在这个阶段想要探索什么？`,
+                    ritual: `${stage}阶段的仪式：记录当天的感受`,
+                    reflection: `${stage}阶段的反思：思考今天的体验`
+                  }
+                }
+              ]
+            }
+            
+            parsed.days.push(newDay)
+          }
+          
+          // 更新duration确保一致
+          parsed.duration = targetDuration
+          logger.log(`✅ 已补齐到${targetDuration}天`, '', 0)
+        }
+      } else if (actualDays > targetDuration) {
+        // 如果天数超过目标，调整duration
+        parsed.duration = actualDays
+        logger.log(`⚠️ AI生成的天数(${actualDays})超过目标天数(${targetDuration})，已调整为${actualDays}天`, '', 0)
       }
     }
     

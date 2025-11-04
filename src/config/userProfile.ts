@@ -9,6 +9,18 @@ export interface UserProfileConfig {
     country: string
     countryCode: string
   } | null
+  // 我所在国家（用于推荐目的地）
+  location: {
+    country: string
+    countryCode: string
+  } | null
+  // 永久居民身份（如绿卡、永久居留权等）
+  permanentResidency: {
+    country: string
+    countryCode: string
+  } | null
+  // 已持有的签证（国家代码数组）
+  heldVisas: string[]
   // 精通的语言列表（可以多选）
   proficientLanguages: string[]
 }
@@ -59,6 +71,9 @@ export function getUserProfileOrDefault(): UserProfileConfig {
   // 默认配置：未设置国籍，只设置当前界面语言
   const defaultProfile: UserProfileConfig = {
     nationality: null,
+    location: null,
+    permanentResidency: null,
+    heldVisas: [],
     proficientLanguages: ['zh-CN'] // 默认中文
   }
   
@@ -83,14 +98,37 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
     }
   }
   
+  // 验证我所在国家（可以为null）
+  if (config.location !== null) {
+    if (!config.location || 
+        typeof config.location.country !== 'string' ||
+        typeof config.location.countryCode !== 'string') {
+      return false
+    }
+  }
+  
+  // 验证永久居民身份（可以为null）
+  if (config.permanentResidency !== null) {
+    if (!config.permanentResidency || 
+        typeof config.permanentResidency.country !== 'string' ||
+        typeof config.permanentResidency.countryCode !== 'string') {
+      return false
+    }
+  }
+  
+  // 验证已持有签证（必须是数组）
+  if (!Array.isArray(config.heldVisas)) {
+    return false
+  }
+  
   // 验证精通语言（必须是数组）
   if (!Array.isArray(config.proficientLanguages)) {
     return false
   }
   
   // 验证语言代码是否有效
-  const validCodes = SUPPORTED_LANGUAGES.map(l => l.code)
-  if (!config.proficientLanguages.every((code: string) => validCodes.includes(code))) {
+  const validCodes = SUPPORTED_LANGUAGES.map(l => l.code) as readonly string[]
+  if (!config.proficientLanguages.every((code: string) => (validCodes as string[]).includes(code))) {
     return false
   }
   
@@ -101,6 +139,24 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
 export function getUserNationalityCode(): string | null {
   const profile = getUserProfile()
   return profile?.nationality?.countryCode || null
+}
+
+// 获取我所在国家代码（用于推荐目的地）
+export function getUserLocationCode(): string | null {
+  const profile = getUserProfile()
+  return profile?.location?.countryCode || null
+}
+
+// 获取用户永久居民身份国家代码
+export function getUserPermanentResidencyCode(): string | null {
+  const profile = getUserProfile()
+  return profile?.permanentResidency?.countryCode || null
+}
+
+// 获取用户已持有的签证国家代码列表
+export function getHeldVisas(): string[] {
+  const profile = getUserProfile()
+  return profile?.heldVisas || []
 }
 
 // 获取用户精通的语言代码列表

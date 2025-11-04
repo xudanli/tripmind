@@ -212,14 +212,8 @@ export function fixJSONIssues(jsonString: string): string {
   fixed = fixed.replace(/([{,]\s*)'([^']+)':\s*'([^']*)'/g, '$1"$2": "$3"')
   
   // 8. 修复字符串值中包含特殊字符但缺少转义的情况
-  // 处理字符串中未转义的引号（在字符串值中间）
-  fixed = fixed.replace(/":\s*"([^"]*)"([^,}\]])\s*"/g, (match, content, after) => {
-    // 如果字符串后面跟着非逗号/括号字符，可能是未转义的引号
-    if (after.trim() && !after.match(/^[,}\]]/)) {
-      return `": "${content.replace(/"/g, '\\"')}",`
-    }
-    return match
-  })
+  // 先尝试用状态机方式修复字符串中的未转义引号（更安全，支持Unicode）
+  fixed = fixUnescapedQuotesInStrings(fixed)
   
   // 9. 修复数字后面多余的引号和重复字段："field": 6 ", "field": 6, -> "field": 6,
   // 处理 "duration": 6 ", "duration": 6, 这种情况
@@ -341,6 +335,62 @@ export function fixJSONIssues(jsonString: string): string {
   fixed = fixed.replace(/"([^"]*)"\s*\[\s*\{/g, '"$1", [ {')
   
   return fixed
+}
+
+/**
+ * 修复字符串中的未转义引号（使用状态机，支持Unicode）
+ */
+function fixUnescapedQuotesInStrings(json: string): string {
+  let result = ''
+  let inString = false
+  let escapeNext = false
+  
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i]
+    const nextChar = i < json.length - 1 ? json[i + 1] : ''
+    const nextNonWsMatch = json.substring(i + 1).match(/^\s*([,}\]:]|$)/)
+    const nextNonWs = nextNonWsMatch ? nextNonWsMatch[1] : ''
+    
+    if (escapeNext) {
+      result += char
+      escapeNext = false
+      continue
+    }
+    
+    if (char === '\\') {
+      result += char
+      escapeNext = true
+      continue
+    }
+    
+    if (char === '"') {
+      if (!inString) {
+        // 字符串开始
+        inString = true
+        result += char
+      } else {
+        // 检查是否是字符串结束（后面跟着逗号、冒号、右括号或空白+这些字符）
+        if (nextChar === ',' || nextChar === '}' || nextChar === ']' || nextChar === ':' ||
+            nextNonWs === ',' || nextNonWs === '}' || nextNonWs === ']' || nextNonWs === ':') {
+          // 字符串结束
+          inString = false
+          result += char
+        } else {
+          // 字符串内部未转义的引号，需要转义
+          result += '\\"'
+        }
+      }
+    } else {
+      result += char
+    }
+  }
+  
+  // 如果字符串未闭合，补充闭合引号
+  if (inString) {
+    result += '"'
+  }
+  
+  return result
 }
 
 /**

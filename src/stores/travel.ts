@@ -545,36 +545,106 @@ export const useTravelStore = defineStore('travel', () => {
       const { generatePsychologicalJourney: generateJourneyAPI } = await import('@/services/deepseekAPI')
       const currentLanguage = i18n.global.locale.value || 'zh-CN'
       
-      // 获取用户地理位置，优先推荐本地或附近目的地
+      // 获取用户所在国家（用于推荐目的地）
       let userCountry: string | undefined = undefined
       try {
-        const { getUserLocation } = await import('@/config/location')
-        const location = getUserLocation()
-        if (location?.country) {
-          userCountry = location.country
-          console.log('📍 用户地理位置:', userCountry)
+        const { getUserLocationCode } = await import('@/config/userProfile')
+        const locationCode = getUserLocationCode()
+        if (locationCode) {
+          userCountry = locationCode
+          console.log('📍 用户所在国家（用于推荐目的地）:', userCountry)
         }
       } catch (err) {
-        console.warn('⚠️ 获取用户地理位置失败，使用默认推荐', err)
+        console.warn('⚠️ 获取用户所在国家失败', err)
       }
       
-      // 如果没有明确地理位置，尝试从语言推断（作为后备方案）
-      if (!userCountry) {
-        const { detectCountryFromLocale } = await import('@/utils/countryGuess')
-        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
-        const inferredCountry = detectCountryFromLocale(locale)
-        if (inferredCountry) {
-          userCountry = inferredCountry
-          console.log('📍 从语言推断地理位置:', userCountry)
+      // 获取用户国籍（用于显示格式，如货币、日期格式等）
+      let userNationality: string | undefined = undefined
+      try {
+        const { getUserNationalityCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        const nationalityCode = getUserNationalityCode()
+        if (nationalityCode) {
+          const countryInfo = PRESET_COUNTRIES[nationalityCode as keyof typeof PRESET_COUNTRIES]
+          if (countryInfo) {
+            userNationality = countryInfo.name
+            console.log('🌍 用户国籍（用于显示格式）:', userNationality)
+          }
         }
+      } catch (err) {
+        console.warn('⚠️ 获取用户国籍失败', err)
+      }
+      
+      // 获取用户永久居民身份（如绿卡，用于签证判断）
+      let userPermanentResidency: string | undefined = undefined
+      try {
+        const { getUserPermanentResidencyCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        const residencyCode = getUserPermanentResidencyCode()
+        if (residencyCode) {
+          const countryInfo = PRESET_COUNTRIES[residencyCode as keyof typeof PRESET_COUNTRIES]
+          if (countryInfo) {
+            userPermanentResidency = countryInfo.name
+            console.log('🪪 用户永久居民身份（用于签证判断）:', userPermanentResidency)
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取用户永久居民身份失败', err)
+      }
+      
+      // 获取用户已持有的签证
+      let heldVisas: string[] = []
+      try {
+        const { getHeldVisas } = await import('@/config/userProfile')
+        heldVisas = getHeldVisas()
+        if (heldVisas.length > 0) {
+          console.log('🎫 用户已持有签证（国家代码）:', heldVisas.join('、'))
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取已持有签证失败', err)
+      }
+      
+      // 获取签证信息（用于AI提示词）
+      let visaFreeDestinations: string[] = []
+      let visaInfoSummary: string | null = null
+      try {
+        const { getVisaFreeDestinations, getVisaDescription } = await import('@/config/visa')
+        const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        
+        const nationalityCode = getUserNationalityCode()
+        const residencyCode = getUserPermanentResidencyCode()
+        
+        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode)
+        
+        // 如果有选定的目的地，获取该目的地的签证信息
+        if (selectedDestination) {
+          // 尝试从目的地字符串中提取国家代码
+          const destCountryInfo = Object.values(PRESET_COUNTRIES).find(country => 
+            selectedDestination.includes(country.name) || 
+            selectedDestination.includes(country.code)
+          )
+          if (destCountryInfo) {
+            visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode)
+          }
+        }
+        
+        console.log('🪪 免签/落地签目的地数量:', visaFreeDestinations.length)
+        if (visaInfoSummary) {
+          console.log('🪪 目的地签证信息:', visaInfoSummary)
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取签证信息失败', err)
       }
       
       console.log('心理旅程模式：开始生成...', personalityProfile)
       console.log('📍 用户选择的目的地:', selectedDestination || '未选择')
       console.log('📍 推荐范围：', userCountry ? `优先${userCountry}国内或附近地区` : '全球（未检测到地理位置）')
+      console.log('🌍 显示格式：', userNationality ? `基于${userNationality}国籍的文化偏好` : '使用默认格式')
+      console.log('🪪 签证考虑：', heldVisas.length > 0 ? `已持有签证：${heldVisas.join('、')}（最高优先级）` : userPermanentResidency ? `考虑${userPermanentResidency}永久居民身份的签证便利` : userNationality ? `基于${userNationality}国籍的签证要求` : '未设置')
       
-      // 传递用户选择的目的地
-      const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination)
+      // 传递用户选择的目的地、国籍、永久居民身份、已持有签证和签证信息
+      const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
       console.log('心理旅程模式：生成完成', inspirationData)
       console.log('📦 返回的数据包含:', {
         locations: inspirationData.locations?.length || 0,
@@ -631,13 +701,101 @@ export const useTravelStore = defineStore('travel', () => {
         const { detectInspirationIntent, generateInspirationJourney } = await import('@/services/deepseekAPI')
       const currentLanguage = i18n.global.locale.value || 'zh-CN'
       
+      // 获取用户所在国家（用于推荐目的地）
+      let userCountry: string | undefined = undefined
+      try {
+        const { getUserLocationCode } = await import('@/config/userProfile')
+        const locationCode = getUserLocationCode()
+        if (locationCode) {
+          userCountry = locationCode
+          console.log('📍 用户所在国家（用于推荐目的地）:', userCountry)
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取用户所在国家失败', err)
+      }
+      
+      // 获取用户国籍（用于显示格式）
+      let userNationality: string | undefined = undefined
+      try {
+        const { getUserNationalityCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        const nationalityCode = getUserNationalityCode()
+        if (nationalityCode) {
+          const countryInfo = PRESET_COUNTRIES[nationalityCode as keyof typeof PRESET_COUNTRIES]
+          if (countryInfo) {
+            userNationality = countryInfo.name
+            console.log('🌍 用户国籍（用于显示格式）:', userNationality)
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取用户国籍失败', err)
+      }
+      
+      // 获取用户永久居民身份（用于签证判断）
+      let userPermanentResidency: string | undefined = undefined
+      try {
+        const { getUserPermanentResidencyCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        const residencyCode = getUserPermanentResidencyCode()
+        if (residencyCode) {
+          const countryInfo = PRESET_COUNTRIES[residencyCode as keyof typeof PRESET_COUNTRIES]
+          if (countryInfo) {
+            userPermanentResidency = countryInfo.name
+            console.log('🪪 用户永久居民身份（用于签证判断）:', userPermanentResidency)
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取用户永久居民身份失败', err)
+      }
+      
+      // 获取用户已持有的签证
+      let heldVisas: string[] = []
+      try {
+        const { getHeldVisas } = await import('@/config/userProfile')
+        heldVisas = getHeldVisas()
+        if (heldVisas.length > 0) {
+          console.log('🎫 用户已持有签证（国家代码）:', heldVisas.join('、'))
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取已持有签证失败', err)
+      }
+      
+      // 获取签证信息（用于AI提示词）
+      let visaFreeDestinations: string[] = []
+      let visaInfoSummary: string | null = null
+      try {
+        const { getVisaFreeDestinations, getVisaDescription } = await import('@/config/visa')
+        const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        
+        const nationalityCode = getUserNationalityCode()
+        const residencyCode = getUserPermanentResidencyCode()
+        
+        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode)
+        
+        // 尝试从输入中提取目的地国家
+        const destCountryInfo = Object.values(PRESET_COUNTRIES).find(country => 
+          input.includes(country.name)
+        )
+        if (destCountryInfo) {
+          visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode)
+        }
+        
+        console.log('🪪 免签/落地签目的地数量:', visaFreeDestinations.length)
+        if (visaInfoSummary) {
+          console.log('🪪 目的地签证信息:', visaInfoSummary)
+        }
+      } catch (err) {
+        console.warn('⚠️ 获取签证信息失败', err)
+      }
+      
       // 第一步：意图识别
       console.log('灵感模式：开始意图识别...', input)
       const intent = await detectInspirationIntent(input, currentLanguage)
       console.log('灵感模式：识别到的意图', intent)
       
       // 第二步：生成行程计划（调用 AI）
-      const inspirationData = await generateInspirationJourney(input, currentLanguage)
+      const inspirationData = await generateInspirationJourney(input, currentLanguage, userCountry, undefined, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
       console.log('灵感模式：生成的行程计划', inspirationData)
       
       // 新的数据结构是行程计划格式（包含days数组）

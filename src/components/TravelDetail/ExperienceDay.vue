@@ -1,39 +1,37 @@
 <template>
   <div class="experience-journey">
-    <!-- 封面层（Hero Layer）- 灵感卡片风格 -->
-    <section class="hero-layer" :style="heroBackgroundStyle">
-      
-      <div class="hero-content">
-        <!-- 主标题 -->
-        <h1 class="hero-title">{{ inspirationTitle }}</h1>
-        
-        <!-- 旅行目的地 -->
-        <p v-if="destination" class="hero-destination">{{ destination }}</p>
-        
-        <!-- 核心哲学语句 -->
-        <p v-if="coreInsight" class="hero-core-insight">{{ coreInsight }}</p>
-        
-        <!-- 支持文本 -->
-        <p v-if="supportingText" class="hero-supporting-text">{{ supportingText }}</p>
-    </div>
-    
-      <!-- 底部描述段落 -->
-      <div class="hero-footer">
-        <p v-if="journeyBackground" class="hero-description">{{ journeyBackground }}</p>
-        
-        <!-- 底部动画和图标 -->
-        <div class="hero-footer-icons">
-          <div class="footer-icon chevron-icon">⌄</div>
-          <div class="footer-icon notification-icon">
-            <span>💡</span>
-            <span class="notification-badge">1</span>
+    <!-- 封面层（Hero Section）- 与其他模式保持一致 -->
+    <div class="hero-section inspiration-hero">
+      <div class="hero-cover">
+        <img :src="coverImage" :alt="inspirationTitle" />
+        <div class="hero-content">
+          <!-- 主标题 -->
+          <h1 class="hero-title">{{ inspirationTitle }}</h1>
+          
+          <!-- 旅行目的地 -->
+          <p v-if="destination" class="hero-destination">{{ destination }}</p>
+          
+          <!-- 核心哲学语句 -->
+          <p v-if="coreInsight" class="hero-core-insight">{{ coreInsight }}</p>
+          
+          <!-- 支持文本 -->
+          <p v-if="supportingText" class="hero-supporting-text">{{ supportingText }}</p>
+          
+          <!-- 底部描述段落 -->
+          <div v-if="journeyBackground" class="hero-footer-content">
+            <p class="hero-description">{{ journeyBackground }}</p>
+          </div>
+          
+          <!-- 底部图标 -->
+          <div class="hero-footer-icons">
+            <div class="footer-icon notification-icon" @click="handleShowVisaTips">
+              <span>✈️</span>
+              <span class="notification-badge" v-if="hasVisaInfo">1</span>
             </div>
           </div>
         </div>
-        
-      <!-- 底部脉冲动画 -->
-      <div class="pulsating-animation"></div>
-    </section>
+      </div>
+    </div>
     
     <!-- 行程时间线 -->
     <section class="itinerary-timeline">
@@ -71,34 +69,21 @@
                     <div class="slot-header-main">
                       <div class="slot-title-section">
                         <h4 class="slot-title-main">
-                      <span v-if="isEditing(day.day, slotIndex)">
-                        <a-input 
-                          v-model:value="editingData.title" 
-                          :placeholder="t('travelDetail.experienceDay.activityName')"
-                          size="small"
-                          class="edit-input"
-                        />
-                      </span>
-                      <span v-else>{{ slot.title || slot.activity }}</span>
+                      {{ slot.title || slot.activity }}
                     </h4>
-                        <p v-if="slot.details?.name?.english && !isEditing(day.day, slotIndex)" class="slot-title-sub">
+                        <p v-if="slot.details?.name?.english" class="slot-title-sub">
                           {{ slot.details.name.english }}
                         </p>
                       </div>
                     <div class="slot-actions">
             <a-button 
-                        v-if="!isEditing(day.day, slotIndex)"
               type="text" 
                         size="small" 
-                        @click="startEdit(day.day, slotIndex, slot)"
+                        @click="openEditModal(day.day, slotIndex, slot)"
                         class="edit-btn"
                       >
                         <edit-outlined />
             </a-button>
-                      <div v-else class="edit-actions">
-                          <a-button type="primary" size="small" @click="saveEdit(day.day, slotIndex)">{{ t('travelDetail.experienceDay.save') }}</a-button>
-                          <a-button size="small" @click="cancelEdit">{{ t('travelDetail.experienceDay.cancel') }}</a-button>
-        </div>
     </div>
         </div>
                   </div>
@@ -116,7 +101,12 @@
                       {{ t('travelDetail.experienceDay.estimatedStay') }}：{{ slot.details?.recommendations?.suggestedDuration || `${slot.duration}–${slot.duration + DEFAULT_VALUES.DURATION_BUFFER}${t('travelDetail.experienceDay.minutes')}` }}
                     </span>
                     <!-- ⭐ 评分 -->
-                    <span v-if="slot.details?.rating" class="slot-chip slot-rating-chip">
+                    <span 
+                      v-if="slot.details?.rating" 
+                      class="slot-chip slot-rating-chip rating-clickable"
+                      @click="handleRatingClick(slot)"
+                      :title="t('travelDetail.experienceDay.clickToViewReviews') || '点击查看评论'"
+                    >
                       <span class="chip-icon">⭐</span>
                       <span class="slot-rating-score">{{ slot.details.rating.score }}</span>
                       <span v-if="slot.details.rating.reviewCount" class="slot-rating-count">（{{ formatReviewCount(slot.details.rating.reviewCount) }}{{ t('travelDetail.experienceDay.reviews') }}）</span>
@@ -156,6 +146,27 @@
                         </p>
                       </div>
                       
+                      <!-- Booking链接（所有需要预订的活动） -->
+                      <div v-if="slot.bookingLinks && slot.bookingLinks.length > 0" class="slot-info-item">
+                        <h5 class="slot-info-label">
+                          <span class="info-icon">🔗</span> 预订链接
+                        </h5>
+                        <div class="booking-links-display">
+                          <a 
+                            v-for="(link, linkIndex) in slot.bookingLinks" 
+                            :key="linkIndex"
+                            :href="link.url" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            class="booking-link-card"
+                          >
+                            <link-outlined class="booking-link-icon" />
+                            <span class="booking-link-name">{{ link.name || '预订链接' }}</span>
+                            <span class="booking-link-arrow">→</span>
+                          </a>
+                        </div>
+                      </div>
+                      
                       <!-- 预订 -->
                       <div v-if="slot.details.recommendations?.bookingRequired !== undefined" class="slot-info-item">
                         <h5 class="slot-info-label">
@@ -185,7 +196,15 @@
                           <span class="info-icon">📍</span> {{ t('travelDetail.experienceDay.location') }}
                         </h5>
                         <p class="slot-info-text">
-                          <template v-if="locale.value === 'zh-CN'">
+                          <template v-if="shouldShowChineseOnly">
+                            <!-- 中国国籍+中国目的地：只显示中文地址 -->
+                            <span v-if="slot.details?.address?.chinese">
+                              {{ slot.details.address.chinese }}
+                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
+                            </span>
+                            <span v-else-if="slot.location">{{ slot.location }}</span>
+                          </template>
+                          <template v-else-if="locale.value === 'zh-CN'">
                             <!-- 中文模式：优先显示中文地址 -->
                             <span v-if="slot.details?.address?.chinese">
                               {{ slot.details.address.chinese }}
@@ -341,37 +360,6 @@
                     </div>
                   </div>
                   
-                  <div v-if="isEditing(day.day, slotIndex)" class="edit-section">
-            <a-textarea
-                      v-model:value="editingData.notes" 
-                      :placeholder="t('travelDetail.experienceDay.activityDescription')"
-                      :auto-size="{ minRows: 2, maxRows: 4 }"
-                      class="edit-textarea"
-                    />
-                    <a-select 
-                      v-model:value="editingData.type" 
-                      :placeholder="t('travelDetail.experienceDay.activityType')"
-                      class="edit-select"
-                      size="small"
-                    >
-                      <a-select-option value="attraction">{{ t('travelDetail.experienceDay.attraction') }}</a-select-option>
-                      <a-select-option value="restaurant">{{ t('travelDetail.experienceDay.restaurant') }}</a-select-option>
-                      <a-select-option value="accommodation">{{ t('travelDetail.experienceDay.accommodation') }}</a-select-option>
-                      <a-select-option value="shopping">{{ t('travelDetail.experienceDay.shopping') }}</a-select-option>
-                      <a-select-option value="transport">{{ t('travelDetail.experienceDay.transport') }}</a-select-option>
-                    </a-select>
-                    <a-input-number 
-                      v-model:value="editingData.cost" 
-                      :min="0"
-                      :precision="2"
-                      :placeholder="t('travelDetail.experienceDay.cost')"
-                      class="edit-input-number"
-                      size="small"
-                    >
-                      <template #addonBefore>{{ getSlotCurrency(slot).symbol }}</template>
-                    </a-input-number>
-                  </div>
-                  
 
 
                   <div class="slot-meta">
@@ -422,13 +410,113 @@
           </div>
     </section>
     
-    <!-- 费用总计 -->
-    <section v-if="totalCost" class="cost-section">
-      <div class="cost-card">
-        <h4>{{ t('travelDetail.experienceDay.totalCost') }}</h4>
-        <p class="cost-amount">{{ totalCost }}</p>
+    <!-- 编辑活动弹窗 -->
+    <a-modal
+      v-model:open="editModalVisible"
+      title="编辑活动"
+      width="600px"
+      :ok-text="t('travelDetail.experienceDay.save')"
+      :cancel-text="t('travelDetail.experienceDay.cancel')"
+      @ok="handleSaveEdit"
+      @cancel="handleCancelEdit"
+    >
+      <div class="edit-modal-content">
+        <div class="edit-form-item">
+          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityName') }}</label>
+          <a-input
+            v-model:value="editingData.title" 
+            :placeholder="t('travelDetail.experienceDay.activityName')"
+          />
+        </div>
+        
+        <div class="edit-form-item">
+          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityDescription') }}</label>
+          <a-textarea
+            v-model:value="editingData.notes" 
+            :placeholder="t('travelDetail.experienceDay.activityDescription')"
+            :auto-size="{ minRows: 3, maxRows: 6 }"
+          />
+        </div>
+        
+        <div class="edit-form-item">
+          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityType') }}</label>
+          <a-select 
+            v-model:value="editingData.type" 
+            :placeholder="t('travelDetail.experienceDay.activityType')"
+            style="width: 100%"
+          >
+            <a-select-option value="attraction">{{ t('travelDetail.experienceDay.attraction') }}</a-select-option>
+            <a-select-option value="restaurant">{{ t('travelDetail.experienceDay.restaurant') }}</a-select-option>
+            <a-select-option value="accommodation">{{ t('travelDetail.experienceDay.accommodation') }}</a-select-option>
+            <a-select-option value="shopping">{{ t('travelDetail.experienceDay.shopping') }}</a-select-option>
+            <a-select-option value="transport">{{ t('travelDetail.experienceDay.transport') }}</a-select-option>
+          </a-select>
+        </div>
+        
+        <div class="edit-form-item">
+          <label class="edit-form-label">{{ t('travelDetail.experienceDay.cost') }}</label>
+          <a-input-number 
+            v-model:value="editingData.cost" 
+            :min="0"
+            :precision="2"
+            :placeholder="t('travelDetail.experienceDay.cost')"
+            style="width: 100%"
+          >
+            <template #addonBefore>{{ editingSlot ? getSlotCurrency(getCurrentSlot()).symbol : getOverallCurrency().symbol }}</template>
+          </a-input-number>
+          <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
+            {{ editingSlot ? 
+              `${t('travelDetail.currencyHint') || '使用'}${getSlotCurrency(getCurrentSlot()).name}${t('travelDetail.record') || '记录'}` :
+              `${t('travelDetail.currencyHint') || '使用'}${getOverallCurrency().name}${t('travelDetail.record') || '记录'}` 
+            }}
+          </div>
+        </div>
+        
+        <!-- Booking链接管理 -->
+        <div class="edit-form-item">
+          <div class="booking-links-header">
+            <label class="edit-form-label">🔗 预订链接</label>
+            <a-button 
+              type="dashed" 
+              size="small" 
+              @click="addBookingLink"
+            >
+              <template #icon><plus-outlined /></template>
+              添加链接
+            </a-button>
+          </div>
+          <div v-if="editingData.bookingLinks.length === 0" class="booking-links-empty">
+            <span style="color: #999; font-size: 12px;">暂无预订链接</span>
+          </div>
+          <div v-else class="booking-links-list">
+            <div 
+              v-for="(link, linkIndex) in editingData.bookingLinks" 
+              :key="linkIndex"
+              class="booking-link-item"
+            >
+              <a-input 
+                v-model:value="link.name" 
+                placeholder="链接名称（如：Booking.com、官网预订等）"
+                style="flex: 1; margin-right: 8px;"
+              />
+              <a-input 
+                v-model:value="link.url" 
+                placeholder="https://..."
+                style="flex: 2; margin-right: 8px;"
+              />
+              <a-button 
+                type="text" 
+                danger 
+                size="small"
+                @click="removeBookingLink(linkIndex)"
+              >
+                <template #icon><delete-outlined /></template>
+              </a-button>
+            </div>
+          </div>
+        </div>
       </div>
-    </section>
+    </a-modal>
   </div>
 </template>
 
@@ -437,11 +525,14 @@ import { computed, ref, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
-import { CalendarOutlined, EditOutlined, EnvironmentOutlined, DownOutlined } from '@ant-design/icons-vue'
+import { CalendarOutlined, EditOutlined, EnvironmentOutlined, DownOutlined, PlusOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { getLocalLanguageForDestination, type LocalLanguageInfo } from '@/utils/localLanguage'
 import { getRatingPlatformForDestination, getRatingPlatformName } from '@/utils/ratingPlatform'
 import { Modal, message } from 'ant-design-vue'
+import { getVisaInfo } from '@/config/visa'
+import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
+import { PRESET_COUNTRIES } from '@/constants/countries'
 import {
   COUNTRY_KEYWORDS,
   MAP_URLS,
@@ -491,12 +582,54 @@ const destination = computed(() => {
                itineraryData.value?.destination || 
                travel.value?.data?.location ||
                travel.value?.data?.destination
-  if (dest) {
+  // 过滤掉"待定"等无效值
+  if (dest && dest !== '待定' && dest.trim() !== '') {
     // 如果包含国家信息，格式化显示
-    const country = travel.value?.data?.currentCountry || ''
-    return country ? `${dest} (${country})` : dest
+    const country = travel.value?.data?.currentCountry || 
+                   itineraryData.value?.country ||
+                   travel.value?.data?.locationCountries?.[dest]
+    // 如果目的地本身不包含国家信息，且我们有国家信息，则添加
+    if (country && !dest.includes(country) && !dest.includes('(')) {
+      return `${dest} · ${country}`
+    }
+    return dest
+  }
+  // 尝试从行程数据中提取目的地信息
+  if (itineraryData.value?.days && itineraryData.value.days.length > 0) {
+    // 从第一天的活动位置中提取
+    const firstDay = itineraryData.value.days[0]
+    if (firstDay?.timeSlots && firstDay.timeSlots.length > 0) {
+      const firstSlot = firstDay.timeSlots[0]
+      const slotLocation = firstSlot?.details?.address?.chinese || 
+                          firstSlot?.details?.address?.english ||
+                          firstSlot?.location
+      if (slotLocation) {
+        // 尝试提取城市或国家名称
+        const locationMatch = slotLocation.match(/([^·,，]+?)(?:·|,|，|$)/)
+        if (locationMatch && locationMatch[1]) {
+          return locationMatch[1].trim()
+        }
+      }
+    }
   }
   return ''
+})
+
+// 判断目的地是否是中国
+const isDestinationChina = computed(() => {
+  const destStr = destination.value || ''
+  return COUNTRY_KEYWORDS.CHINA.some(keyword => destStr.includes(keyword))
+})
+
+// 判断用户国籍是否是中国
+const isUserNationalityChina = computed(() => {
+  const nationalityCode = getUserNationalityCode()
+  return nationalityCode === 'CN'
+})
+
+// 判断是否应该只显示中文地址（用户国籍是中国且目的地也是中国）
+const shouldShowChineseOnly = computed(() => {
+  return isUserNationalityChina.value && isDestinationChina.value
 })
 
 // 核心哲学语句
@@ -531,16 +664,18 @@ const duration = computed(() => {
   return itineraryData.value?.duration || travel.value?.duration || null
 })
 
-const heroBackgroundStyle = computed(() => {
-  const coverImage = travel.value?.coverImage || travel.value?.data?.coverImage
-  if (coverImage) {
-  return {
-      backgroundImage: `url(${coverImage})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center'
-    }
+// 封面图片（与其他模式保持一致）
+const coverImage = computed(() => {
+  const img = travel.value?.coverImage || travel.value?.data?.coverImage
+  if (img) {
+    return img
   }
-  return {}
+  // 如果没有封面图片，使用默认图片
+  const dest = destination.value || ''
+  if (dest) {
+    return `https://source.unsplash.com/1600x450/?${encodeURIComponent(dest)}`
+  }
+  return 'https://source.unsplash.com/1600x450/?travel'
 })
 
 // 行程天数数据
@@ -641,11 +776,131 @@ const getRatingPlatform = (slot: any): string => {
   
   if (dest) {
     const platformInfo = getRatingPlatformForDestination(dest)
-    return platformInfo.name
+    // 根据当前语言返回对应名称
+    return locale.value.startsWith('en') ? platformInfo.nameEn : platformInfo.name
   }
   
   // 默认返回 TripAdvisor
   return t('travelDetail.experienceDay.defaultRatingPlatform')
+}
+
+// 获取评分平台代码（用于生成链接）
+const getRatingPlatformCode = (slot: any): string => {
+  // 如果已有平台代码，直接使用
+  if (slot.details?.rating?.platformCode) {
+    return slot.details.rating.platformCode
+  }
+  
+  // 如果已有平台名称，尝试从平台名称推断代码
+  if (slot.details?.rating?.platform) {
+    const platformName = slot.details.rating.platform
+    const platformNameLower = platformName.toLowerCase()
+    // 根据平台名称匹配代码（中文和英文都检查）
+    if (platformName.includes('大众点评') || platformNameLower.includes('dianping')) {
+      return 'dianping'
+    } else if (platformNameLower.includes('tripadvisor') || platformName.includes('猫途鹰')) {
+      return 'tripadvisor'
+    } else if (platformName.includes('食べログ') || platformNameLower.includes('tabelog')) {
+      return 'tabelog'
+    } else if (platformNameLower.includes('naver') || platformName.includes('네이버')) {
+      return 'naver'
+    }
+  }
+  
+  // 否则根据目的地自动推断
+  const dest = destination.value || 
+               slot.location || 
+               travel.value?.location ||
+               travel.value?.data?.selectedLocation
+  
+  if (dest) {
+    const platformInfo = getRatingPlatformForDestination(dest)
+    return platformInfo.code
+  }
+  
+  // 默认返回 tripadvisor
+  return 'tripadvisor'
+}
+
+// 处理评分点击，跳转到对应平台
+const handleRatingClick = (slot: any) => {
+  // 获取平台代码
+  const platformCode = getRatingPlatformCode(slot)
+  
+  // 根据平台选择合适语言的活动名称
+  let activityName = ''
+  
+  switch (platformCode) {
+    case 'dianping':
+      // 大众点评：使用中文名称
+      activityName = slot.details?.name?.chinese || 
+                     slot.title || 
+                     slot.activity ||
+                     slot.details?.name?.english ||
+                     ''
+      break
+    case 'tabelog':
+      // 食べログ：优先使用日文，其次中文，最后英文
+      activityName = slot.details?.name?.japanese ||
+                     slot.details?.name?.chinese || 
+                     slot.title || 
+                     slot.activity ||
+                     slot.details?.name?.english ||
+                     ''
+      break
+    case 'naver':
+      // Naver：优先使用韩文，其次中文，最后英文
+      activityName = slot.details?.name?.korean ||
+                     slot.details?.name?.chinese || 
+                     slot.title || 
+                     slot.activity ||
+                     slot.details?.name?.english ||
+                     ''
+      break
+    case 'tripadvisor':
+    default:
+      // TripAdvisor和其他平台：优先使用英文名称，其次中文
+      activityName = slot.details?.name?.english || 
+                     slot.details?.name?.chinese || 
+                     slot.title || 
+                     slot.activity ||
+                     ''
+      break
+  }
+  
+  if (!activityName) {
+    message.warning(t('travelDetail.experienceDay.activityNameRequired') || '无法获取活动名称')
+    return
+  }
+  
+  // 根据平台代码生成URL
+  let url = ''
+  const encodedName = encodeURIComponent(activityName)
+  
+  switch (platformCode) {
+    case 'dianping':
+      // 大众点评搜索（使用中文）
+      url = `${BOOKING_PLATFORMS.DIANPING}${encodedName}`
+      break
+    case 'tripadvisor':
+      // TripAdvisor搜索（使用英文）
+      url = `${BOOKING_PLATFORMS.TRIPADVISOR}${encodedName}`
+      break
+    case 'tabelog':
+      // 食べログ搜索（日本，使用日文或中文）
+      url = `https://tabelog.com/tw/search/?sa=&sk=${encodedName}`
+      break
+    case 'naver':
+      // Naver搜索（韩国，使用韩文或中文）
+      url = `https://search.naver.com/search.naver?query=${encodedName}`
+      break
+    default:
+      // 默认使用 TripAdvisor（使用英文）
+      url = `${BOOKING_PLATFORMS.TRIPADVISOR}${encodedName}`
+  }
+  
+  // 在新窗口打开
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 // 总费用（使用当地货币）
@@ -671,18 +926,29 @@ const totalCost = computed(() => {
 })
 
 // 编辑状态
+const editModalVisible = ref(false)
 const editingSlot = ref<{ day: number; slotIndex: number } | null>(null)
 const editingData = ref<{
   title: string
   notes: string
   type: string
   cost: number | null
+  bookingLinks: Array<{ name: string; url: string }>
 }>({
   title: '',
   notes: '',
   type: 'attraction',
   cost: null,
+  bookingLinks: [],
 })
+
+// 获取当前正在编辑的活动
+const getCurrentSlot = () => {
+  if (!editingSlot.value || !itineraryData.value?.days) return null
+  const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === editingSlot.value!.day)
+  if (dayIndex === -1) return null
+  return itineraryData.value.days[dayIndex].timeSlots?.[editingSlot.value.slotIndex] || null
+}
 
 // 详细信息展开状态
 const expandedDetails = ref<Record<string, boolean>>({})
@@ -693,36 +959,38 @@ const toggleDetails = (day: number, slotIndex: number) => {
   expandedDetails.value[key] = !expandedDetails.value[key]
 }
 
-// 检查是否正在编辑
-const isEditing = (day: number, slotIndex: number) => {
-  return editingSlot.value?.day === day && editingSlot.value?.slotIndex === slotIndex
-}
-
-// 开始编辑
-const startEdit = (day: number, slotIndex: number, slot: any) => {
+// 打开编辑弹窗
+const openEditModal = (day: number, slotIndex: number, slot: any) => {
   editingSlot.value = { day, slotIndex }
   editingData.value = {
     title: slot.title || slot.activity || '',
     notes: slot.notes || '',
     type: slot.type || slot.category || 'attraction',
     cost: slot.cost || null,
+    bookingLinks: slot.bookingLinks || [],
   }
+  editModalVisible.value = true
 }
 
 // 取消编辑
-const cancelEdit = () => {
+const handleCancelEdit = () => {
+  editModalVisible.value = false
   editingSlot.value = null
   editingData.value = {
       title: '',
     notes: '',
     type: 'attraction',
     cost: null,
+    bookingLinks: [],
   }
 }
 
 // 保存编辑
-const saveEdit = (day: number, slotIndex: number) => {
-  if (!itineraryData.value?.days) return
+const handleSaveEdit = () => {
+  if (!editingSlot.value || !itineraryData.value?.days) return
+  
+  const day = editingSlot.value.day
+  const slotIndex = editingSlot.value.slotIndex
   
   const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
   if (dayIndex === -1) return
@@ -737,15 +1005,27 @@ const saveEdit = (day: number, slotIndex: number) => {
   slot.type = editingData.value.type
   slot.category = editingData.value.type
   slot.cost = editingData.value.cost
+  slot.bookingLinks = editingData.value.bookingLinks || []
   
   // 保存到 store
   if (travel.value) {
     travelListStore.updateTravel(travel.value.id, {
       data: itineraryData.value,
     })
+    message.success('活动已更新')
   }
   
-  cancelEdit()
+  handleCancelEdit()
+}
+
+// 添加Booking链接
+const addBookingLink = () => {
+  editingData.value.bookingLinks.push({ name: '', url: '' })
+}
+
+// 删除Booking链接
+const removeBookingLink = (index: number) => {
+  editingData.value.bookingLinks.splice(index, 1)
 }
 
 // 获取当地语言名称（这里需要调用翻译 API，暂时返回空）
@@ -779,15 +1059,22 @@ const getActivityTypeColor = (type: string): string => {
 
 // 导航功能
 const handleNavigate = (slot: any) => {
-  // 根据当前语言优先选择对应语言的地址
-  const isChinese = locale.value === 'zh-CN'
-  const address = (isChinese 
-    ? (slot.details?.address?.chinese || slot.details?.address?.english)
-    : (slot.details?.address?.english || slot.details?.address?.chinese)) ||
-                  slot.location ||
-                  slot.details?.name?.english ||
-                  slot.title ||
-                  slot.activity
+  // 根据当前语言和用户国籍/目的地选择对应语言的地址
+  let address = ''
+  if (shouldShowChineseOnly.value) {
+    // 中国国籍+中国目的地：只使用中文地址
+    address = slot.details?.address?.chinese || slot.location || slot.details?.name?.chinese || slot.title || slot.activity
+  } else {
+    // 其他情况：根据当前语言优先选择
+    const isChinese = locale.value === 'zh-CN'
+    address = (isChinese 
+      ? (slot.details?.address?.chinese || slot.details?.address?.english)
+      : (slot.details?.address?.english || slot.details?.address?.chinese)) ||
+                    slot.location ||
+                    slot.details?.name?.english ||
+                    slot.title ||
+                    slot.activity
+  }
   
   if (!address) {
     message.warning(t('travelDetail.experienceDay.noAddressInfo'))
@@ -909,13 +1196,20 @@ const handleBook = (slot: any) => {
 
 // 联系功能
 const handleContact = (slot: any) => {
-  const activityName = slot.details?.name?.english || slot.title || slot.activity
-  // 根据当前语言优先选择对应语言的地址
-  const isChinese = locale.value === 'zh-CN'
-  const address = (isChinese 
-    ? (slot.details?.address?.chinese || slot.details?.address?.english)
-    : (slot.details?.address?.english || slot.details?.address?.chinese)) || 
-                  slot.location
+  const activityName = slot.details?.name?.chinese || slot.details?.name?.english || slot.title || slot.activity
+  // 根据当前语言和用户国籍/目的地选择对应语言的地址
+  let address = ''
+  if (shouldShowChineseOnly.value) {
+    // 中国国籍+中国目的地：只使用中文地址
+    address = slot.details?.address?.chinese || slot.location
+  } else {
+    // 其他情况：根据当前语言优先选择
+    const isChinese = locale.value === 'zh-CN'
+    address = (isChinese 
+      ? (slot.details?.address?.chinese || slot.details?.address?.english)
+      : (slot.details?.address?.english || slot.details?.address?.chinese)) || 
+                    slot.location
+  }
   
   // 检查是否有联系方式（电话、邮箱等）
   const hasContact = slot.details?.contact?.phone || 
@@ -1090,6 +1384,210 @@ const getActivitySummary = (slot: any): string | null => {
   return null
 }
 
+// 获取目的地国家代码
+const destinationCountryCode = computed(() => {
+  const dest = destination.value || 
+               travel.value?.location ||
+               travel.value?.data?.selectedLocation ||
+               itineraryData.value?.destination ||
+               ''
+  
+  if (!dest) return null
+  
+  // 尝试从PRESET_COUNTRIES中匹配国家
+  for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+    if (dest.includes(country.name) || dest.includes(code)) {
+      return code
+    }
+  }
+  
+  return null
+})
+
+// 获取签证信息
+const visaInfo = computed(() => {
+  const countryCode = destinationCountryCode.value
+  if (!countryCode) return null
+  
+  const nationalityCode = getUserNationalityCode()
+  const permanentResidencyCode = getUserPermanentResidencyCode()
+  
+  const visaInfos = getVisaInfo(countryCode, nationalityCode, permanentResidencyCode)
+  if (visaInfos.length === 0) return null
+  
+  return visaInfos[0]
+})
+
+// 检查是否有签证信息
+const hasVisaInfo = computed(() => {
+  return !!visaInfo.value
+})
+
+// 显示签证建议
+const handleShowVisaTips = () => {
+  if (!visaInfo.value) {
+    Modal.info({
+      title: '✈️ ' + (t('travelDetail.visaGuide') || '签证指引'),
+      content: h('div', { style: { padding: '8px 0' } }, [
+        h('p', { style: { margin: '8px 0', color: '#666' } }, t('travelDetail.noVisaInfo') || '暂无签证信息，请确保已设置目的地和国籍信息')
+      ])
+    })
+    return
+  }
+  
+  const info = visaInfo.value
+  const visaStatusTitle = getVisaStatusTitle(info.visaType)
+  const visaStatusClass = getVisaStatusClass(info.visaType)
+  
+  // 构建签证建议内容
+  const content: any[] = [
+    // 签证状态
+    h('div', {
+      key: 'status',
+      style: {
+        padding: '16px',
+        borderRadius: '8px',
+        background: visaStatusClass === 'visa-free' ? '#f6ffed' : 
+                    visaStatusClass === 'visa-convenient' ? '#e6f7ff' : 
+                    '#fff7e6',
+        border: `1px solid ${visaStatusClass === 'visa-free' ? '#b7eb8f' : 
+                                  visaStatusClass === 'visa-convenient' ? '#91d5ff' : 
+                                  '#ffd591'}`,
+        marginBottom: '16px'
+      }
+    }, [
+      h('div', {
+        style: {
+          fontSize: '18px',
+          fontWeight: 600,
+          marginBottom: '8px',
+          color: '#1d1d1f'
+        }
+      }, visaStatusTitle),
+      h('div', {
+        style: {
+          fontSize: '14px',
+          color: '#666',
+          lineHeight: '1.6'
+        }
+      }, info.description || `${info.destinationName}对${info.applicableTo}${info.visaType === 'visa-free' ? '免签入境' : '需要签证'}`)
+    ]),
+    
+    // 停留期限
+    info.duration ? h('div', {
+      key: 'duration',
+      style: {
+        padding: '12px',
+        background: '#fafafa',
+        borderRadius: '6px',
+        marginBottom: '16px',
+        fontSize: '14px'
+      }
+    }, [
+      h('span', { style: { color: '#666' } }, '停留期限：'),
+      h('span', { 
+        style: { 
+          fontWeight: 600, 
+          color: '#1890ff',
+          marginLeft: '8px'
+        } 
+      }, `${info.duration}天`)
+    ]) : null,
+    
+    // 具体建议
+    h('div', {
+      key: 'tips',
+      style: {
+        padding: '12px',
+        background: '#fff',
+        borderRadius: '6px',
+        fontSize: '13px',
+        lineHeight: '1.8'
+      }
+    }, getVisaActionTips(info.visaType))
+  ].filter(Boolean)
+  
+  Modal.info({
+    title: '✈️ ' + (t('travelDetail.visaGuide') || '签证指引'),
+    width: 600,
+    content: h('div', { 
+      style: { 
+        padding: '8px 0', 
+        maxHeight: '60vh', 
+        overflowY: 'auto' 
+      } 
+    }, content)
+  })
+}
+
+// 获取签证状态标题
+const getVisaStatusTitle = (visaType: string): string => {
+  const typeMap: Record<string, string> = {
+    'visa-free': '✅ 免签入境',
+    'visa-on-arrival': '🛬 落地签',
+    'e-visa': '💻 电子签证',
+    'visa-required': '⚠️ 需要提前申请签证',
+    'permanent-resident-benefit': '🪪 永久居民便利政策'
+  }
+  return typeMap[visaType] || '签证信息'
+}
+
+// 获取签证状态样式类
+const getVisaStatusClass = (visaType: string): string => {
+  if (visaType === 'visa-free') return 'visa-free'
+  if (visaType === 'visa-on-arrival' || visaType === 'e-visa') return 'visa-convenient'
+  return 'visa-required'
+}
+
+// 获取签证行动建议
+const getVisaActionTips = (visaType: string): any => {
+  const tips: any[] = []
+  
+  if (visaType === 'visa-free') {
+    tips.push(
+      h('p', { style: { margin: '0 0 8px 0', fontWeight: 500 } }, '出行建议：'),
+      h('ul', { style: { margin: 0, paddingLeft: '20px' } }, [
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '确保护照有效期至少6个月以上'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '准备往返机票或前往下一目的地的机票'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '准备足够的旅行资金证明'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '建议购买旅行保险')
+      ])
+    )
+  } else if (visaType === 'visa-required') {
+    tips.push(
+      h('p', { style: { margin: '0 0 8px 0', fontWeight: 500 } }, '申请建议：'),
+      h('ul', { style: { margin: 0, paddingLeft: '20px' } }, [
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '提前准备所需材料（护照、照片、申请表等）'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '预约使领馆或签证中心'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '预留充足的审核时间'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '关注签证政策变化')
+      ])
+    )
+  } else if (visaType === 'e-visa') {
+    tips.push(
+      h('p', { style: { margin: '0 0 8px 0', fontWeight: 500 } }, '申请建议：'),
+      h('ul', { style: { margin: 0, paddingLeft: '20px' } }, [
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '访问目的地官方电子签证网站'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '在线填写申请表并上传所需材料'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '支付签证费用'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '等待审核通过后打印电子签证')
+      ])
+    )
+  } else if (visaType === 'visa-on-arrival') {
+    tips.push(
+      h('p', { style: { margin: '0 0 8px 0', fontWeight: 500 } }, '出行建议：'),
+      h('ul', { style: { margin: 0, paddingLeft: '20px' } }, [
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '提前准备护照照片'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '准备足够的现金支付签证费'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '确认所需材料清单'),
+        h('li', { style: { margin: '4px 0', color: '#666' } }, '预留足够的办理时间')
+      ])
+    )
+  }
+  
+  return tips.length > 0 ? tips : null
+}
+
 </script>
 
 <style scoped>
@@ -1102,43 +1600,34 @@ const getActivitySummary = (slot: any): string | null => {
   font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* 1. 封面层 - Apple 风格 */
-.hero-layer {
-  min-height: 100vh;
+/* 1. 封面层 - 与其他模式保持一致 */
+.inspiration-hero {
+  margin-bottom: 2rem;
+}
+
+.inspiration-hero .hero-cover {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  height: 450px;
+}
+
+.inspiration-hero .hero-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inspiration-hero .hero-content {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(17, 153, 142, 0.85), rgba(56, 239, 125, 0.85));
+  padding: 3rem;
   display: flex;
   flex-direction: column;
-  position: relative;
-  padding: 0;
-  overflow: hidden;
-}
-
-.hero-layer::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 245, 247, 0.98) 100%);
-  z-index: 0;
-}
-
-/* 背景图片遮罩层 */
-.hero-layer::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.1) 50%, rgba(245, 245, 247, 0.95) 100%);
-  z-index: 1;
-  opacity: 0;
-  transition: opacity 0.6s ease;
-}
-
-.hero-layer[style*="backgroundImage"]::after {
-  opacity: 1;
+  justify-content: space-between;
+  color: white;
+  backdrop-filter: blur(10px);
 }
 
 /* 顶部图标 */
@@ -1170,23 +1659,15 @@ const getActivitySummary = (slot: any): string | null => {
   background: #2196F3;
 }
 
-.hero-content {
-  position: relative;
-  z-index: 2;
+/* 灵感模式内容样式 */
+.inspiration-hero .hero-content {
   text-align: center;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 120px 40px 80px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
   align-items: center;
 }
 
 @media (max-width: 768px) {
-  .hero-content {
-    padding: 100px 24px 60px;
+  .inspiration-hero .hero-content {
+    padding: 2rem 1.5rem;
   }
 }
 
@@ -1226,193 +1707,109 @@ const getActivitySummary = (slot: any): string | null => {
 }
 
 
-/* 主标题 - Apple 风格 */
-.hero-title {
-  font-size: 72px;
-  font-weight: 300;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
-  margin: 0 0 24px 0;
-  color: #1d1d1f;
-  max-width: 900px;
-  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
-}
-
-.hero-layer[style*="backgroundImage"] .hero-title {
-  color: #ffffff;
+/* 主标题 - 灵感模式样式 */
+.inspiration-hero .hero-title {
+  font-size: 3rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: white;
   text-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
 }
 
 @media (max-width: 768px) {
-  .hero-title {
-    font-size: 48px;
-    line-height: 1.1;
+  .inspiration-hero .hero-title {
+    font-size: 2rem;
   }
 }
 
-/* 旅行目的地 */
-.hero-destination {
-  font-size: 20px;
+/* 旅行目的地 - 灵感模式样式 */
+.inspiration-hero .hero-destination {
+  font-size: 1.25rem;
   line-height: 1.4;
-  letter-spacing: 0.01em;
-  margin: 0 0 24px 0;
+  margin: 0 0 1rem 0;
   font-weight: 400;
-  color: #86868b;
-  max-width: 800px;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-.hero-layer[style*="backgroundImage"] .hero-destination {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.9);
   text-shadow: 0 1px 8px rgba(0, 0, 0, 0.2);
 }
 
 @media (max-width: 768px) {
-  .hero-destination {
-    font-size: 18px;
-    line-height: 1.35;
-    margin-bottom: 20px;
+  .inspiration-hero .hero-destination {
+    font-size: 1.1rem;
   }
 }
 
-/* 核心哲学语句 - Apple 风格 */
-.hero-core-insight {
-  font-size: 28px;
+/* 核心哲学语句 - 灵感模式样式 */
+.inspiration-hero .hero-core-insight {
+  font-size: 1.5rem;
   line-height: 1.4;
-  letter-spacing: -0.015em;
-  margin: 0 0 16px 0;
-  font-weight: 300;
-  color: #1d1d1f;
-  max-width: 800px;
-  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
-}
-
-.hero-layer[style*="backgroundImage"] .hero-core-insight {
-  color: #ffffff;
+  margin: 0 0 1rem 0;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 2px 15px rgba(0, 0, 0, 0.25);
 }
 
 @media (max-width: 768px) {
-  .hero-core-insight {
-    font-size: 22px;
-    line-height: 1.35;
+  .inspiration-hero .hero-core-insight {
+    font-size: 1.25rem;
   }
 }
 
-/* 支持文本 - Apple 风格 */
-.hero-supporting-text {
-  font-size: 19px;
+/* 支持文本 - 灵感模式样式 */
+.inspiration-hero .hero-supporting-text {
+  font-size: 1.1rem;
   line-height: 1.5;
-  letter-spacing: -0.01em;
-  margin: 0 0 48px 0;
+  margin: 0 0 1.5rem 0;
   font-weight: 400;
-  color: #6e6e73;
-  max-width: 700px;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-.hero-layer[style*="backgroundImage"] .hero-supporting-text {
   color: rgba(255, 255, 255, 0.9);
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.2);
 }
 
 @media (max-width: 768px) {
-  .hero-supporting-text {
-    font-size: 17px;
-    line-height: 1.47;
+  .inspiration-hero .hero-supporting-text {
+    font-size: 1rem;
   }
 }
 
 
-/* 底部描述段落 - Apple 风格 */
-.hero-footer {
-  position: relative;
-  z-index: 2;
-  margin-top: auto;
-  padding: 80px 40px 100px;
-  text-align: center;
-}
+/* 底部描述段落样式已在上面定义，此处删除重复 */
 
-@media (max-width: 768px) {
-  .hero-footer {
-    padding: 60px 24px 80px;
-  }
-}
-
-.hero-description {
-  font-size: 19px;
-  line-height: 1.58;
-  letter-spacing: -0.01em;
-  text-align: center;
-  max-width: 700px;
-  margin: 0 auto 48px;
-  padding: 0;
-  font-weight: 400;
-  color: #6e6e73;
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
-}
-
-.hero-layer[style*="backgroundImage"] .hero-description {
-  color: rgba(255, 255, 255, 0.85);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
-}
-
-@media (max-width: 768px) {
-  .hero-description {
-    font-size: 17px;
-    line-height: 1.47;
-  }
-}
-
-.hero-footer-icons {
+/* 底部图标 - 灵感模式样式 */
+.inspiration-hero .hero-footer-icons {
   display: flex;
   gap: 12px;
-  justify-content: flex-end;
-  padding: 0;
+  justify-content: center;
+  margin-top: 1rem;
 }
 
-.footer-icon {
-  width: 44px;
-  height: 44px;
+.inspiration-hero .footer-icon {
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  background: rgba(142, 142, 147, 0.12);
-  backdrop-filter: blur(20px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  transition: all 0.3s ease;
   cursor: pointer;
+  position: relative;
 }
 
-.hero-layer[style*="backgroundImage"] .footer-icon {
-  background: rgba(255, 255, 255, 0.2);
+.inspiration-hero .footer-icon:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
 
-.footer-icon:hover {
-  background: rgba(142, 142, 147, 0.18);
-  transform: scale(1.05);
-}
-
-.hero-layer[style*="backgroundImage"] .footer-icon:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.chevron-icon {
-  color: #1d1d1f;
-}
-
-.hero-layer[style*="backgroundImage"] .chevron-icon {
-  color: #ffffff;
-}
-
-.notification-icon {
-  background: #0071e3;
+.inspiration-hero .notification-icon {
+  background: rgba(255, 255, 255, 0.25);
   color: #ffffff;
   position: relative;
 }
 
-.notification-badge {
+.inspiration-hero .notification-badge {
   position: absolute;
   top: -2px;
   right: -2px;
@@ -1480,7 +1877,6 @@ const getActivitySummary = (slot: any): string | null => {
 
 /* 2. 行程时间线 - Apple 风格 */
 .itinerary-timeline {
-  padding: 120px 40px;
   max-width: 1024px;
   margin: 0 auto;
   background: #ffffff;
@@ -1725,6 +2121,17 @@ const getActivitySummary = (slot: any): string | null => {
   font-size: 11px;
   color: #6e6e73;
   margin-left: 4px;
+}
+
+.slot-rating-chip.rating-clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slot-rating-chip.rating-clickable:hover {
+  background: rgba(0, 113, 227, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.15);
 }
 
 .slot-rating-chip {
@@ -2296,62 +2703,6 @@ const getActivitySummary = (slot: any): string | null => {
   content: '•';
 }
 
-/* 费用总计 - Apple 风格 */
-.cost-section {
-  padding: 120px 40px;
-  max-width: 1024px;
-  margin: 0 auto;
-  background: #ffffff;
-}
-
-@media (max-width: 768px) {
-  .cost-section {
-    padding: 80px 24px;
-  }
-}
-
-.cost-card {
-  background: linear-gradient(135deg, #f5f5f7 0%, #ffffff 100%);
-  border-radius: 18px;
-  padding: 48px 32px;
-  text-align: center;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-@media (max-width: 768px) {
-  .cost-card {
-    padding: 40px 24px;
-  }
-}
-
-.cost-card h4 {
-  font-size: 19px;
-  font-weight: 300;
-  letter-spacing: -0.01em;
-  margin: 0 0 16px 0;
-  color: #6e6e73;
-  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
-}
-
-.cost-amount {
-  font-size: 64px;
-  font-weight: 300;
-  line-height: 1.05;
-  letter-spacing: -0.03em;
-  color: #1d1d1f;
-  margin: 0;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-@media (max-width: 768px) {
-  .cost-amount {
-    font-size: 48px;
-  }
-}
-
 /* 编辑功能样式 */
 .slot-header {
   display: flex;
@@ -2375,21 +2726,114 @@ const getActivitySummary = (slot: any): string | null => {
   gap: 8px;
 }
 
-.edit-section {
+/* 编辑弹窗样式 */
+.edit-modal-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 16px;
-  background: #f5f5f7;
-  border-radius: 12px;
+  gap: 20px;
 }
 
-.edit-input,
-.edit-textarea,
-.edit-select,
-.edit-input-number {
-  width: 100%;
+.edit-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-form-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+/* Booking链接管理样式 */
+.booking-links-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+}
+
+.booking-links-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.booking-links-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+}
+
+.booking-links-empty {
+  text-align: center;
+  padding: 12px;
+  color: #999;
+  font-size: 12px;
+}
+
+.booking-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.booking-link-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Booking链接展示样式 */
+.booking-links-display {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.booking-link-card {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #1d1d1f;
+  transition: all 0.2s;
+  gap: 8px;
+}
+
+.booking-link-card:hover {
+  border-color: #0071e3;
+  background: #f0f7ff;
+  color: #0071e3;
+  transform: translateX(2px);
+}
+
+.booking-link-icon {
+  font-size: 14px;
+  color: #0071e3;
+}
+
+.booking-link-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.booking-link-arrow {
+  font-size: 12px;
+  color: #999;
+  transition: transform 0.2s;
+}
+
+.booking-link-card:hover .booking-link-arrow {
+  transform: translateX(2px);
+  color: #0071e3;
 }
 
 /* 当地语言显示 */

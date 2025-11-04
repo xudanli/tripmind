@@ -59,7 +59,8 @@
 }
 
 body {
-  height: 100vh;
+  min-height: 100vh;
+  height: auto;
   width: 100vw;
   margin: 0;
   padding: 0;
@@ -86,4 +87,5 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-y: auto;
 }

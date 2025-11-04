@@ -1,5 +1,14 @@
 <template>
   <a-space direction="vertical" size="large" style="width: 100%">
+    <!-- 讨论区 -->
+    <DiscussionArea :travel-id="travelId" />
+
+    <!-- 任务清单 -->
+    <TaskList :travel-id="travelId" />
+
+    <!-- 预算管理 -->
+    <BudgetManager :travel-id="travelId" :initial-spent="initialSpent" :initial-total="initialTotal" />
+
     <!-- AI陪伴对话 -->
     <a-card :title="t('travelDetail.seekerSidebar.aiCompanion')" class="sidebar-card seeker-card" :bordered="false">
       <div class="ai-chat">
@@ -61,15 +70,40 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useTravelListStore } from '@/stores/travelList'
+import DiscussionArea from './DiscussionArea.vue'
+import TaskList from './TaskList.vue'
+import BudgetManager from './BudgetManager.vue'
 import { 
   HeartOutlined
 } from '@ant-design/icons-vue'
 
 const { t } = useI18n()
+const travelListStore = useTravelListStore()
+
+interface Props {
+  travelId?: string
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  travelId: ''
+})
 
 const chatInput = ref('')
+
+// 从 travel 数据获取初始值
+const travel = computed(() => {
+  if (props.travelId) {
+    return travelListStore.getTravel(props.travelId)
+  }
+  return null
+})
+
+// 初始预算信息
+const initialSpent = computed(() => travel.value?.spent || 0)
+const initialTotal = computed(() => travel.value?.budget || 0)
 
 const sendMessage = () => {
   console.log('发送消息:', chatInput.value)

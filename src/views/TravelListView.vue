@@ -104,6 +104,12 @@
                     {{ getStatusLabel(travel.status) }}
                   </a-tag>
                 </div>
+                <!-- 签证状态标签 -->
+                <div class="visa-badge" v-if="getVisaStatus(travel)">
+                  <a-tag :color="getVisaStatusColor(travel)" size="small">
+                    {{ getVisaStatusText(travel) }}
+                  </a-tag>
+                </div>
                 <!-- 悬浮操作按钮 -->
                 <div class="cover-actions" @click.stop>
                   <a-button 
@@ -173,22 +179,6 @@
       </div>
     </div>
 
-    <!-- 右下角 AI 浮窗 -->
-    <div class="ai-float-button">
-      <a-tooltip :title="t('travelList.aiChat')">
-        <a-button 
-          type="primary" 
-          shape="circle" 
-          size="large"
-          @click="handleAIChat"
-          class="ai-button"
-        >
-          <template #icon>
-            <message-outlined />
-          </template>
-        </a-button>
-      </a-tooltip>
-    </div>
   </div>
 </template>
 
@@ -199,12 +189,14 @@ import { useUserStore } from '@/stores/user'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { Modal, message } from 'ant-design-vue'
+import { getVisaInfo } from '@/config/visa'
+import { getUserNationalityCode } from '@/config/userProfile'
+import { PRESET_COUNTRIES } from '@/constants/countries'
 
 const { t } = useI18n()
 import {
   PlusOutlined,
   LogoutOutlined,
-  MessageOutlined,
   EditOutlined,
   DeleteOutlined,
   PictureOutlined,
@@ -350,14 +342,6 @@ const handleLogout = () => {
   })
 }
 
-// AI 聊天
-const handleAIChat = () => {
-  Modal.info({
-    title: 'AI 旅行助手',
-    content: 'AI 对话功能开发中，敬请期待...',
-    okText: '确定'
-  })
-}
 
 // 获取模式颜色
 const getModeColor = (mode: string) => {
@@ -462,6 +446,76 @@ const getQuote = (travel: Travel) => {
     inspiration: '将灵感转化为真实体验'
   }
   return quotes[travel.mode] || '一次美好的旅程'
+}
+
+// 提取目的地国家代码
+const extractDestinationCountry = (travel: Travel) => {
+  // 1. 从 location 字段提取
+  if (travel.location) {
+    for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+      if (travel.location.includes(country.name) || travel.location.includes(code)) {
+        return code
+      }
+    }
+  }
+  
+  // 2. 从 destination 字段提取
+  if (travel.data?.destination) {
+    const destStr = travel.data.destination
+    for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+      if (destStr.includes(country.name) || destStr.includes(code)) {
+        return code
+      }
+    }
+  }
+  
+  return null
+}
+
+// 获取签证状态
+const getVisaStatus = (travel: Travel) => {
+  const countryCode = extractDestinationCountry(travel)
+  if (!countryCode) return null
+  
+  const nationalityCode = getUserNationalityCode()
+  if (!nationalityCode) return null
+  
+  const visaInfos = getVisaInfo(countryCode, nationalityCode, null)
+  if (visaInfos.length === 0) return null
+  
+  return visaInfos[0]
+}
+
+// 获取签证状态文本
+const getVisaStatusText = (travel: Travel) => {
+  const visaInfo = getVisaStatus(travel)
+  if (!visaInfo) return ''
+  
+  const typeMap: Record<string, string> = {
+    'visa-free': '✅ 免签',
+    'visa-on-arrival': '🛬 落地签',
+    'e-visa': '💻 电子签',
+    'visa-required': '⚠️ 需签证',
+    'permanent-resident-benefit': '🪪 永久居民便利'
+  }
+  
+  return typeMap[visaInfo.visaType] || '签证信息'
+}
+
+// 获取签证状态颜色
+const getVisaStatusColor = (travel: Travel) => {
+  const visaInfo = getVisaStatus(travel)
+  if (!visaInfo) return 'default'
+  
+  const colorMap: Record<string, string> = {
+    'visa-free': 'success',
+    'visa-on-arrival': 'processing',
+    'e-visa': 'cyan',
+    'visa-required': 'warning',
+    'permanent-resident-benefit': 'blue'
+  }
+  
+  return colorMap[visaInfo.visaType] || 'default'
 }
 </script>
 
@@ -628,6 +682,13 @@ const getQuote = (travel: Travel) => {
   right: 12px;
 }
 
+.visa-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+}
+
 .cover-actions {
   position: absolute;
   top: 0.5rem;
@@ -715,19 +776,6 @@ const getQuote = (travel: Travel) => {
   min-width: auto !important;
 }
 
-/* AI 浮窗 */
-.ai-float-button {
-  position: fixed;
-  bottom: 2rem;
-  right: 2rem;
-  z-index: 100;
-}
-
-.ai-button {
-  width: 56px;
-  height: 56px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
 
 /* 响应式 */
 @media (max-width: 768px) {

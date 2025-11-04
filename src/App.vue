@@ -2,77 +2,26 @@
 import { onMounted, ref, computed } from 'vue'
 import { RouterView } from 'vue-router'
 import { useI18nStore } from './stores/i18n'
-import { GlobalOutlined, EnvironmentOutlined, UserOutlined } from '@ant-design/icons-vue'
-import { getUserLocation, setUserLocation, PRESET_COUNTRIES, type LocationConfig } from '@/config/location'
+import { UserOutlined } from '@ant-design/icons-vue'
+import { PRESET_COUNTRIES } from '@/config/location'
 import { 
   getUserProfile, 
   setUserProfile, 
   getUserProfileOrDefault,
-  SUPPORTED_LANGUAGES,
   type UserProfileConfig 
 } from '@/config/userProfile'
-import { Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 
 const i18nStore = useI18nStore()
 const { t } = useI18n()
 
-const userLocation = ref<LocationConfig | null>(null)
-const modalVisible = ref(false)
-const selectedCountry = ref<string>('')
-
 // 用户个人信息设置
 const userProfileModalVisible = ref(false)
-const selectedNationality = ref<string>('')
-const selectedLanguages = ref<string[]>([])
+const selectedInterfaceLanguage = ref<string>('zh-CN')
+const selectedNationality = ref<string>('') // 国籍（用于判断签证需求）
+const selectedLocation = ref<string>('') // 我所在国家（用于推荐目的地）
 const userProfile = ref<UserProfileConfig | null>(null)
-
-const handleLanguageChange = () => {
-  const current = i18nStore.currentLocale
-  const newLang = current === 'zh-CN' ? 'en-US' : 'zh-CN'
-  console.log('当前语言:', current, '切换到:', newLang)
-  
-  // 使用 nextTick 确保 UI 更新
-  i18nStore.setLocale(newLang)
-  
-  console.log('设置后 currentLocale:', i18nStore.currentLocale)
-}
-
-const handleLocationClick = () => {
-  modalVisible.value = true
-  selectedCountry.value = userLocation.value?.countryCode || ''
-}
-
-const handleCountryChange = async () => {
-  if (!selectedCountry.value) {
-    Modal.error({ title: '提示', content: '请选择一个国家/地区' })
-    return
-  }
-  
-  const countryInfo = PRESET_COUNTRIES[selectedCountry.value as keyof typeof PRESET_COUNTRIES]
-  if (countryInfo) {
-    const newLocation: LocationConfig = {
-      country: countryInfo.name,
-      countryCode: countryInfo.code
-    }
-    setUserLocation(newLocation)
-    userLocation.value = newLocation
-    modalVisible.value = false
-    Modal.success({ 
-      title: '设置成功', 
-      content: `您的国家/地区已设置为：${countryInfo.flag} ${countryInfo.name}` 
-    })
-  }
-}
-
-const locationDisplay = computed(() => {
-  if (!userLocation.value) return '设置地点'
-  const countryInfo = PRESET_COUNTRIES[userLocation.value.countryCode as keyof typeof PRESET_COUNTRIES]
-  if (countryInfo) {
-    return `${countryInfo.flag} ${countryInfo.name}`
-  }
-  return userLocation.value.country
-})
 
 const countryOptions = computed(() => {
   return Object.values(PRESET_COUNTRIES).map(country => ({
@@ -81,25 +30,28 @@ const countryOptions = computed(() => {
   }))
 })
 
-// 语言选项
-const languageOptions = computed(() => {
-  return SUPPORTED_LANGUAGES.map(lang => ({
-    label: `${lang.name} (${lang.nativeName})`,
-    value: lang.code
-  }))
-})
+
 
 // 打开用户个人信息设置
 const handleUserProfileClick = () => {
   userProfileModalVisible.value = true
   const profile = getUserProfileOrDefault()
   userProfile.value = profile
+  
+  // 加载当前设置
+  selectedInterfaceLanguage.value = i18nStore.currentLocale
   selectedNationality.value = profile.nationality?.countryCode || ''
-  selectedLanguages.value = [...profile.proficientLanguages]
+  selectedLocation.value = profile.location?.countryCode || ''
 }
 
 // 保存用户个人信息
 const handleUserProfileSave = () => {
+  // 1. 保存界面语言
+  if (selectedInterfaceLanguage.value) {
+    i18nStore.setLocale(selectedInterfaceLanguage.value)
+  }
+  
+  // 2. 保存个人信息
   const newProfile: UserProfileConfig = {
     nationality: selectedNationality.value 
       ? {
@@ -107,49 +59,40 @@ const handleUserProfileSave = () => {
           countryCode: selectedNationality.value
         }
       : null,
-    proficientLanguages: selectedLanguages.value.length > 0 
-      ? selectedLanguages.value 
-      : ['zh-CN'] // 至少保留一个语言
+    location: selectedLocation.value
+      ? {
+          country: PRESET_COUNTRIES[selectedLocation.value]?.name || '',
+          countryCode: selectedLocation.value
+        }
+      : null,
+    permanentResidency: null,
+    heldVisas: [],
+    proficientLanguages: ['zh-CN'] // 默认中文
   }
   
   setUserProfile(newProfile)
   userProfile.value = newProfile
+  
   userProfileModalVisible.value = false
   
-  Modal.success({ 
-    title: '设置成功', 
-    content: '您的个人信息已保存' 
-  })
+  // 使用 toast 提示保存成功
+  message.success('设置已保存')
 }
 
 // 用户个人信息显示
 const userProfileDisplay = computed(() => {
-  const profile = getUserProfile()
-  if (!profile) return '设置个人信息'
-  
   const parts: string[] = []
-  if (profile.nationality) {
-    const countryInfo = PRESET_COUNTRIES[profile.nationality.countryCode]
-    if (countryInfo) {
-      parts.push(countryInfo.flag)
-    }
-  }
-  if (profile.proficientLanguages.length > 0) {
-    const langNames = profile.proficientLanguages.map(code => {
-      const lang = SUPPORTED_LANGUAGES.find(l => l.code === code)
-      return lang?.name || code
-    })
-    parts.push(langNames.join(', '))
-  }
   
-  return parts.length > 0 ? parts.join(' · ') : '设置个人信息'
+  // 显示当前界面语言
+  const currentLang = i18nStore.currentLocale === 'zh-CN' ? '中文' : 'English'
+  parts.push(`🌐 ${currentLang}`)
+  
+  return parts.length > 0 ? parts.join(' · ') : '个人偏好'
 })
 
 onMounted(() => {
   // 加载保存的语言设置
   i18nStore.loadLocale()
-  // 加载保存的位置设置
-  userLocation.value = getUserLocation()
   // 加载用户个人信息
   userProfile.value = getUserProfileOrDefault()
 })
@@ -157,34 +100,10 @@ onMounted(() => {
 
 <template>
   <div id="app">
-    <!-- 语言切换按钮 -->
-    <a-float-button 
-      :style="{ position: 'fixed', top: '20px', right: '100px', zIndex: 1000 }"
-      type="default"
-      @click="handleLanguageChange"
-      :tooltip="i18nStore.currentLocale === 'zh-CN' ? 'Switch to English' : '切换到中文'"
-    >
-      <template #icon>
-        <global-outlined />
-      </template>
-    </a-float-button>
-    
-    <!-- 国家设置按钮 -->
+    <!-- 用户个人信息设置按钮（个人中心） -->
     <a-float-button 
       :style="{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }"
       type="primary"
-      @click="handleLocationClick"
-      :tooltip="locationDisplay"
-    >
-      <template #icon>
-        <environment-outlined />
-      </template>
-    </a-float-button>
-    
-    <!-- 用户个人信息设置按钮 -->
-    <a-float-button 
-      :style="{ position: 'fixed', top: '80px', right: '20px', zIndex: 1000 }"
-      type="default"
       @click="handleUserProfileClick"
       :tooltip="userProfileDisplay"
     >
@@ -193,20 +112,61 @@ onMounted(() => {
       </template>
     </a-float-button>
     
-    <!-- 国家设置对话框 -->
+    <!-- 用户个人信息设置对话框（个人偏好） -->
     <a-modal
-      v-model:open="modalVisible"
-      title="选择您的国家/地区"
-      ok-text="确认"
+      v-model:open="userProfileModalVisible"
+      title="个人偏好"
+      ok-text="保存"
       cancel-text="取消"
-      @ok="handleCountryChange"
+      width="700px"
+      :body-style="{ padding: '24px', maxHeight: '600px', overflowY: 'auto' }"
+      @ok="handleUserProfileSave"
     >
-      <div style="padding: 20px 0;">
+      <div class="profile-modal-content">
+        <!-- 1. 语言与显示设置 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🌐</span>
+              语言与显示设置
+            </span>
+          </template>
+          <div class="section-content">
+            <!-- 界面语言 -->
+            <div class="form-item">
+              <label class="form-label">界面语言</label>
+              <a-select
+                v-model:value="selectedInterfaceLanguage"
+                placeholder="请选择界面显示语言"
+                style="width: 100%"
+              >
+                <a-select-option value="zh-CN">中文</a-select-option>
+                <a-select-option value="en-US">English</a-select-option>
+              </a-select>
+              <div class="form-hint">选择应用界面显示的语言</div>
+            </div>
+          </div>
+        </a-card>
+
+        <!-- 2. 身份信息 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🏳️</span>
+              身份信息
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>我的国籍</span>
+                <span class="form-label-subtitle">（用于判断签证需求）</span>
+              </label>
         <a-select
-          v-model:value="selectedCountry"
-          placeholder="请选择国家/地区"
+                v-model:value="selectedNationality"
+                placeholder="请选择您的护照国籍（可选）"
           style="width: 100%"
-          size="large"
+                allow-clear
         >
           <a-select-option 
             v-for="option in countryOptions" 
@@ -216,31 +176,32 @@ onMounted(() => {
             {{ option.label }}
           </a-select-option>
         </a-select>
-        
-        <div style="margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 14px; color: #666;">
-          💡 设置后，AI会优先推荐您本国/本地的旅行目的地
+              <div class="form-hint">
+                💡 您的护照国籍，用于判断前往目的地是否需要签证
+                <br/>
+                <span class="hint-example">例如：选择中国国籍后，系统会判断前往各目的地是否需要签证，并在旅行详情页提供签证指引</span>
+              </div>
         </div>
       </div>
-    </a-modal>
+        </a-card>
     
-    <!-- 用户个人信息设置对话框 -->
-    <a-modal
-      v-model:open="userProfileModalVisible"
-      title="设置个人信息"
-      ok-text="保存"
-      cancel-text="取消"
-      width="600px"
-      @ok="handleUserProfileSave"
-    >
-      <div style="padding: 20px 0;">
-        <!-- 国籍选择 -->
-        <div style="margin-bottom: 24px;">
-          <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #1d1d1f;">
-            我的国籍
+        <!-- 3. 地理信息 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">📍</span>
+              地理信息
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>我所在国家</span>
+                <span class="form-label-subtitle">（用于推荐目的地）</span>
           </label>
           <a-select
-            v-model:value="selectedNationality"
-            placeholder="请选择您的国籍（可选）"
+                v-model:value="selectedLocation"
+                placeholder="请选择您所在的国家/地区（可选）"
             style="width: 100%"
             allow-clear
           >
@@ -252,43 +213,24 @@ onMounted(() => {
               {{ option.label }}
             </a-select-option>
           </a-select>
-          <div style="margin-top: 8px; font-size: 12px; color: #86868b;">
-            选择您的国籍，用于优化推荐和显示格式
+              <div class="form-hint">
+                💡 您当前所在的国家/地区，用于在未指定目的地时优先推荐该国家或附近地区的目的地
+                <br/>
+                <span class="hint-example">例如：选择美国后，系统会优先推荐美国国内或周边地区的目的地</span>
           </div>
         </div>
-        
-        <!-- 精通语言选择 -->
-        <div style="margin-bottom: 24px;">
-          <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #1d1d1f;">
-            我精通的语言
-          </label>
-          <a-select
-            v-model:value="selectedLanguages"
-            placeholder="请选择您精通的语言（可多选）"
-            style="width: 100%"
-            mode="multiple"
-            :max-tag-count="3"
-          >
-            <a-select-option 
-              v-for="option in languageOptions" 
-              :key="option.value" 
-              :value="option.value"
-            >
-              {{ option.label }}
-            </a-select-option>
-          </a-select>
-          <div style="margin-top: 8px; font-size: 12px; color: #86868b;">
-            选择您精通的语言，用于优化内容和推荐
           </div>
-        </div>
+        </a-card>
         
-        <div style="padding: 12px; background: #f5f5f5; border-radius: 8px; font-size: 14px; color: #666;">
+        <!-- 信息用途说明 -->
+        <div class="info-footer">
+          <div class="info-box">
           💡 这些信息将用于：
-          <ul style="margin: 8px 0 0 20px; padding: 0;">
-            <li>优化货币和格式显示</li>
-            <li>提供更符合您文化的推荐</li>
-            <li>调整内容和翻译优先顺序</li>
+            <ul class="info-list">
+              <li>判断签证需求并提供签证指引</li>
+              <li>在未指定目的地时，优先推荐您所在国家或附近地区的目的地</li>
           </ul>
+          </div>
         </div>
       </div>
     </a-modal>
@@ -303,5 +245,112 @@ onMounted(() => {
   width: 100vw;
   margin: 0;
   padding: 0;
+}
+
+/* 个人中心模态框样式 */
+.profile-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.profile-section-card {
+  margin-bottom: 0 !important;
+  border-radius: 8px;
+}
+
+.profile-section-card :deep(.ant-card-head) {
+  border-bottom: 1px solid #f0f0f0;
+  padding: 14px 20px;
+  min-height: auto;
+}
+
+.profile-section-card :deep(.ant-card-body) {
+  padding: 20px;
+}
+
+.profile-section-card :deep(.ant-card-head-title) {
+  padding: 0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.section-icon {
+  font-size: 18px;
+  margin-right: 8px;
+  line-height: 1;
+}
+
+.section-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.form-label {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  margin-bottom: 0;
+}
+
+.form-label-subtitle {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: normal;
+  color: #86868b;
+}
+
+.form-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86868b;
+  line-height: 1.6;
+}
+
+.hint-item {
+  color: #666;
+}
+
+.hint-example {
+  color: #999;
+  font-size: 11px;
+}
+
+.info-footer {
+  margin-top: 8px;
+}
+
+.info-box {
+  padding: 12px 16px;
+  background: #f5f5f5;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #666;
+  line-height: 1.6;
+}
+
+.info-list {
+  margin: 8px 0 0 20px;
+  padding: 0;
+  list-style: disc;
+}
+
+.info-list li {
+  margin: 4px 0;
 }
 </style>

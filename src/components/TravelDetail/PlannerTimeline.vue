@@ -79,7 +79,7 @@
                   <dollar-outlined /> {{ t('travelDetail.plannerTimeline.estimatedCost') }}
                 </span>
               </template>
-              <template #value>¥{{ day.stats.cost }}</template>
+              <template #value>{{ formatAmount(day.stats.cost) }}</template>
             </a-statistic>
           </div>
           
@@ -170,6 +170,7 @@ import { message, Modal } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 import { useTravelStore } from '@/stores/travel'
 import type { PlannerItineraryResponse } from '@/services/plannerAPI'
+import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { 
   CalendarOutlined, 
   EditOutlined,
@@ -227,6 +228,24 @@ const editingDayIndex = ref(-1)
 const plannerItinerary = computed<PlannerItineraryResponse | null>(() => {
   return (props.itinerary as PlannerItineraryResponse | null) || (travelStore as any).plannerItinerary || null
 })
+
+// 获取目的地货币信息
+const getDestinationCurrency = computed((): CurrencyInfo => {
+  const destination = plannerItinerary.value?.destination || ''
+  if (destination) {
+    const currency = getCurrencyForDestination(destination)
+    if (currency.code !== 'CNY') {
+      return currency
+    }
+  }
+  // 默认返回人民币
+  return { code: 'CNY', symbol: '¥', name: '人民币' }
+})
+
+// 格式化金额（使用目的地货币）
+const formatAmount = (amount: number) => {
+  return formatCurrency(amount, getDestinationCurrency.value)
+}
 
 // 将 AI 生成的行程转换为时间线格式
 const timelineDays = computed(() => {
@@ -493,7 +512,7 @@ const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
   let content = `# ${itinerary.title}\n\n`
   content += `目的地：${itinerary.destination}\n`
   content += `行程天数：${itinerary.duration}天\n`
-  content += `总预算：¥${itinerary.totalCost}\n\n`
+  content += `总预算：${formatCurrency(itinerary.totalCost, getDestinationCurrency.value)}\n\n`
   content += `## 行程概述\n${itinerary.summary}\n\n`
   
   content += `## 详细行程\n\n`

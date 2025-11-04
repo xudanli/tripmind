@@ -129,7 +129,7 @@ export const MAP_URLS = {
 export const BOOKING_PLATFORMS = {
   TRIPADVISOR: 'https://www.tripadvisor.com/Search?q=',
   BOOKING_COM: 'https://www.booking.com/searchresults.html?ss=',
-  DIANPING: 'https://www.dianping.com/search/keyword/',
+  DIANPING: 'https://www.dianping.com/search?keyword=',
 } as const
 
 // 默认值

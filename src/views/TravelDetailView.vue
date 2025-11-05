@@ -106,71 +106,22 @@
           :lg="8" 
           :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
         >
-          <!-- Planner 模式：效率工具 -->
-          <PlannerSidebar v-if="travel?.mode === 'planner'" :travel-id="travel?.id" />
-
-          <!-- Seeker 模式：陪伴与记录 -->
-          <SeekerSidebar v-else-if="travel?.mode === 'seeker'" :travel-id="travel?.id" />
-
-          <!-- Inspiration 模式：公共组件 -->
-          <template v-else-if="travel?.mode === 'inspiration'">
-            <a-space direction="vertical" size="large" style="width: 100%">
-              <VisaGuide 
-                v-if="visaInfo && destinationCountry"
-                :visa-info="visaInfo"
-                :destination-country="destinationCountry"
-                :destination-name="destinationName"
-                style="margin-bottom: 24px;"
-              />
-              <DiscussionArea :travel-id="travel?.id" />
-              <TaskList :travel-id="travel?.id" />
-              <BudgetManager :travel-id="travel?.id" :initial-spent="travel?.spent || 0" :initial-total="travel?.budget || 0" />
-            </a-space>
-          </template>
-          
-          <!-- 签证指引（所有模式显示在右侧边栏顶部，如果有目的地信息） -->
+          <!-- 签证指引（显示在右侧边栏顶部，如果有目的地信息） -->
           <VisaGuide 
-            v-if="visaInfo && destinationCountry && travel?.mode !== 'inspiration'"
+            v-if="visaInfo && destinationCountry"
             :visa-info="visaInfo"
             :destination-country="destinationCountry"
             :destination-name="destinationName"
             style="margin-bottom: 24px;"
           />
 
-          <!-- 默认侧边栏 -->
-          <a-space direction="vertical" size="large" style="width: 100%" v-if="!travel?.mode || (travel?.mode !== 'planner' && travel?.mode !== 'seeker' && travel?.mode !== 'inspiration')">
-            <!-- 讨论区 -->
-            <DiscussionArea :travel-id="travel?.id" />
-            
-            <!-- 任务清单 -->
-            <TaskList :travel-id="travel?.id" />
-            
-            <!-- 预算管理 -->
-            <BudgetManager :travel-id="travel?.id" :initial-spent="travel?.spent || 0" :initial-total="travel?.budget || 0" />
-
-            <!-- 成员管理 -->
-            <a-card :title="t('travelDetail.members')" class="sidebar-card" :bordered="false">
-              <a-list :dataSource="members" item-layout="horizontal" size="small">
-                <template #renderItem="{ item }">
-                  <a-list-item>
-                    <a-list-item-meta>
-                      <template #avatar>
-                        <a-avatar>{{ item.name[0] }}</a-avatar>
-                      </template>
-                      <template #title>{{ item.name }}</template>
-                      <template #description>{{ item.emoji }} {{ item.mood }}</template>
-                    </a-list-item-meta>
-                  </a-list-item>
-                </template>
-              </a-list>
-              <a-button type="dashed" block style="margin-top: 1rem">
-                <template #icon>
-                  <user-add-outlined />
-                </template>
-                {{ t('travelDetail.inviteMember') }}
-              </a-button>
-            </a-card>
-          </a-space>
+          <!-- 统一侧边栏（使用 Tab 切换） -->
+          <TravelSidebar 
+            :travel-id="travel?.id"
+            :mode="travel?.mode || 'default'"
+            :initial-spent="travel?.spent || 0"
+            :initial-total="travel?.budget || 0"
+          />
         </a-col>
         
       </a-row>
@@ -192,13 +143,9 @@ import SeekerHero from '@/components/TravelDetail/SeekerHero.vue'
 import PlannerTimeline from '@/components/TravelDetail/PlannerTimeline.vue'
 import SeekerMoodNotes from '@/components/TravelDetail/SeekerMoodNotes.vue'
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
-import PlannerSidebar from '@/components/TravelDetail/PlannerSidebar.vue'
-import SeekerSidebar from '@/components/TravelDetail/SeekerSidebar.vue'
+import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
-import DiscussionArea from '@/components/TravelDetail/DiscussionArea.vue'
-import TaskList from '@/components/TravelDetail/TaskList.vue'
-import BudgetManager from '@/components/TravelDetail/BudgetManager.vue'
-import { getUserNationalityCode } from '@/config/userProfile'
+import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
 import { getVisaInfo } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 
@@ -252,6 +199,7 @@ const extractCountryCodeFromDestination = (destStr: string): string | null => {
     'IT': ['italy', '意大利'],
     'ES': ['spain', '西班牙'],
     'FI': ['finland', '芬兰'],
+    'IS': ['iceland', '冰岛', 'reykjavik', '雷克雅未克'],
     'TW': ['taiwan', '台湾'],
     'HK': ['hong kong', '香港'],
     'MO': ['macau', 'macao', '澳门']
@@ -327,13 +275,28 @@ const destinationName = computed(() => {
 // 获取签证信息
 const visaInfo = computed(() => {
   const countryCode = destinationCountry.value
-  if (!countryCode) return null
+  if (!countryCode) {
+    console.log('⚠️ TravelDetailView 签证信息：无法获取目的地国家代码')
+    return null
+  }
   
   const nationalityCode = getUserNationalityCode()
-  if (!nationalityCode) return null
+  const permanentResidencyCode = getUserPermanentResidencyCode()
   
-  const visaInfos = getVisaInfo(countryCode, nationalityCode, null)
-  if (visaInfos.length === 0) return null
+  console.log('🔍 TravelDetailView 签证信息查询:', {
+    destinationCountry: countryCode,
+    nationalityCode,
+    permanentResidencyCode
+  })
+  
+  // 即使没有国籍信息，也尝试查询（可能数据库中有默认数据）
+  const visaInfos = getVisaInfo(countryCode, nationalityCode || null, permanentResidencyCode || null)
+  console.log('📋 TravelDetailView 查询到的签证信息:', visaInfos)
+  
+  if (visaInfos.length === 0) {
+    console.log('⚠️ TravelDetailView 未找到签证信息')
+    return null
+  }
   
   // 返回第一个签证信息（通常是主要的）
   return visaInfos[0]
@@ -532,11 +495,6 @@ const getCurrentDay = () => {
   return 3 // 暂时使用固定值
 }
 
-// 成员列表
-const members = ref([
-  { name: '小明', emoji: '😊', mood: '很兴奋' },
-  { name: '小红', emoji: '🤗', mood: '期待中' }
-])
 
 // 获取封面图片
 const getCoverImage = () => {

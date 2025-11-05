@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch, nextTick } from 'vue'
 import { RouterView } from 'vue-router'
 import { useI18nStore } from './stores/i18n'
 import { UserOutlined } from '@ant-design/icons-vue'
@@ -22,6 +22,9 @@ const selectedInterfaceLanguage = ref<string>('zh-CN')
 const selectedNationality = ref<string>('') // 国籍（用于判断签证需求）
 const selectedLocation = ref<string>('') // 我所在国家（用于推荐目的地）
 const userProfile = ref<UserProfileConfig | null>(null)
+
+// 响应式用户配置，用于显示（保存后会更新）
+const reactiveUserProfile = ref<UserProfileConfig>(getUserProfileOrDefault())
 
 const countryOptions = computed(() => {
   return Object.values(PRESET_COUNTRIES).map(country => ({
@@ -72,6 +75,13 @@ const handleUserProfileSave = () => {
   
   setUserProfile(newProfile)
   userProfile.value = newProfile
+  // 更新响应式配置，确保右上角显示立即更新
+  reactiveUserProfile.value = { ...newProfile } // 使用展开运算符创建新对象，确保响应式更新
+  
+  // 触发自定义事件，通知其他组件更新
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('userProfileUpdated'))
+  }
   
   userProfileModalVisible.value = false
   
@@ -87,6 +97,31 @@ const userProfileDisplay = computed(() => {
   const currentLang = i18nStore.currentLocale === 'zh-CN' ? '中文' : 'English'
   parts.push(`🌐 ${currentLang}`)
   
+  // 优先显示用户国籍（如果已设置）- 这是用户身份标识
+  const profile = reactiveUserProfile.value
+  
+  if (profile.nationality?.countryCode) {
+    const nationalityCountry = PRESET_COUNTRIES[profile.nationality.countryCode]
+    if (nationalityCountry) {
+      // 如果国旗存在且不为空，显示国旗+名称，否则只显示名称
+      const flagDisplay = nationalityCountry.flag && nationalityCountry.flag.trim() 
+        ? `${nationalityCountry.flag} ` 
+        : ''
+      parts.push(`${flagDisplay}${nationalityCountry.name}`)
+    }
+  }
+  
+  // 其次显示用户所在国家（如果已设置且与国籍不同）
+  if (profile.location?.countryCode) {
+    const locationCountry = PRESET_COUNTRIES[profile.location.countryCode]
+    if (locationCountry) {
+      // 如果所在国家与国籍不同，才显示所在国家
+      if (!profile.nationality?.countryCode || profile.location.countryCode !== profile.nationality.countryCode) {
+        parts.push(`📍 ${locationCountry.name}`)
+      }
+    }
+  }
+  
   return parts.length > 0 ? parts.join(' · ') : '个人偏好'
 })
 
@@ -94,7 +129,9 @@ onMounted(() => {
   // 加载保存的语言设置
   i18nStore.loadLocale()
   // 加载用户个人信息
-  userProfile.value = getUserProfileOrDefault()
+  const profile = getUserProfileOrDefault()
+  userProfile.value = profile
+  reactiveUserProfile.value = profile
 })
 </script>
 
@@ -102,6 +139,7 @@ onMounted(() => {
   <div id="app">
     <!-- 用户个人信息设置按钮（个人中心） -->
     <a-float-button 
+      :key="`user-btn-${reactiveUserProfile.nationality?.countryCode || 'none'}-${reactiveUserProfile.location?.countryCode || 'none'}`"
       :style="{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }"
       type="primary"
       @click="handleUserProfileClick"

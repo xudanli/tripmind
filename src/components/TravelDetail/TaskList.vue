@@ -13,9 +13,15 @@
               v-model:checked="item.completed"
               @change="handleTaskToggle(item)"
             >
-              <span :class="{ 'task-completed': item.completed }">
-                {{ item.title }}
-              </span>
+              <div class="task-content">
+                <span :class="{ 'task-completed': item.completed }">
+                  {{ item.title }}
+                </span>
+                <span v-if="getAssigneeName(item.assignedTo)" class="task-assignee">
+                  <user-outlined />
+                  {{ getAssigneeName(item.assignedTo) }}
+                </span>
+              </div>
             </a-checkbox>
           </a-list-item>
         </template>
@@ -59,7 +65,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { DeleteOutlined, PlusOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { useTravelListStore } from '@/stores/travelList'
 
 interface Task {
@@ -67,6 +73,7 @@ interface Task {
   title: string
   completed: boolean
   createdAt: number
+  assignedTo?: string
 }
 
 interface Props {
@@ -148,12 +155,52 @@ const completedCount = computed(() => {
   return tasks.value.filter(t => t.completed).length
 })
 
+// 获取成员信息（从store获取）
+const getMemberInfo = computed(() => {
+  if (!props.travelId) return {}
+  
+  const travel = travelListStore.getTravel(props.travelId)
+  const members = travel?.data?.members || []
+  
+  // 创建成员ID到名称的映射
+  const memberMap: Record<string, string> = {}
+  members.forEach((member: any) => {
+    memberMap[member.id] = member.name
+  })
+  
+  return memberMap
+})
+
+// 获取执行人名称
+const getAssigneeName = (assignedTo?: string): string => {
+  if (!assignedTo) return ''
+  
+  // 如果 assignedTo 是成员ID，从成员信息中获取名称
+  if (getMemberInfo.value[assignedTo]) {
+    return getMemberInfo.value[assignedTo]
+  }
+  
+  // 如果 assignedTo 直接是名称，直接返回
+  return assignedTo
+}
+
 // 监听travelId变化
 watch(() => props.travelId, () => {
   if (props.travelId) {
     loadTasks()
   }
 }, { immediate: true })
+
+// 监听travel数据变化，确保任务列表实时更新
+watch(() => {
+  if (!props.travelId) return null
+  const travel = travelListStore.getTravel(props.travelId)
+  return travel?.data?.tasks
+}, (newTasks) => {
+  if (newTasks && Array.isArray(newTasks)) {
+    tasks.value = newTasks
+  }
+}, { deep: true, immediate: true })
 
 // 监听props变化
 watch(() => props.initialTasks, () => {
@@ -165,8 +212,9 @@ watch(() => props.initialTasks, () => {
 
 <style scoped>
 .sidebar-card {
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .task-section {
@@ -178,6 +226,26 @@ watch(() => props.initialTasks, () => {
 .task-completed {
   text-decoration: line-through;
   color: #999;
+}
+
+.task-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.task-assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 0.125rem;
+}
+
+.task-assignee :deep(.anticon) {
+  font-size: 0.75rem;
 }
 
 .task-actions {

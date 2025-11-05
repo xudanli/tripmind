@@ -296,6 +296,26 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       description: '美国永久居民免签入境（需携带绿卡）',
       duration: 90
     }]
+  },
+  
+  // 冰岛对中国护照的政策
+  'IS': {
+    'CN': [{
+      destinationCountry: 'IS',
+      destinationName: '冰岛',
+      visaType: 'visa-required',
+      applicableTo: '中国护照',
+      description: '需要提前申请申根签证（冰岛属于申根区）',
+      duration: 90
+    }],
+    'US-PR': [{
+      destinationCountry: 'IS',
+      destinationName: '冰岛',
+      visaType: 'visa-free',
+      applicableTo: '美国永久居民',
+      description: '美国永久居民免签入境（申根区）',
+      duration: 90
+    }]
   }
 }
 

@@ -9,6 +9,9 @@
     <!-- 预算管理 -->
     <BudgetManager :travel-id="travelId" :initial-spent="initialSpent" :initial-total="initialTotal" />
 
+    <!-- 成员管理 -->
+    <MemberManagement :travel-id="travelId" />
+
     <!-- AI陪伴对话 -->
     <a-card :title="t('travelDetail.seekerSidebar.aiCompanion')" class="sidebar-card seeker-card" :bordered="false">
       <div class="ai-chat">
@@ -76,6 +79,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import DiscussionArea from './DiscussionArea.vue'
 import TaskList from './TaskList.vue'
 import BudgetManager from './BudgetManager.vue'
+import MemberManagement from './MemberManagement.vue'
 import { 
   HeartOutlined
 } from '@ant-design/icons-vue'

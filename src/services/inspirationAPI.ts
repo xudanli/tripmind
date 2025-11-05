@@ -18,6 +18,10 @@ import {
   logger,
   type Recommendation
 } from '@/utils/inspirationCore'
+import { z } from 'zod'
+import { buildHintPrompt } from '@/prompts/inspiration/hint'
+import { buildDetectIntentPrompt } from '@/prompts/inspiration/intent'
+import { buildJourneyPrompt, type JourneyPromptArgs } from '@/prompts/inspiration/journey'
 
 // 从 deepseekAPI 导入类型定义
 interface ChatMessage {
@@ -25,39 +29,34 @@ interface ChatMessage {
   content: string
 }
 
+// Zod Schemas for validation
+const IntentResultSchema = z.object({
+  intentType: z.string(),
+  keywords: z.array(z.string()).default([]),
+  emotionTone: z.string().default('neutral'),
+  description: z.string().default(''),
+})
+
+const ItinerarySchema = z.object({
+  title: z.string(),
+  destination: z.string(),
+  duration: z.number().int().positive(),
+  summary: z.string(),
+  psychologicalFlow: z.array(z.string()),
+  coreInsight: z.string(),
+  days: z.array(z.any()),
+  totalCost: z.number().nonnegative().optional(),
+  recommendations: z.any().optional(),
+})
+
 export async function generateInspirationHint(
   userInput: string,
   language: string = 'zh-CN'
 ): Promise<string> {
-  const lang = pickLang(language)
-  const isEnglish = language.startsWith('en')
+  const sys = buildHintPrompt(userInput || (language.startsWith('en') ? 'I want to travel' : '我想去旅行'), language)
   
-  const systemPrompt = isEnglish
-    ? `You are a creative travel inspiration assistant. Based on the user's partial input, provide concise and inspiring suggestions to help them express their travel ideas.
-
-User's current input: "${userInput}"
-
-Provide 2-3 short, inspiring suggestions (each no more than 15 words) that:
-- Help the user clarify their feelings and needs
-- Inspire them to think about what they truly want
-- Guide them to express their travel dreams
-- Use warm, encouraging, and poetic language
-
-Return ONLY the suggestions, one per line, NO numbering, NO bullet points, just plain text.`
-    : `你是一位富有创意的旅行灵感助手。根据用户的输入片段，提供简洁而有启发性的建议，帮助他们表达旅行想法。
-
-用户当前输入："${userInput}"
-
-请提供2-3条简短有启发的建议（每条不超过15字），要求：
-- 帮助用户澄清感受和需求
-- 启发他们思考真正想要什么
-- 引导他们表达旅行梦想
-- 使用温暖、鼓励、富有诗意的语言
-
-只需返回建议内容，每行一条，不要编号，不要项目符号，纯文本返回。`
-
   try {
-    return await askDeepSeek(systemPrompt, userInput || (isEnglish ? 'I want to travel' : '我想去旅行'), {
+    return await askDeepSeek(sys, userInput, {
       temperature: 0.8,
       max_tokens: 200
     })
@@ -84,35 +83,7 @@ export async function detectInspirationIntent(
     logger.warn('⚠️ 本地意图评分失败，继续使用AI:', err)
   }
   
-  const intentOptions = buildIntentOptionsPrompt(language)
-  
-  const systemPrompt = isEnglish
-    ? `Analyze user's travel intent and emotional tone, identify the type of travel experience they truly need.
-
-User Input: "${userInput}"
-
-Return JSON format including:
-- intentType: intent type
-- keywords: keyword array (extract 3-5 most relevant keywords from user input)
-- emotionTone: emotional tone (describe the emotional atmosphere: calm, energetic, contemplative, adventurous, healing, creative)
-- description: intent description (brief explanation of what user truly needs)
-
-Intent type options:
-${intentOptions}
-
-Please respond in English.`
-    : `分析用户的旅行意图和情感基调，识别他们真正需要的旅行体验类型。
-
-用户输入："${userInput}"
-
-请返回JSON格式，包含：
-- intentType: 意图类型
-- keywords: 关键词数组（从用户输入中提取3-5个最相关的关键词）
-- emotionTone: 情感基调（描述情感氛围：平静、活力、沉思、冒险、疗愈、创意）
-- description: 意图描述（简要说明用户的真实需求）
-
-意图类型选项：
-${intentOptions}`
+  const systemPrompt = buildDetectIntentPrompt(userInput, language)
 
   try {
     const response = await askDeepSeek(systemPrompt, userInput, {
@@ -125,71 +96,76 @@ ${intentOptions}`
     // 使用统一的 JSON 解析工具
     const parsed = parseJSONSafe(response)
     if (parsed) {
+      // 使用 Zod 验证和规范化
+      const ai = IntentResultSchema.safeParse(parsed)
+      
       // 如果AI返回的意图置信度较低，使用本地评分作为补充
-      if (localScore && localScore.confidence > 0.3 && localScore.primary) {
+      if (ai.success && localScore && localScore.confidence > 0.3 && localScore.primary) {
         // 如果本地评分与AI结果不一致，且本地置信度较高，优先使用本地评分
-        if (parsed.intentType !== localScore.primary && localScore.confidence > 0.6) {
-          logger.log(`⚠️ AI意图(${parsed.intentType})与本地评分(${localScore.primary})不一致，使用本地评分`, '', 0)
-          parsed.intentType = localScore.primary
+        if (ai.data.intentType !== localScore.primary && localScore.confidence > 0.6) {
+          logger.log(`⚠️ AI意图(${ai.data.intentType})与本地评分(${localScore.primary})不一致，使用本地评分`, '', 0)
+          ai.data.intentType = localScore.primary
         }
         // 如果AI没有返回keywords，从本地评分中提取
-        if (!parsed.keywords || (Array.isArray(parsed.keywords) && parsed.keywords.length === 0)) {
+        if (!ai.data.keywords || ai.data.keywords.length === 0) {
           const scores = localScore.scores || {}
           const topKeywords = Object.entries(scores)
             .sort((a, b) => (b[1] as number) - (a[1] as number))
             .slice(0, 3)
-            .map(([intent]) => intent)
-          parsed.keywords = topKeywords
+            .map(([intent]) => String(intent))
+          ai.data.keywords = topKeywords
         }
       }
       
-      logger.log('✅ 检测到的用户意图:', JSON.stringify(parsed), 500)
-      return parsed
+      if (ai.success) {
+        logger.log('✅ 检测到的用户意图:', JSON.stringify(ai.data), 500)
+        return ai.data
+      }
     }
     
     // AI解析失败，使用本地评分作为fallback
     if (localScore && localScore.primary) {
       logger.log('✅ AI解析失败，使用本地评分结果:', localScore.primary, 0)
-      return {
+      return IntentResultSchema.parse({
         intentType: localScore.primary,
         keywords: localScore.secondary ? [localScore.primary, localScore.secondary] : [localScore.primary],
         emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
         description: isEnglish 
-          ? `Intent detected: ${localScore.primary} (confidence: ${localScore.confidence.toFixed(2)})`
-          : `检测到的意图：${localScore.primary}（置信度：${(localScore.confidence * 100).toFixed(0)}%）`
-      }
+          ? `Intent detected: ${localScore.primary} (confidence: ${Number(localScore.confidence || 0).toFixed(2)})`
+          : `检测到的意图：${localScore.primary}（置信度：${Math.round(Number(localScore.confidence || 0) * 100)}%）`
+      })
     }
     
     // 完全fallback，返回默认值
-    return {
+    return IntentResultSchema.parse({
       intentType: 'photography_exploration',
       keywords: [],
       emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
       description: ''
-    }
+    })
   } catch (error: any) {
     logger.error('❌ Failed to detect intent:', error)
     
     // 错误时也尝试使用本地评分
     if (localScore && localScore.primary) {
       logger.log('✅ AI调用失败，使用本地评分结果:', localScore.primary, 0)
-      return {
+      return IntentResultSchema.parse({
         intentType: localScore.primary,
         keywords: localScore.secondary ? [localScore.primary, localScore.secondary] : [localScore.primary],
         emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
         description: isEnglish 
-          ? `Intent detected: ${localScore.primary} (confidence: ${localScore.confidence.toFixed(2)})`
-          : `检测到的意图：${localScore.primary}（置信度：${(localScore.confidence * 100).toFixed(0)}%）`
-      }
+          ? `Intent detected: ${localScore.primary} (confidence: ${Number(localScore.confidence || 0).toFixed(2)})`
+          : `检测到的意图：${localScore.primary}（置信度：${Math.round(Number(localScore.confidence || 0) * 100)}%）`
+      })
     }
     
     // 返回默认值而不是抛出错误，避免阻塞整个流程
-    return {
+    return IntentResultSchema.parse({
       intentType: 'photography_exploration',
       keywords: [],
       emotionTone: isEnglish ? 'contemplative' : '专注·柔和',
       description: ''
-    }
+    })
   }
 }
 
@@ -381,6 +357,7 @@ export async function generatePsychologicalJourney(
     social_intensity: number
     cognitive_need: string
     post_journey_goal: string
+    food_preference?: string
   },
   language: string = 'zh-CN',
   userCountry?: string, // 用户所在国家/地区（用于推荐目的地）
@@ -422,13 +399,17 @@ export async function generatePsychologicalJourney(
   const destinationConstraint = buildDestinationConstraint(selectedDestination, language, 'important')
   
   // 构建基于心理模板的行程生成提示
+  const foodPreferenceText = personalityProfile.food_preference 
+    ? (isEnglish ? `\n- Food Experience: ${personalityProfile.food_preference}` : `\n- 美食体验：${personalityProfile.food_preference}`)
+    : ''
+  
   const psychologicalPrompt = isEnglish
     ? `Generate a ${template.templateName} journey based on the following psychological profile:
 - Motivation: ${personalityProfile.motivation} (seeking: ${personalityProfile.motivation_detail})
 - Emotion: From ${personalityProfile.dominant_emotion} to ${personalityProfile.desired_emotion}
 - Rhythm: ${personalityProfile.travel_rhythm} with ${personalityProfile.activity_density} activities
 - Social: ${personalityProfile.social_preference} (intensity: ${personalityProfile.social_intensity}/5)
-- Need: ${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+- Need: ${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}${foodPreferenceText}
 
 Psychological Flow: ${template.psychologicalFlow.join(' → ')}
 Symbolic Elements: ${template.symbolicElements.join(', ')}
@@ -436,19 +417,23 @@ Core Insight: ${template.coreInsight}
 Recommended Rhythm: ${template.recommendedRhythm}
 Social Mode: ${template.socialMode}${destinationConstraint}
 
+IMPORTANT: Based on the food preference "${personalityProfile.food_preference || 'local cuisine experience'}", ensure the itinerary includes appropriate food and dining experiences. Include meal activities (type: "meal") that match the traveler's food preference level.${foodPreferenceText ? `\n- For "${personalityProfile.food_preference}", plan meals accordingly:` : ''}${personalityProfile.food_preference === '深度美食探索' || personalityProfile.food_preference === 'Deep Food Exploration' ? ' Include multiple meal experiences daily, from street food to fine dining, cooking classes, food markets, and local specialty restaurants.' : ''}${personalityProfile.food_preference === '当地特色体验' || personalityProfile.food_preference === 'Local Specialty Experience' ? ' Include 1-2 meal experiences per day focusing on authentic local cuisine and traditional dishes.' : ''}${personalityProfile.food_preference === '偶尔尝试' || personalityProfile.food_preference === 'Occasional Try' ? ' Include occasional meal experiences (every other day or so) with local specialties.' : ''}${personalityProfile.food_preference === '简单便捷' || personalityProfile.food_preference === 'Simple & Convenient' ? ' Include simple, convenient meal options without extensive food-focused activities.' : ''}
+
 Create a travel itinerary that embodies this psychological journey.`
     : `基于以下心理画像生成${template.templateName}旅程：
 - 动机：${personalityProfile.motivation}（寻求：${personalityProfile.motivation_detail}）
 - 情绪：从 ${personalityProfile.dominant_emotion} 到 ${personalityProfile.desired_emotion}
 - 节奏：${personalityProfile.travel_rhythm}，活动密度：${personalityProfile.activity_density}
 - 社交：${personalityProfile.social_preference}（强度：${personalityProfile.social_intensity}/5）
-- 需求：${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+- 需求：${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}${foodPreferenceText}
 
 心理流程：${template.psychologicalFlow.join(' → ')}
 象征元素：${template.symbolicElements.join('、')}
 核心洞察：${template.coreInsight}
 推荐节奏：${template.recommendedRhythm}
 社交模式：${template.socialMode}${destinationConstraint}
+
+重要提示：根据美食偏好"${personalityProfile.food_preference || '当地特色体验'}"，确保行程包含相应的美食和餐饮体验。包含符合旅行者美食偏好水平的餐饮活动（type: "meal"）。${foodPreferenceText ? `\n- 对于"${personalityProfile.food_preference}"，请相应安排：` : ''}${personalityProfile.food_preference === '深度美食探索' ? ' 每天包含多次餐饮体验，从街头小吃到精致餐厅、烹饪课程、美食市场、当地特色餐厅等。' : ''}${personalityProfile.food_preference === '当地特色体验' ? ' 每天包含1-2次餐饮体验，专注于地道当地美食和传统菜肴。' : ''}${personalityProfile.food_preference === '偶尔尝试' ? ' 偶尔包含餐饮体验（每隔一天左右），尝试当地特色。' : ''}${personalityProfile.food_preference === '简单便捷' ? ' 包含简单便捷的餐饮选项，无需大量美食活动。' : ''}
 
 创建体现这一心理旅程的旅行行程。`
   
@@ -471,6 +456,7 @@ Create a travel itinerary that embodies this psychological journey.`
 - Rhythm: ${personalityProfile.travel_rhythm}, Activity Density: ${personalityProfile.activity_density}
 - Social: ${personalityProfile.social_preference} (intensity: ${personalityProfile.social_intensity}/5)
 - Need: ${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+${personalityProfile.food_preference ? `- Food Experience: ${personalityProfile.food_preference}` : '- Food Experience: Local cuisine experience'}
 
 **Matched Psychological Template:**
 - Template Name: ${template.templateName}
@@ -537,6 +523,7 @@ Return a valid JSON array with this structure:
 - 节奏：${personalityProfile.travel_rhythm}，活动密度：${personalityProfile.activity_density}
 - 社交：${personalityProfile.social_preference}（强度：${personalityProfile.social_intensity}/5）
 - 需求：${personalityProfile.cognitive_need} → ${personalityProfile.post_journey_goal}
+${personalityProfile.food_preference ? `- 美食体验：${personalityProfile.food_preference}` : '- 美食体验：当地特色体验'}
 
 **匹配的心理旅程模板：**
 - 模板名称：${template.templateName}
@@ -767,7 +754,8 @@ ${userPermanentResidency && userNationality ? `- 注意：如果用户是${userN
       socialPreference: personalityProfile.social_preference,
       socialIntensity: personalityProfile.social_intensity,
       cognitiveNeed: personalityProfile.cognitive_need,
-      postJourneyGoal: personalityProfile.post_journey_goal
+      postJourneyGoal: personalityProfile.post_journey_goal,
+      foodPreference: personalityProfile.food_preference || '当地特色体验'
     },
     
     // 旅程设计（如果有完整行程）
@@ -840,23 +828,85 @@ ${userPermanentResidency && userNationality ? `- 注意：如果用户是${userN
   return result
 }
 
+/**
+ * 从用户输入中提取天数信息
+ */
+function extractDaysFromInput(input: string, language: string = 'zh-CN'): number | null {
+  const isEnglish = language.startsWith('en')
+  
+  // 中文模式：匹配"6天"、"6日"、"六天"等
+  if (!isEnglish) {
+    // 匹配数字+天/日
+    const zhPattern1 = /(\d+)\s*[天日]/
+    const match1 = input.match(zhPattern1)
+    if (match1 && match1[1]) {
+      const days = parseInt(match1[1], 10)
+      if (days > 0 && days <= 30) {
+        return days
+      }
+    }
+    
+    // 匹配中文数字+天/日
+    const zhNumbers: Record<string, number> = {
+      '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+      '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+      '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15
+    }
+    for (const [zhNum, num] of Object.entries(zhNumbers)) {
+      if (input.includes(`${zhNum}天`) || input.includes(`${zhNum}日`)) {
+        return num
+      }
+    }
+  } else {
+    // 英文模式：匹配"6 days"、"6-day"等
+    const enPattern1 = /(\d+)\s*days?/i
+    const match1 = input.match(enPattern1)
+    if (match1 && match1[1]) {
+      const days = parseInt(match1[1], 10)
+      if (days > 0 && days <= 30) {
+        return days
+      }
+    }
+    
+    // 匹配"6-day"格式
+    const enPattern2 = /(\d+)\s*-\s*day/i
+    const match2 = input.match(enPattern2)
+    if (match2 && match2[1]) {
+      const days = parseInt(match2[1], 10)
+      if (days > 0 && days <= 30) {
+        return days
+      }
+    }
+  }
+  
+  return null
+}
+
 export async function generateInspirationJourney(input: string, language: string = 'zh-CN', userCountry?: string, selectedDestination?: string, userNationality?: string, userPermanentResidency?: string, heldVisas?: string[], visaFreeDestinations?: string[], visaInfoSummary?: string | null): Promise<any> {
   const isEnglish = language.startsWith('en')
   
-  // First, detect user intent to understand their travel needs
-  let intentData = null
-  try {
-    intentData = await detectInspirationIntent(input, language)
-    console.log('检测到的用户意图:', intentData)
-  } catch (error) {
-    console.error('意图识别失败，使用默认值:', error)
-    intentData = {
-      intentType: 'general',
-      keywords: [],
-      emotionTone: 'neutral',
-      description: '一般旅行'
-    }
-  }
+  // 首先从用户输入中提取天数
+  const userRequestedDays = extractDaysFromInput(input, language)
+  logger.log(`📅 从用户输入提取的天数: ${userRequestedDays || '未找到'}`, '', 0)
+  
+  // 并行执行意图检测和参考目录构建，提升性能
+  const [intentResult, referenceResult] = await Promise.all([
+    // 意图检测
+    detectInspirationIntent(input, language).catch((error) => {
+      console.error('意图识别失败，使用默认值:', error)
+      return {
+        intentType: 'general',
+        keywords: [],
+        emotionTone: 'neutral',
+        description: '一般旅行'
+      }
+    }),
+    // 参考目录构建（本地操作，很快）
+    buildReferenceCatalog(userCountry, language)
+  ])
+  
+  let intentData = intentResult
+  const { referenceCatalog, locationGuidance } = referenceResult
   
   // 如果用户选择了目的地，在意图数据中记录
   if (selectedDestination) {
@@ -870,11 +920,24 @@ export async function generateInspirationJourney(input: string, language: string
     }
   }
   
-  // Build reference catalog from local inspiration DB to ground AI suggestions
-  const { referenceCatalog, locationGuidance } = await buildReferenceCatalog(userCountry, language)
-  
   const startDate = new Date().toISOString().split('T')[0]
-  const estimatedDays = intentData?.intentType === 'extreme_exploration' ? 7 : intentData?.intentType === 'emotional_healing' ? 5 : 6
+  
+  // 根据目的地推荐最佳天数（如果用户未指定）
+  let estimatedDays: number
+  if (userRequestedDays) {
+    // 用户明确指定了天数，使用用户输入
+    estimatedDays = userRequestedDays
+    logger.log(`📅 使用用户指定的天数: ${estimatedDays}`, '', 0)
+  } else {
+    // 用户未指定，根据目的地智能推荐
+    const { getRecommendedDaysForDestination } = await import('@/utils/destinationDays')
+    const destination = selectedDestination || intentData?.keywords?.[0] || ''
+    const recommendation = getRecommendedDaysForDestination(destination, intentData?.intentType)
+    estimatedDays = recommendation.recommendedDays
+    logger.log(`📅 根据目的地推荐天数: ${estimatedDays} (目的地: ${destination}, 原因: ${recommendation.reason})`, '', 0)
+  }
+  
+  logger.log(`📅 最终使用的天数: ${estimatedDays} (用户输入: ${userRequestedDays || '未指定'}, 目的地推荐: ${estimatedDays})`, '', 0)
   
   const intentTypeText = intentData?.intentType || 'general'
   const emotionToneText = intentData?.emotionTone || 'neutral'
@@ -1414,9 +1477,21 @@ JSON 验证规则：
 
   let response: string | undefined
   try {
+    // 动态计算 max_tokens：根据天数调整，避免浪费
+    // 基础开销：2000 tokens（标题、摘要、结构等）
+    // 每天开销：约 800 tokens（4-6个时间段，每个约150-200 tokens）
+    // 添加20%缓冲以防止截断
+    const baseTokens = 2000
+    const tokensPerDay = 800
+    const calculatedMaxTokens = Math.min(
+      Math.ceil((baseTokens + estimatedDays * tokensPerDay) * 1.2),
+      8192 // 不超过API限制
+    )
+    logger.log(`📊 Token计算: 天数=${estimatedDays}, 基础=${baseTokens}, 每天=${tokensPerDay}, 总计=${calculatedMaxTokens}`, '', 0)
+    
     response = await askDeepSeek(fullSystemPrompt, input, {
       temperature: 0.8, // 降低温度以提高输出稳定性
-      max_tokens: 8192  // DeepSeek API 的最大限制，避免JSON截断
+      max_tokens: calculatedMaxTokens  // 动态调整，优化性能
     })
     
     // 检查响应是否有效
@@ -1428,7 +1503,7 @@ JSON 验证规则：
     
     // 使用统一的 JSON 解析工具（自动处理 markdown 代码块）
     // 已默认启用详细日志和部分解析以处理可能的截断 JSON
-    const parsed = parseJSONSafe(response)
+    let parsed = parseJSONSafe(response)
     
     if (!parsed) {
       // 输出更详细的错误信息用于调试
@@ -1457,85 +1532,28 @@ JSON 验证规则：
       }
     }
     
-    // 检查并补齐天数：确保days数组长度与duration一致
+    // 确保 duration 字段与实际天数一致（不补齐，只同步）
     if (parsed.days && Array.isArray(parsed.days)) {
       const actualDays = parsed.days.length
-      const parsedDuration = typeof parsed.duration === 'number' ? parsed.duration : parseInt(String(parsed.duration || estimatedDays))
-      const targetDuration = parsedDuration > 0 ? parsedDuration : estimatedDays
-      
-      if (actualDays < targetDuration) {
-        logger.warn(`⚠️ AI生成的天数(${actualDays})少于目标天数(${targetDuration})，正在补齐...`, '', 0)
-        
-        // 补齐缺失的天数
-        const startDateStr = startDate || new Date().toISOString().split('T')[0]
-        if (!startDateStr) {
-          logger.warn('⚠️ 无法获取开始日期，跳过天数补齐', '', 0)
-        } else {
-          const startDateObj = new Date(startDateStr)
-          for (let i = actualDays; i < targetDuration; i++) {
-            const currentDate = new Date(startDateObj)
-            currentDate.setDate(startDateObj.getDate() + i)
-            const dateStr = currentDate.toISOString().split('T')[0]
-            
-            // 根据心理流程阶段安排
-            const psychologicalStages = ['召唤', '映照', '觉醒', '沉淀', '转化']
-            const stageIndex = i % psychologicalStages.length
-            const stage = psychologicalStages[stageIndex]
-            
-            // 基于已有天数生成合理的行程内容
-            const baseDay = parsed.days[0] || {}
-            const newDay: any = {
-              day: i + 1,
-              date: dateStr,
-              theme: `${stage}：${stage === '召唤' ? '召唤之声' : stage === '映照' ? '映照' : stage === '觉醒' ? '觉醒时刻' : stage === '沉淀' ? '沉淀时光' : '转化完成'}`,
-              mood: stage === '召唤' ? '探索' : stage === '映照' ? '反思' : stage === '觉醒' ? '觉醒' : stage === '沉淀' ? '沉淀' : '转化',
-              summary: `${stage}阶段的旅程，继续探索${parsed.destination || '目的地'}的深层体验。`,
-              psychologicalStage: stage,
-              timeSlots: []
-            }
-            
-            // 如果baseDay有timeSlots，可以基于它创建类似但不同的活动
-            if (baseDay.timeSlots && baseDay.timeSlots.length > 0) {
-              // 基于第一天的活动创建变体（避免完全重复）
-              const baseSlot = baseDay.timeSlots[0]
-              const timeOffset = i * 2 // 每天时间稍有不同
-              newDay.timeSlots = [
-                {
-                  time: `09:${String((0 + timeOffset) % 60).padStart(2, '0')}`,
-                  title: baseSlot.title || '探索活动',
-                  activity: baseSlot.activity || '探索',
-                  location: baseSlot.location || parsed.destination || '',
-                  type: baseSlot.type || 'attraction',
-                  category: baseSlot.category || '探索',
-                  duration: baseSlot.duration || 120,
-                  notes: `${stage}阶段的体验：${baseSlot.notes || '继续旅程探索'}`,
-                  localTip: baseSlot.localTip || '',
-                  cost: baseSlot.cost || 0,
-                  coordinates: baseSlot.coordinates || { lat: 0, lng: 0 },
-                  internalTrack: {
-                    question: `${stage}阶段的问题：你在这个阶段想要探索什么？`,
-                    ritual: `${stage}阶段的仪式：记录当天的感受`,
-                    reflection: `${stage}阶段的反思：思考今天的体验`
-                  }
-                }
-              ]
-            }
-            
-            parsed.days.push(newDay)
-          }
-          
-          // 更新duration确保一致
-          parsed.duration = targetDuration
-          logger.log(`✅ 已补齐到${targetDuration}天`, '', 0)
-        }
-      } else if (actualDays > targetDuration) {
-        // 如果天数超过目标，调整duration
-        parsed.duration = actualDays
-        logger.log(`⚠️ AI生成的天数(${actualDays})超过目标天数(${targetDuration})，已调整为${actualDays}天`, '', 0)
-      }
+      // 同步 duration 字段为实际生成的天数
+      parsed.duration = actualDays
+      logger.log(`📊 天数同步: 实际生成=${actualDays}天，duration已同步为${actualDays}`, '', 0)
     }
     
-    // 使用统一的校验器验证必要字段
+    // 使用 Zod schema 进行最终验证
+    const schemaValidation = ItinerarySchema.safeParse(parsed)
+    if (!schemaValidation.success) {
+      logger.error('❌ Itinerary schema validation failed:', schemaValidation.error)
+      // 仍然使用原有的校验器作为补充
+      const validation = validateInspirationItinerary(parsed)
+      if (!validation.ok) {
+        throw new Error(validation.error || 'AI返回的数据格式不正确')
+      }
+    } else {
+      parsed = schemaValidation.data
+    }
+    
+    // 使用统一的校验器验证必要字段（双重验证）
     const validation = validateInspirationItinerary(parsed)
     if (!validation.ok) {
       throw new Error(validation.error || 'AI返回的数据格式不正确')

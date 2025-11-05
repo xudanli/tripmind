@@ -176,6 +176,15 @@ export const PRESET_COUNTRIES: Record<string, CountryInfo> = {
     language: '芬兰语'
   },
   
+  // 冰岛
+  'IS': { 
+    name: '冰岛', 
+    code: 'IS', 
+    flag: '🇮🇸',
+    currency: 'ISK',
+    language: '冰岛语'
+  },
+  
   // 中国台湾
   'TW': { 
     name: '中国台湾', 

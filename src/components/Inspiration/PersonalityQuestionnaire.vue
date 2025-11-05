@@ -130,6 +130,15 @@
                 <a-radio value="生活改变">生活改变</a-radio>
               </a-radio-group>
             </a-form-item>
+            
+            <a-form-item label="Q11: 你对美食体验的偏好？" required>
+              <a-radio-group v-model:value="formData.food_preference">
+                <a-radio value="深度美食探索">深度美食探索</a-radio>
+                <a-radio value="当地特色体验">当地特色体验</a-radio>
+                <a-radio value="偶尔尝试">偶尔尝试</a-radio>
+                <a-radio value="简单便捷">简单便捷</a-radio>
+              </a-radio-group>
+            </a-form-item>
           </div>
         </div>
         
@@ -182,6 +191,7 @@ export interface PersonalityProfile {
   social_intensity: number
   cognitive_need: string
   post_journey_goal: string
+  food_preference: string
 }
 
 const formData = ref<PersonalityProfile>({
@@ -194,7 +204,8 @@ const formData = ref<PersonalityProfile>({
   social_preference: '',
   social_intensity: 3,
   cognitive_need: '',
-  post_journey_goal: ''
+  post_journey_goal: '',
+  food_preference: ''
 })
 
 const currentStep = ref(0)
@@ -223,7 +234,7 @@ const isCurrentStepValid = computed(() => {
     case 3: // S 社交
       return formData.value.social_preference !== '' && formData.value.social_intensity > 0
     case 4: // N 需求
-      return formData.value.cognitive_need !== '' && formData.value.post_journey_goal !== ''
+      return formData.value.cognitive_need !== '' && formData.value.post_journey_goal !== '' && formData.value.food_preference !== ''
     default:
       return false
   }
@@ -239,7 +250,8 @@ const isFormValid = computed(() => {
          formData.value.activity_density !== '' &&
          formData.value.social_preference !== '' &&
          formData.value.cognitive_need !== '' &&
-         formData.value.post_journey_goal !== ''
+         formData.value.post_journey_goal !== '' &&
+         formData.value.food_preference !== ''
 })
 
 const goNext = () => {

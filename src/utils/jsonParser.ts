@@ -205,15 +205,46 @@ export function fixJSONIssues(jsonString: string): string {
   // 5. 修复值前的转义：": \" -> ": "
   fixed = fixed.replace(/":\s*\\"/g, '": "')
   
-  // 6. 移除尾随逗号
+  // 6. 修复未引用的属性名（AI可能生成像 "Four Seasons Resort Bora Bora" 这样的未引用属性）
+  // 模式：}: "value" 或 }, propertyName: 或 , propertyName:
+  fixed = fixed.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_\s-]+?):\s*(["\d{[])/g, (match, prefix, propName, valueStart) => {
+    // 检查属性名是否已经用引号包裹
+    if (!propName.startsWith('"') && !propName.endsWith('"')) {
+      // 移除属性名中的空格和特殊字符，只保留有效字符
+      const cleanPropName = propName.trim().replace(/[^a-zA-Z0-9_]/g, '_')
+      // 如果属性名包含空格或特殊字符，需要用引号包裹
+      if (propName.includes(' ') || propName.includes('-') || propName.length > 20) {
+        return `${prefix}"${propName.replace(/"/g, '\\"')}": ${valueStart}`
+      }
+      return `${prefix}"${cleanPropName}": ${valueStart}`
+    }
+    return match
+  })
+  
+  // 6.1 修复更复杂的未引用属性名情况（如对象值中的未引用属性）
+  // 例如：}, Four Seasons Resort: { -> }, "Four Seasons Resort": {
+  fixed = fixed.replace(/([{,]\s*)([A-Z][^":{}[\]]+?):\s*([{["])/g, (match, prefix, propName, valueStart) => {
+    const trimmed = propName.trim()
+    // 如果看起来像属性名（包含空格、大写字母开头），添加引号
+    if (trimmed.length > 0 && trimmed.length < 100 && !trimmed.includes('"')) {
+      return `${prefix}"${trimmed.replace(/"/g, '\\"')}": ${valueStart}`
+    }
+    return match
+  })
+  
+  // 7. 移除尾随逗号
   fixed = fixed.replace(/,(\s*[}\]])/g, '$1')
   
-  // 7. 修复单引号为双引号
+  // 8. 修复单引号为双引号
   fixed = fixed.replace(/([{,]\s*)'([^']+)':\s*'([^']*)'/g, '$1"$2": "$3"')
   
-  // 8. 修复字符串值中包含特殊字符但缺少转义的情况
+  // 9. 修复字符串值中包含特殊字符但缺少转义的情况
   // 先尝试用状态机方式修复字符串中的未转义引号（更安全，支持Unicode）
   fixed = fixUnescapedQuotesInStrings(fixed)
+  
+  // 9.1 修复未终止的字符串（在JSON末尾或对象/数组结束前）
+  // 查找所有未闭合的字符串并在适当位置闭合
+  fixed = fixUnterminatedStrings(fixed)
   
   // 9. 修复数字后面多余的引号和重复字段："field": 6 ", "field": 6, -> "field": 6,
   // 处理 "duration": 6 ", "duration": 6, 这种情况
@@ -334,21 +365,126 @@ export function fixJSONIssues(jsonString: string): string {
   fixed = fixed.replace(/"([^"]*)"\s*\[\s*"([^"]+)":/g, '"$1", [ "$2":')
   fixed = fixed.replace(/"([^"]*)"\s*\[\s*\{/g, '"$1", [ {')
   
+  // 17. 修复数组元素后缺少逗号的情况（特别是在字符串数组后）
+  // 例如：["item1", "item2"] "field": -> ["item1", "item2"], "field":
+  fixed = fixed.replace(/(\])\s*"([^"]+)":/g, '$1, "$2":')
+  
+  // 18. 修复对象后缺少逗号的情况
+  // 例如：} "field": -> }, "field":
+  fixed = fixed.replace(/(\})\s*"([^"]+)":/g, '$1, "$2":')
+  
+  // 19. 修复数组值后缺少逗号的情况
+  // 例如：] "field": -> ], "field":
+  fixed = fixed.replace(/(\])\s*"([^"]+)":/g, '$1, "$2":')
+  
+  // 20. 修复数字值后缺少逗号的情况（更全面的匹配）
+  // 例如：123 "field": -> 123, "field":
+  fixed = fixed.replace(/(\d+(?:\.\d+)?)\s*"([^"]+)":/g, '$1, "$2":')
+  
+  // 21. 修复布尔值和null后缺少逗号的情况
+  // 例如：true "field": -> true, "field":
+  fixed = fixed.replace(/(true|false|null)\s*"([^"]+)":/g, '$1, "$2":')
+  
+  // 22. 修复字符串值中可能包含单引号的情况（AI可能生成单引号）
+  // 将字符串值中的单引号转义或替换
+  fixed = fixed.replace(/"([^"]*)'([^"]*)":/g, (match, before, after) => {
+    // 如果这个模式匹配的是字段名，则不需要修改
+    // 我们需要检查这是否是字段值
+    const beforeMatch = match.match(/":\s*"([^"]*)'([^"]*)"/)
+    if (beforeMatch) {
+      // 这是字段值，需要转义单引号
+      return `": "${beforeMatch[1]}\\'${beforeMatch[2]}"`
+    }
+    return match
+  })
+  
+  // 23. 修复可能的多余引号（在字段值末尾）
+  // 例如："field": "value"", -> "field": "value",
+  fixed = fixed.replace(/":\s*"([^"]*)"",/g, '": "$1",')
+  
+  // 24. 修复数组元素之间的分隔问题
+  // 例如：["item1" "item2"] -> ["item1", "item2"]
+  fixed = fixed.replace(/(\[[^\]]*)"([^"]+)"\s*"([^"]+)"/g, (match, prefix, item1, item2) => {
+    // 检查是否已经包含逗号
+    if (!prefix.endsWith(',')) {
+      return `${prefix}"${item1}", "${item2}"`
+    }
+    return match
+  })
+  
+  // 24.1 修复数组中未引用的字符串值（特别是中文）
+  // 例如：["潟湖全景",专业指导","海豚"] -> ["潟湖全景","专业指导","海豚"]
+  // 匹配：引号后跟着逗号+空白+非引号字符（可能是未引用的字符串）
+  fixed = fixed.replace(/(\[[^\]]*)"([^"]+)"\s*,\s*([^",\[\]{}]+?)\s*",/g, (match, prefix, item1, item2) => {
+    // 如果item2看起来像字符串值（不是数字、布尔值等），添加引号
+    if (!/^(true|false|null|\d+(\.\d+)?)$/.test(item2.trim())) {
+      return `${prefix}"${item1}", "${item2}",`
+    }
+    return match
+  })
+  
+  // 24.2 修复数组开头未引用的字符串
+  // 例如：[潟湖全景","专业指导"] -> ["潟湖全景","专业指导"]
+  fixed = fixed.replace(/(\[\s*)([^",\[\]{}]+?)\s*",/g, (match, prefix, item) => {
+    if (!/^(true|false|null|\d+(\.\d+)?)$/.test(item.trim())) {
+      return `${prefix}"${item}",`
+    }
+    return match
+  })
+  
+  // 24.3 修复数组中连续的未引用字符串
+  // 例如：["item1",item2,item3] -> ["item1","item2","item3"]
+  fixed = fixed.replace(/(\[[^\]]*)"([^"]+)"\s*,\s*([^",\[\]{}]+?)\s*,/g, (match, prefix, item1, item2) => {
+    if (!/^(true|false|null|\d+(\.\d+)?)$/.test(item2.trim())) {
+      return `${prefix}"${item1}", "${item2}",`
+    }
+    return match
+  })
+  
+  // 24.4 修复数组中的中文未引用字符串（更精确的匹配）
+  // 处理类似：["潟湖全景",专业指导","海豚"] 的情况（中间缺少引号）
+  // 这个正则会匹配：引号字符串后，逗号，然后是非JSON字符（可能是未引用的中文），然后是逗号和引号
+  fixed = fixed.replace(/(\[[^\]]*)"([^"]+)"\s*,\s*([^",\[\]{}"']+?)\s*",\s*"([^"]+)"/g, (match, prefix, item1, item2, item3) => {
+    // item2是未引用的字符串，item3是下一个引用的字符串
+    if (!/^(true|false|null|\d+(\.\d+)?)$/.test(item2.trim())) {
+      return `${prefix}"${item1}", "${item2}", "${item3}"`
+    }
+    return match
+  })
+  
+  // 24.5 修复数组末尾未引用的字符串
+  // 例如：["item1",item2] -> ["item1","item2"]
+  fixed = fixed.replace(/(\[[^\]]*)"([^"]+)"\s*,\s*([^",\[\]{}]+?)\s*(\]|$)/g, (match, prefix, item1, item2, end) => {
+    if (!/^(true|false|null|\d+(\.\d+)?)$/.test(item2.trim())) {
+      return `${prefix}"${item1}", "${item2}"${end}`
+    }
+    return match
+  })
+  
+  // 25. 最后尝试修复任何剩余的尾随逗号问题
+  fixed = fixed.replace(/,(\s*[}\]])/g, '$1')
+  
   return fixed
 }
 
 /**
  * 修复字符串中的未转义引号（使用状态机，支持Unicode）
+ * 增强版：更好地处理未终止字符串和复杂情况
  */
 function fixUnescapedQuotesInStrings(json: string): string {
   let result = ''
   let inString = false
   let escapeNext = false
+  let stringStart = -1
   
   for (let i = 0; i < json.length; i++) {
     const char = json[i]
     const nextChar = i < json.length - 1 ? json[i + 1] : ''
-    const nextNonWsMatch = json.substring(i + 1).match(/^\s*([,}\]:]|$)/)
+    const prevChar = i > 0 ? json[i - 1] : ''
+    
+    // 向前查看几个字符以更好地判断上下文
+    const lookahead = json.substring(i + 1, Math.min(i + 10, json.length))
+    const nextNonWsMatch = lookahead.match(/^\s*([,}\]:\]])/)
     const nextNonWs = nextNonWsMatch ? nextNonWsMatch[1] : ''
     
     if (escapeNext) {
@@ -367,13 +503,20 @@ function fixUnescapedQuotesInStrings(json: string): string {
       if (!inString) {
         // 字符串开始
         inString = true
+        stringStart = i
         result += char
       } else {
-        // 检查是否是字符串结束（后面跟着逗号、冒号、右括号或空白+这些字符）
-        if (nextChar === ',' || nextChar === '}' || nextChar === ']' || nextChar === ':' ||
-            nextNonWs === ',' || nextNonWs === '}' || nextNonWs === ']' || nextNonWs === ':') {
+        // 检查是否是字符串结束
+        // 更智能的判断：如果后面跟着逗号、冒号、右括号、空白+这些字符，或者遇到换行符+这些字符
+        const isEnd = nextChar === ',' || nextChar === '}' || nextChar === ']' || 
+                     nextChar === ':' || nextNonWs === ',' || nextNonWs === '}' || 
+                     nextNonWs === ']' || nextNonWs === ':' ||
+                     (nextChar === '\n' && (lookahead.match(/^\s*[,}\]:]/) !== null))
+        
+        if (isEnd) {
           // 字符串结束
           inString = false
+          stringStart = -1
           result += char
         } else {
           // 字符串内部未转义的引号，需要转义
@@ -382,12 +525,109 @@ function fixUnescapedQuotesInStrings(json: string): string {
       }
     } else {
       result += char
+      
+      // 检查是否在字符串中遇到了未转义的换行符（这会导致JSON无效）
+      if (inString && (char === '\n' || char === '\r')) {
+        // 将换行符转义
+        result = result.slice(0, -1) + '\\n'
+      }
     }
   }
   
-  // 如果字符串未闭合，补充闭合引号
+  // 如果字符串未闭合，尝试智能补充闭合引号
   if (inString) {
-    result += '"'
+    // 检查最后几个字符，看看是否应该闭合字符串
+    const lastChars = result.substring(Math.max(0, result.length - 50))
+    // 如果最后是有效的文本内容，补充闭合引号
+    if (lastChars.match(/[^\\"]$/)) {
+      result += '"'
+    }
+  }
+  
+  return result
+}
+
+/**
+ * 修复未终止的字符串
+ */
+function fixUnterminatedStrings(json: string): string {
+  let result = ''
+  let inString = false
+  let escapeNext = false
+  let stringStart = -1
+  let openBraces = 0
+  let openBrackets = 0
+  
+  for (let i = 0; i < json.length; i++) {
+    const char = json[i]
+    const nextChar = i < json.length - 1 ? json[i + 1] : ''
+    const lookahead = json.substring(i + 1, Math.min(i + 20, json.length))
+    
+    if (escapeNext) {
+      result += char
+      escapeNext = false
+      continue
+    }
+    
+    if (char === '\\') {
+      result += char
+      escapeNext = true
+      continue
+    }
+    
+    if (char === '"') {
+      if (!inString) {
+        inString = true
+        stringStart = i
+        result += char
+      } else {
+        // 检查是否是字符串结束
+        const isEnd = nextChar === ',' || nextChar === '}' || nextChar === ']' || 
+                     nextChar === ':' || lookahead.match(/^\s*[,}\]:]/)
+        
+        if (isEnd) {
+          inString = false
+          result += char
+        } else {
+          result += '\\"'
+        }
+      }
+    } else {
+      if (!inString) {
+        if (char === '{') openBraces++
+        if (char === '}') openBraces--
+        if (char === '[') openBrackets++
+        if (char === ']') openBrackets--
+      }
+      
+      result += char
+      
+      // 如果在字符串中遇到换行符，转义它
+      if (inString && (char === '\n' || char === '\r')) {
+        result = result.slice(0, -1) + '\\n'
+      }
+    }
+  }
+  
+  // 如果字符串未闭合，尝试智能闭合
+  if (inString) {
+    // 检查是否在对象或数组的末尾
+    const remainingChars = json.substring(stringStart)
+    const lastChar = json[json.length - 1]
+    
+    // 如果最后是 } 或 ]，且字符串内容看起来完整，闭合字符串
+    if ((lastChar === '}' || lastChar === ']') && remainingChars.length > 1) {
+      // 在最后一个非空白字符前插入闭合引号
+      const lastNonWs = remainingChars.match(/[^\s](?=\s*[}\]]*$)/)
+      if (lastNonWs && lastNonWs.index !== undefined) {
+        const insertPos = stringStart + lastNonWs.index + 1
+        result = result.substring(0, insertPos) + '"' + result.substring(insertPos)
+      } else {
+        result += '"'
+      }
+    } else {
+      result += '"'
+    }
   }
   
   return result

@@ -1,5 +1,5 @@
 <template>
-  <a-card :title="t('travelDetail.discussion')" class="discussion-card" :bordered="false">
+  <a-card class="discussion-card" :bordered="false" :headStyle="{ display: 'none' }">
     <div class="discussion-area">
       <!-- 消息列表 -->
       <div 
@@ -81,6 +81,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { getVisaInfo } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { chatWithDeepSeek } from '@/services/deepseekAPI'
 import MessageGroup from './DiscussionArea/MessageGroup.vue'
 import TimeDivider from './DiscussionArea/TimeDivider.vue'
 import TypingIndicator from './DiscussionArea/TypingIndicator.vue'
@@ -381,62 +382,142 @@ const handleCommand = async (command: string, content: string) => {
   await pushAndMaybeScroll(userMessage)
   inputValue.value = ''
   
-  // 模拟处理命令
+  // 使用 DeepSeek API 处理命令
   setSafeTimeout(async () => {
     userMessage.status = 'sent'
+    saveMessagesThrottled()
     
-    // 根据命令类型生成AI回复
-    let aiResponse: Message | null = null
-    
-    switch (command) {
-      case 'summary':
-        aiResponse = {
+    try {
+      // 获取旅行上下文信息
+      const travel = travelListStore.getTravel(props.travelId || '')
+      const destination = travel?.location || travel?.data?.location || travel?.data?.destination || ''
+      const mode = travel?.mode || 'planner'
+      const travelTitle = travel?.title || ''
+      
+      // 构建系统提示词（针对命令）
+      const commandPrompts: Record<string, string> = {
+        summary: locale.value.startsWith('zh')
+          ? `你是一位专业的旅行AI助手。用户输入了 /summary 命令，请生成这段旅程的摘要。
+          
+当前旅行信息：
+${destination ? `- 目的地：${destination}` : ''}
+${travelTitle ? `- 旅行标题：${travelTitle}` : ''}
+
+请生成一个简洁的旅程摘要，包括：
+1. 主要亮点
+2. 关键决策或共识
+3. 下一步建议
+
+格式：使用简洁的列表形式，每条建议一行。`
+          : `You are a professional travel AI assistant. The user entered the /summary command, please generate a summary of this trip.
+
+Current Trip Information:
+${destination ? `- Destination: ${destination}` : ''}
+${travelTitle ? `- Trip Title: ${travelTitle}` : ''}
+
+Please generate a concise trip summary including:
+1. Main highlights
+2. Key decisions or consensus
+3. Next steps
+
+Format: Use concise list format, one suggestion per line.`,
+        todo: locale.value.startsWith('zh')
+          ? `你是一位专业的旅行AI助手。用户输入了 /todo 命令，请根据对话历史和旅行信息生成待办事项列表。
+
+当前旅行信息：
+${destination ? `- 目的地：${destination}` : ''}
+${travelTitle ? `- 旅行标题：${travelTitle}` : ''}
+
+请生成具体的待办事项，每条一行，格式如：1. 待办事项内容`
+          : `You are a professional travel AI assistant. The user entered the /todo command, please generate a todo list based on conversation history and trip information.
+
+Current Trip Information:
+${destination ? `- Destination: ${destination}` : ''}
+${travelTitle ? `- Trip Title: ${travelTitle}` : ''}
+
+Please generate specific todo items, one per line, format like: 1. Todo item content`
+      }
+      
+      const systemPrompt = commandPrompts[command] || (locale.value.startsWith('zh')
+        ? `你是一位专业的旅行AI助手。用户输入了命令 /${command}。
+        
+当前旅行信息：
+${destination ? `- 目的地：${destination}` : ''}
+${travelTitle ? `- 旅行标题：${travelTitle}` : ''}
+
+请根据命令和上下文信息，生成合适的回复。`
+        : `You are a professional travel AI assistant. The user entered the command /${command}.
+
+Current Trip Information:
+${destination ? `- Destination: ${destination}` : ''}
+${travelTitle ? `- Trip Title: ${travelTitle}` : ''}
+
+Please generate an appropriate response based on the command and context.`)
+      
+      // 构建对话历史
+      const recentMessages = messages.value.slice(-10)
+      const chatMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: systemPrompt }
+      ]
+      
+      // 添加对话历史
+      recentMessages.forEach(msg => {
+        if (msg.isOwn) {
+          chatMessages.push({ role: 'user', content: msg.content })
+        } else {
+          chatMessages.push({ role: 'assistant', content: msg.content })
+        }
+      })
+      
+      // 添加当前命令
+      chatMessages.push({ role: 'user', content: text })
+      
+      // 调用 DeepSeek API
+      const aiResponseContent = await chatWithDeepSeek(chatMessages, {
+        temperature: 0.7,
+        max_tokens: 1500
+      })
+      
+      // 构建回复消息
+      const aiResponse: Message = {
           id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           author: 'AI 助手',
           role: 'AI助手',
-          content: '今日共识：\n1. 优化路线建议：可以将"森林浴+静默徒步"做成模板\n2. 雨天替代方案：书店+茶室',
+        content: aiResponseContent || (locale.value.startsWith('zh') 
+          ? '收到你的命令！正在处理中...' 
+          : 'Received your command! Processing...'),
           timestamp: Date.now(),
           isOwn: false,
-          type: 'ai-card',
+        type: command === 'summary' || command === 'todo' ? 'ai-card' : 'text',
           status: 'sent',
-          aiActions: [
+        aiActions: command === 'summary' ? [
             { label: '插入待办', action: 'todo' },
             { label: '生成行程', action: 'itinerary' }
-          ]
-        }
-        break
-      case 'todo':
-        aiResponse = {
+        ] : undefined
+      }
+      
+      await pushAndMaybeScroll(aiResponse)
+    } catch (error) {
+      console.error('DeepSeek API call failed for command:', error)
+      // 使用备用回复
+      const aiResponse: Message = {
           id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
           author: 'AI 助手',
           role: 'AI助手',
-          content: '已为您生成待办事项：\n1. 准备"森林浴+静默徒步"模板\n2. 准备雨天替代方案（书店+茶室）',
-          timestamp: Date.now(),
-          isOwn: false,
-          type: 'ai-card',
-          status: 'sent'
-        }
-        break
-      default:
-        aiResponse = {
-          id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-          author: 'AI 助手',
-          role: 'AI助手',
-          content: '收到你的消息！我可以帮你优化路线、解答问题，随时提问关于这趟旅程的任何信息。',
+        content: locale.value.startsWith('zh')
+          ? '收到你的命令！我可以帮你优化路线、解答问题，随时提问关于这趟旅程的任何信息。'
+          : 'Received your command! I can help you optimize routes and answer questions, feel free to ask anything about this trip.',
           timestamp: Date.now(),
           isOwn: false,
           type: 'text',
           status: 'sent'
         }
-    }
-    
-    if (aiResponse) {
       await pushAndMaybeScroll(aiResponse)
-    }
-    
+    } finally {
     loading.value = false
     isTyping.value = false
-  }, 1000)
+    }
+  }, 500)
 }
 
 // 定时器管理（防止内存泄漏）
@@ -1366,15 +1447,84 @@ const handleSend = async () => {
     newMessage.status = 'sent'
     saveMessagesThrottled()
     
-    // 生成AI回复（延迟1-2秒模拟思考）
+    // 使用 DeepSeek API 生成AI回复
     setSafeTimeout(async () => {
-      const aiResponseContent = generateAIResponse(userMessageContent)
+      try {
+        // 获取旅行上下文信息
+        const travel = travelListStore.getTravel(props.travelId || '')
+        const destination = travel?.location || travel?.data?.location || travel?.data?.destination || ''
+        const mode = travel?.mode || 'planner'
+        const travelTitle = travel?.title || ''
+        
+        // 构建系统提示词
+        const systemPrompt = locale.value.startsWith('zh')
+          ? `你是一位专业的旅行AI助手，正在帮助用户规划和管理他们的旅行。
+
+当前旅行信息：
+${destination ? `- 目的地：${destination}` : ''}
+${travelTitle ? `- 旅行标题：${travelTitle}` : ''}
+${mode ? `- 模式：${mode === 'planner' ? '高效规划模式' : mode === 'seeker' ? '随心探索模式' : '灵感创作模式'}` : ''}
+
+你的职责：
+1. 回答用户关于旅行的问题（签证、天气、交通、景点、美食等）
+2. 提供实用的旅行建议和优化方案
+3. 根据旅行模式调整回复风格：
+   - Planner模式：高效、理性、数据驱动
+   - Seeker模式：温和、理解、充满关怀
+   - Inspiration模式：富有创造力、想象力
+4. 如果用户的问题涉及签证信息，可以基于已知信息回答，但建议用户查看官方渠道确认
+
+请用友好、专业的语气回答用户的问题，尽量提供具体、可执行的建议。`
+          : `You are a professional travel AI assistant helping users plan and manage their trips.
+
+Current Trip Information:
+${destination ? `- Destination: ${destination}` : ''}
+${travelTitle ? `- Trip Title: ${travelTitle}` : ''}
+${mode ? `- Mode: ${mode === 'planner' ? 'Efficient Planning' : mode === 'seeker' ? 'Free Exploration' : 'Inspiration Creation'}` : ''}
+
+Your responsibilities:
+1. Answer user questions about travel (visa, weather, transportation, attractions, food, etc.)
+2. Provide practical travel advice and optimization suggestions
+3. Adjust response style based on travel mode:
+   - Planner mode: Efficient, rational, data-driven
+   - Seeker mode: Gentle, understanding, caring
+   - Inspiration mode: Creative, imaginative
+4. If user asks about visa information, you can answer based on known information, but suggest users check official channels for confirmation
+
+Please answer user questions in a friendly, professional tone, providing specific, actionable advice.`
+
+        // 构建对话历史（最近10条消息）
+        const recentMessages = messages.value.slice(-10)
+        const chatMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: systemPrompt }
+        ]
+        
+        // 添加对话历史
+        recentMessages.forEach(msg => {
+          if (msg.isOwn) {
+            chatMessages.push({ role: 'user', content: msg.content })
+          } else {
+            chatMessages.push({ role: 'assistant', content: msg.content })
+          }
+        })
+        
+        // 添加当前用户消息
+        chatMessages.push({ role: 'user', content: userMessageContent })
+        
+        // 调用 DeepSeek API
+        const aiResponseContent = await chatWithDeepSeek(chatMessages, {
+          temperature: mode === 'seeker' ? 0.8 : 0.7,
+          max_tokens: 2000
+        })
+        
+        // 如果 API 调用失败，使用备用回复
+        const finalResponse = aiResponseContent || generateAIResponse(userMessageContent)
       
       const aiResponse: Message = {
         id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
         author: 'AI 助手',
         role: 'AI助手',
-        content: aiResponseContent,
+          content: finalResponse,
         timestamp: Date.now(),
         isOwn: false,
         type: 'text',
@@ -1382,9 +1532,26 @@ const handleSend = async () => {
       }
       
       await pushAndMaybeScroll(aiResponse)
+      } catch (error) {
+        console.error('DeepSeek API call failed, using fallback:', error)
+        // 如果 API 调用失败，使用备用回复
+        const aiResponseContent = generateAIResponse(userMessageContent)
+        const aiResponse: Message = {
+          id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+          author: 'AI 助手',
+          role: 'AI助手',
+          content: aiResponseContent,
+          timestamp: Date.now(),
+          isOwn: false,
+          type: 'text',
+          status: 'sent'
+        }
+        await pushAndMaybeScroll(aiResponse)
+      } finally {
       loading.value = false
       isTyping.value = false
-    }, 1000 + Math.random() * 1000) // 1-2秒随机延迟
+      }
+    }, 500) // 减少延迟，因为 API 调用本身需要时间
   }, 500)
 }
 
@@ -1496,18 +1663,17 @@ onUnmounted(() => {
 }
 
 .discussion-card {
-  border-radius: var(--r-card);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .discussion-card :deep(.ant-card-body) {
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 
 .discussion-card :deep(.ant-card-head) {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--divider);
-  min-height: auto;
+  display: none;
 }
 
 .discussion-card :deep(.ant-card-head-title) {
@@ -1524,11 +1690,11 @@ onUnmounted(() => {
 }
 
 .messages-container {
-  min-height: 240px;
-  max-height: min(48vh, 560px);
+  min-height: 400px;
+  max-height: min(70vh, 700px);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 0;
+  padding: 12px 8px;
   background: var(--bg);
 }
 

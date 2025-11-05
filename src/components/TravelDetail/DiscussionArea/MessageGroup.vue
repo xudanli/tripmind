@@ -167,9 +167,11 @@ const formatGroupTime = (timestamp: number) => {
 }
 .message-group {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
   position: relative;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .message-group-self {
@@ -178,22 +180,22 @@ const formatGroupTime = (timestamp: number) => {
 
 .message-avatar {
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--bubble-other);
   border: 1px solid var(--divider);
 }
 
 .message-avatar-placeholder {
-  width: 40px;
+  width: 32px;
   flex-shrink: 0;
 }
 
 .message-group-content {
   flex: 1;
   min-width: 0;
-  max-width: calc(100% - 48px);
+  max-width: calc(100% - 40px);
   display: flex;
   flex-direction: column;
   gap: 4px;

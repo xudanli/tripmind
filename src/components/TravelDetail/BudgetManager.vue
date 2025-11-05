@@ -1,5 +1,5 @@
 <template>
-  <a-card :title="t('travelDetail.budget') || '预算管理'" class="sidebar-card" :bordered="false">
+  <a-card :title="t('travelDetail.budgetManagement') || t('travelDetail.budget') || '预算管理'" class="sidebar-card" :bordered="false">
     <div class="budget-section">
       <a-progress 
         :percent="budgetPercent" 
@@ -34,7 +34,7 @@
           </template>
           {{ t('travelDetail.editBudget') || '编辑预算' }}
         </a-button>
-        <a-button type="default" block style="margin-top: 0.5rem" @click="showAddExpenseModal = true">
+        <a-button type="default" block style="margin-top: 0.5rem" @click="handleAddExpense">
           <template #icon>
             <plus-outlined />
           </template>
@@ -73,10 +73,21 @@
                     <a-tag v-if="item.category" size="small" :color="getCategoryColor(item.category)">
                       {{ item.category }}
                     </a-tag>
+                    <span v-if="item.location" class="expense-location">
+                      <environment-outlined /> {{ item.location }}
+                    </span>
+                    <span v-if="item.payerName" class="expense-payer">
+                      <user-outlined /> {{ item.payerName }}
+                    </span>
                   </div>
                 </template>
               </a-list-item-meta>
-              <div class="expense-amount">{{ formatAmount(item.amount) }}</div>
+              <div class="expense-amount">
+                {{ item.currencyCode && item.currencyCode !== getDestinationCurrency.value.code
+                  ? formatCurrency(item.amount, getCurrencyByCode(item.currencyCode) || getDestinationCurrency.value)
+                  : formatAmount(item.amount)
+                }}
+              </div>
             </a-list-item>
           </template>
         </a-list>
@@ -137,17 +148,36 @@
           />
         </a-form-item>
         <a-form-item :label="t('travelDetail.expenseAmount') || '金额'" required>
-          <a-input-number
-            v-model:value="expenseForm.amount"
-            :min="0"
-            :precision="2"
-            style="width: 100%"
-            :placeholder="t('travelDetail.expenseAmountPlaceholder') || '请输入金额'"
-          >
-            <template #addonBefore>{{ getDestinationCurrency.symbol }}</template>
-          </a-input-number>
+          <a-row :gutter="8">
+            <a-col :span="8">
+              <a-select
+                v-model:value="expenseForm.currencyCode"
+                :placeholder="t('travelDetail.expenseCurrency') || '货币'"
+                style="width: 100%"
+              >
+                <a-select-option
+                  v-for="currency in allCurrencies"
+                  :key="currency.code"
+                  :value="currency.code"
+                >
+                  {{ currency.symbol }} {{ currency.code }}
+                </a-select-option>
+              </a-select>
+            </a-col>
+            <a-col :span="16">
+              <a-input-number
+                v-model:value="expenseForm.amount"
+                :min="0"
+                :precision="2"
+                style="width: 100%"
+                :placeholder="t('travelDetail.expenseAmountPlaceholder') || '请输入金额'"
+              >
+                <template #addonBefore>{{ selectedCurrency.symbol }}</template>
+              </a-input-number>
+            </a-col>
+          </a-row>
           <div class="form-item-hint">
-            {{ t('travelDetail.currencyHint') || `使用${getDestinationCurrency.name}记录` }}
+            {{ t('travelDetail.currencyHint') || `使用${selectedCurrency.name}记录` }}
           </div>
         </a-form-item>
         <a-form-item :label="t('travelDetail.expenseCategory') || '分类'">
@@ -164,11 +194,74 @@
             <a-select-option value="其他">其他</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item :label="t('travelDetail.expenseDate') || '日期'">
+        <a-form-item :label="t('travelDetail.expenseLocation') || '位置/商家'">
           <a-input
+            v-model:value="expenseForm.location"
+            :placeholder="t('travelDetail.expenseLocationPlaceholder') || '例如：Leonards Bakery'"
+            :prefix="h(EnvironmentOutlined)"
+          />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.expensePayer') || '付款人'">
+          <a-select
+            v-model:value="expenseForm.payerId"
+            :placeholder="t('travelDetail.expensePayerPlaceholder') || '选择付款人'"
+            allow-clear
+            @change="handlePayerChange"
+          >
+            <a-select-option :value="currentUser.id">
+              {{ currentUser.name }}
+            </a-select-option>
+            <a-select-option
+              v-for="member in members"
+              :key="member.id"
+              :value="member.id"
+            >
+              {{ member.name }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.expenseSplit') || '分摊'">
+          <a-select
+            v-model:value="expenseForm.splitType"
+            :placeholder="t('travelDetail.expenseSplitPlaceholder') || '选择分摊方式'"
+          >
+            <a-select-option value="none">{{ t('travelDetail.expenseSplitNone') || '不分摊' }}</a-select-option>
+            <a-select-option value="equal">{{ t('travelDetail.expenseSplitEqual') || '平均分摊' }}</a-select-option>
+            <a-select-option value="custom">{{ t('travelDetail.expenseSplitCustom') || '自定义分摊' }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item
+          v-if="expenseForm.splitType === 'custom'"
+          :label="t('travelDetail.expenseSplitDetails') || '分摊详情'"
+        >
+          <div class="split-details">
+            <div
+              v-for="member in members"
+              :key="member.id"
+              class="split-item"
+            >
+              <span class="split-member">{{ member.name }}</span>
+              <a-input-number
+                v-model:value="expenseForm.splitDetails[member.id]"
+                :min="0"
+                :precision="2"
+                style="width: 120px"
+                :placeholder="t('travelDetail.expenseSplitAmount') || '金额'"
+              >
+                <template #addonBefore>{{ selectedCurrency.symbol }}</template>
+              </a-input-number>
+            </div>
+          </div>
+          <div v-if="splitTotalMismatch" class="split-error">
+            {{ t('travelDetail.expenseSplitMismatch') || '分摊总额与费用金额不一致' }}
+          </div>
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.expenseDate') || '日期'">
+          <a-date-picker
             v-model:value="expenseForm.date"
-            type="date"
             style="width: 100%"
+            format="YYYY-MM-DD"
+            :placeholder="t('travelDetail.expenseDatePlaceholder') || '选择日期（可选）'"
           />
         </a-form-item>
         <a-form-item :label="t('travelDetail.expenseNotes') || '备注'">
@@ -184,13 +277,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, h } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { EditOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { EditOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, EnvironmentOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { useTravelListStore } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
 import { message, Modal } from 'ant-design-vue'
-import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
+import dayjs, { type Dayjs } from 'dayjs'
+import { getCurrencyForDestination, formatCurrency, getAllCurrencies, getCurrencyByCode, type CurrencyInfo } from '@/utils/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 // 使用原生Date处理日期，避免依赖dayjs
 const formatDateSimple = (dateStr: string) => {
@@ -212,7 +306,13 @@ interface Expense {
   id: string
   title: string
   amount: number
+  currencyCode?: string // 货币代码
   category?: string
+  location?: string // 位置/商家
+  payerId?: string // 付款人ID
+  payerName?: string // 付款人名称（用于显示）
+  splitType?: 'none' | 'equal' | 'custom' // 分摊方式
+  splitDetails?: Record<string, number> // 自定义分摊详情
   date: string
   notes?: string
   createdAt: number
@@ -244,12 +344,44 @@ const budgetForm = ref({
   total: props.initialTotal || 0
 })
 
+// 获取成员列表（用于付款人选择）
+const members = computed(() => {
+  if (!props.travelId) return []
+  const travel = travelListStore.getTravel(props.travelId)
+  if (!travel?.data?.members) return []
+  return travel.data.members
+})
+
+// 获取当前用户信息（作为默认付款人）
+const currentUser = computed(() => {
+  // 可以从用户配置或store中获取
+  return { id: 'current_user', name: '您' }
+})
+
 const expenseForm = ref({
   title: '',
   amount: 0,
+  currencyCode: '', // 货币代码，默认使用目的地货币
   category: '',
-  date: getTodayDate(),
+  location: '', // 位置/商家
+  payerId: 'current_user', // 付款人ID，默认当前用户
+  payerName: '您', // 付款人名称，默认当前用户
+  splitType: 'none' as 'none' | 'equal' | 'custom', // 分摊方式
+  splitDetails: {} as Record<string, number>, // 自定义分摊详情
+  date: null as Dayjs | null, // 使用dayjs日期对象
   notes: ''
+})
+
+// 所有可用货币列表
+const allCurrencies = getAllCurrencies()
+
+// 当前选择的货币
+const selectedCurrency = computed((): CurrencyInfo => {
+  if (expenseForm.value.currencyCode) {
+    const currency = getCurrencyByCode(expenseForm.value.currencyCode)
+    if (currency) return currency
+  }
+  return getDestinationCurrency.value
 })
 
 // 从左侧行程数据中提取费用
@@ -455,6 +587,50 @@ const formatAmount = (amount: number) => {
   return formatCurrency(amount, getDestinationCurrency.value)
 }
 
+// 计算分摊总额
+const splitTotal = computed(() => {
+  if (expenseForm.value.splitType !== 'custom') return 0
+  return Object.values(expenseForm.value.splitDetails || {}).reduce((sum, val) => sum + (val || 0), 0)
+})
+
+// 检查分摊总额是否匹配
+const splitTotalMismatch = computed(() => {
+  if (expenseForm.value.splitType !== 'custom' || !expenseForm.value.amount) return false
+  return Math.abs(splitTotal.value - expenseForm.value.amount) > 0.01
+})
+
+// 处理付款人变化
+const handlePayerChange = (payerId: string) => {
+  if (payerId === currentUser.value.id || !payerId) {
+    expenseForm.value.payerName = currentUser.value.name
+  } else {
+    const member = members.value.find(m => m.id === payerId)
+    if (member) {
+      expenseForm.value.payerName = member.name
+    }
+  }
+}
+
+// 打开添加费用模态框
+const handleAddExpense = () => {
+  // 重置表单并设置默认值
+  expenseForm.value = {
+    title: '',
+    amount: 0,
+    currencyCode: getDestinationCurrency.value.code, // 默认使用目的地货币
+    category: '',
+    location: '',
+    payerId: currentUser.value.id,
+    payerName: currentUser.value.name,
+    splitType: 'none',
+    splitDetails: {},
+    date: dayjs(), // 默认今天
+    notes: ''
+  }
+  editingExpense.value = null
+  showAddExpenseModal.value = true
+}
+
 // 格式化日期
 const formatDate = (dateStr: string) => {
   return formatDateSimple(dateStr)
@@ -516,6 +692,17 @@ const handleSaveExpense = () => {
     return
   }
   
+  // 检查自定义分摊总额
+  if (expenseForm.value.splitType === 'custom' && splitTotalMismatch.value) {
+    message.error(t('travelDetail.expenseSplitMismatch') || '分摊总额与费用金额不一致')
+    return
+  }
+  
+  // 转换日期格式
+  const dateStr = expenseForm.value.date 
+    ? expenseForm.value.date.format('YYYY-MM-DD')
+    : getTodayDate()
+  
   if (editingExpense.value) {
     // 编辑支出
     const index = expenses.value.findIndex(e => e.id === editingExpense.value!.id)
@@ -524,8 +711,14 @@ const handleSaveExpense = () => {
         ...expenses.value[index],
         title: expenseForm.value.title,
         amount: expenseForm.value.amount,
+        currencyCode: expenseForm.value.currencyCode || getDestinationCurrency.value.code,
         category: expenseForm.value.category,
-        date: expenseForm.value.date || getTodayDate(),
+        location: expenseForm.value.location,
+        payerId: expenseForm.value.payerId,
+        payerName: expenseForm.value.payerName,
+        splitType: expenseForm.value.splitType,
+        splitDetails: expenseForm.value.splitType === 'custom' ? { ...expenseForm.value.splitDetails } : undefined,
+        date: dateStr,
         notes: expenseForm.value.notes
       }
     }
@@ -536,8 +729,14 @@ const handleSaveExpense = () => {
       id: `expense_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       title: expenseForm.value.title,
       amount: expenseForm.value.amount,
+      currencyCode: expenseForm.value.currencyCode || getDestinationCurrency.value.code,
       category: expenseForm.value.category,
-      date: expenseForm.value.date || getTodayDate(),
+      location: expenseForm.value.location,
+      payerId: expenseForm.value.payerId || currentUser.value.id,
+      payerName: expenseForm.value.payerName || currentUser.value.name,
+      splitType: expenseForm.value.splitType || 'none',
+      splitDetails: expenseForm.value.splitType === 'custom' ? { ...expenseForm.value.splitDetails } : undefined,
+      date: dateStr,
       notes: expenseForm.value.notes,
       createdAt: Date.now()
     }
@@ -561,8 +760,14 @@ const handleCancelExpense = () => {
   expenseForm.value = {
     title: '',
     amount: 0,
+    currencyCode: '',
     category: '',
-    date: getTodayDate(),
+    location: '',
+    payerId: currentUser.value.id,
+    payerName: currentUser.value.name,
+    splitType: 'none',
+    splitDetails: {},
+    date: null,
     notes: ''
   }
   showAddExpenseModal.value = false
@@ -574,8 +779,14 @@ const editExpense = (expense: Expense) => {
   expenseForm.value = {
     title: expense.title,
     amount: expense.amount,
+    currencyCode: expense.currencyCode || getDestinationCurrency.value.code,
     category: expense.category || '',
-    date: expense.date,
+    location: expense.location || '',
+    payerId: expense.payerId || currentUser.value.id,
+    payerName: expense.payerName || currentUser.value.name,
+    splitType: expense.splitType || 'none',
+    splitDetails: expense.splitDetails || {},
+    date: expense.date ? dayjs(expense.date) : null,
     notes: expense.notes || ''
   }
   showAddExpenseModal.value = true
@@ -651,8 +862,9 @@ onMounted(() => {
 
 <style scoped>
 .sidebar-card {
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .budget-section {
@@ -782,6 +994,44 @@ onMounted(() => {
 }
 
 :deep(.ant-list-item-action) {
+  margin-left: 0.5rem;
+}
+
+.split-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #fafafa;
+  border-radius: 4px;
+}
+
+.split-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.split-member {
+  flex: 1;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.split-error {
+  margin-top: 0.5rem;
+  color: #ff4d4f;
+  font-size: 0.85rem;
+}
+
+.expense-location,
+.expense-payer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: #999;
   margin-left: 0.5rem;
 }
 </style>

@@ -286,13 +286,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
 import { message } from 'ant-design-vue'
-import { getUserLocation, PRESET_COUNTRIES } from '@/config/location'
+import { PRESET_COUNTRIES } from '@/config/location'
+import { getUserProfileOrDefault, type UserProfileConfig } from '@/config/userProfile'
 import PersonalityQuestionnaire, { type PersonalityProfile } from '@/components/Inspiration/PersonalityQuestionnaire.vue'
 // removed MirrorLake integration
 
@@ -356,17 +357,63 @@ const randomizeSuggestions = () => {
   localSuggestions.value = shuffle(localSuggestions.value)
 }
 
-// 获取当前国家和语言显示
+// 响应式用户配置，用于显示
+const userProfileForDisplay = ref<UserProfileConfig>(getUserProfileOrDefault())
+
+// 更新用户配置显示（用于在保存后立即更新）
+const updateUserProfileDisplay = () => {
+  userProfileForDisplay.value = getUserProfileOrDefault()
+}
+
+// 监听 storage 事件（跨标签页同步，以及同一标签页内的更新）
+if (typeof window !== 'undefined') {
+  // 监听 storage 事件（跨标签页）
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'user_profile') {
+      updateUserProfileDisplay()
+    }
+  })
+  
+  // 监听自定义事件（同一标签页内的更新）
+  window.addEventListener('userProfileUpdated', () => {
+    updateUserProfileDisplay()
+  })
+}
+
+// 组件挂载时更新
+onMounted(() => {
+  updateUserProfileDisplay()
+})
+
+// 获取当前国家和语言显示（优先显示国籍，如果未设置则显示所在国家）
 const currentCountryDisplay = computed(() => {
-  const userLocation = getUserLocation()
-  if (!userLocation) {
-    return '🌍 未设置'
+  const profile = userProfileForDisplay.value
+  
+  // 优先显示国籍
+  if (profile.nationality?.countryCode) {
+    const nationalityCountry = PRESET_COUNTRIES[profile.nationality.countryCode as keyof typeof PRESET_COUNTRIES]
+    if (nationalityCountry) {
+      const flagDisplay = nationalityCountry.flag && nationalityCountry.flag.trim() 
+        ? `${nationalityCountry.flag} ` 
+        : ''
+      return `${flagDisplay}${nationalityCountry.name}`
+    }
+    return `🌍 ${profile.nationality.country}`
   }
-  const countryInfo = PRESET_COUNTRIES[userLocation.countryCode as keyof typeof PRESET_COUNTRIES]
-  if (countryInfo) {
-    return `${countryInfo.flag} ${countryInfo.name}`
+  
+  // 如果国籍未设置，显示所在国家
+  if (profile.location?.countryCode) {
+    const locationCountry = PRESET_COUNTRIES[profile.location.countryCode as keyof typeof PRESET_COUNTRIES]
+    if (locationCountry) {
+      const flagDisplay = locationCountry.flag && locationCountry.flag.trim() 
+        ? `${locationCountry.flag} ` 
+        : ''
+      return `${flagDisplay}${locationCountry.name}`
+    }
+    return `🌍 ${profile.location.country}`
   }
-  return `🌍 ${userLocation.country}`
+  
+  return '● 未设置'
 })
 
 const currentLanguageDisplay = computed(() => {
@@ -637,13 +684,24 @@ const createTravel = async () => {
     inspirationConfig // 保存动态生成的配置
   }
   
+  // 确保使用补齐后的天数（如果days数组存在，使用其长度；否则使用duration字段）
+  const actualDuration = data.days && Array.isArray(data.days) 
+    ? data.days.length 
+    : (parseInt(data.duration) || (data.days?.length || 5))
+  
+  console.log('📊 创建旅程 - 天数信息:', {
+    durationField: data.duration,
+    daysArrayLength: data.days?.length,
+    actualDuration: actualDuration
+  })
+  
   const newTravel = travelListStore.createTravel({
     title: data.title || '灵感之旅',
     location: selectedLocation.value || data.location || '待定',
     description: data.subtitle || data.aiMessage || '基于你的灵感创造的旅程',
     mode: 'inspiration',
     status: 'active',
-    duration: parseInt(data.duration) || 5,
+    duration: actualDuration,
     participants: 1,
     budget: 0,
     data: travelDataWithSelection // 保存详细的灵感数据（包含选中的地点和配置）

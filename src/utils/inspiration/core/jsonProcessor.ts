@@ -132,6 +132,18 @@ export class JSONProcessor {
             const pos = parseInt(posMatch[1])
             const context = raw.substring(Math.max(0, pos - 100), Math.min(raw.length, pos + 100))
             log.warn(`错误位置 ${pos} 上下文: ...${context}...`)
+            
+            // 尝试在错误位置附近进行智能修复
+            if (strategy.name === '基础修复') {
+              try {
+                const enhancedFixed = this.enhancedFixAtPosition(raw, pos)
+                const result = JSON.parse(enhancedFixed)
+                log.warn(`✅ 使用位置增强修复成功`)
+                return result as T
+              } catch {
+                // 增强修复也失败，继续下一个策略
+              }
+            }
           }
         }
       }
@@ -458,6 +470,41 @@ export class JSONProcessor {
     }
     
     return lastValidEnd
+  }
+
+  /**
+   * 在指定位置进行增强修复
+   */
+  private static enhancedFixAtPosition(text: string, errorPosition: number): string {
+    let fixed = cleanMarkdownCodeBlocks(text)
+    
+    // 在错误位置附近查找并修复常见问题
+    const start = Math.max(0, errorPosition - 200)
+    const end = Math.min(fixed.length, errorPosition + 200)
+    const context = fixed.substring(start, end)
+    
+    // 1. 检查是否有缺少逗号的情况
+    // 在错误位置前查找可能的字段结束位置
+    for (let i = errorPosition - 1; i >= Math.max(0, errorPosition - 50); i--) {
+      const char = fixed[i]
+      const nextChar = fixed[i + 1]
+      
+      // 如果找到一个字符串或值的结束，但后面没有逗号或右括号
+      if ((char === '"' || /[\d\w}]/.test(char)) && nextChar && !/[,\]}"]/.test(nextChar)) {
+        // 检查下一个非空白字符
+        const nextNonWs = fixed.substring(i + 1).match(/^\s*([^,\s\]}])/)
+        if (nextNonWs && nextNonWs[1] === '"') {
+          // 在字段值后添加逗号
+          fixed = fixed.substring(0, i + 1) + ',' + fixed.substring(i + 1)
+          break
+        }
+      }
+    }
+    
+    // 2. 修复可能的未转义引号
+    fixed = fixJSONIssues(fixed)
+    
+    return fixed
   }
 }
 

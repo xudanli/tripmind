@@ -160,6 +160,15 @@ const countryCurrencyMap: Record<string, CurrencyInfo> = {
   'Denmark': { code: 'DKK', symbol: 'kr', name: '丹麦克朗' },
   'DK': { code: 'DKK', symbol: 'kr', name: '丹麦克朗' },
   
+  // 法属波利尼西亚（大溪地）
+  '法属波利尼西亚': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  'French Polynesia': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  'PF': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  '大溪地': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  'Tahiti': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  '波拉波拉': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  'Bora Bora': { code: 'XPF', symbol: 'F', name: '太平洋法郎' },
+  
   // 波兰
   '波兰': { code: 'PLN', symbol: 'zł', name: '波兰兹罗提' },
   'Poland': { code: 'PLN', symbol: 'zł', name: '波兰兹罗提' },
@@ -260,5 +269,30 @@ export function formatCurrency(amount: number, currency: CurrencyInfo): string {
   
   // 其他货币保留两位小数
   return `${currency.symbol}${amount.toFixed(2)}`
+}
+
+/**
+ * 获取所有可用货币列表（去重）
+ */
+export function getAllCurrencies(): CurrencyInfo[] {
+  const currencyMap = new Map<string, CurrencyInfo>()
+  
+  // 从映射中提取所有货币（去重）
+  Object.values(countryCurrencyMap).forEach(currency => {
+    if (!currencyMap.has(currency.code)) {
+      currencyMap.set(currency.code, currency)
+    }
+  })
+  
+  // 按货币代码排序
+  return Array.from(currencyMap.values()).sort((a, b) => a.code.localeCompare(b.code))
+}
+
+/**
+ * 根据货币代码获取货币信息
+ */
+export function getCurrencyByCode(code: string): CurrencyInfo | null {
+  const allCurrencies = getAllCurrencies()
+  return allCurrencies.find(c => c.code === code) || null
 }
 

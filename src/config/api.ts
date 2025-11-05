@@ -26,7 +26,10 @@ export const API_CONFIG = {
     EMOTION_COLORS: '/emotional-travel/emotion-colors',
     TEMPORAL_PERCEPTION: '/emotional-travel/temporal-perception',
     // Unsplash API 端点
-    UNSPLASH_SEARCH: '/search/photos'
+    UNSPLASH_SEARCH: '/search/photos',
+    // 旅行攻略 API 端点
+    TRAVEL_GUIDES: '/travel-guides',
+    TRAVEL_GUIDES_SEARCH: '/travel-guides/search'
   },
   
   // 请求配置

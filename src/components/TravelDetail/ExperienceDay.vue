@@ -50,6 +50,9 @@
                 <h3 class="day-title">{{ day.theme || `${t('travelDetail.experienceDay.day')} ${day.day}` }}</h3>
                 <span class="day-date">{{ day.date }}</span>
                 <a-tag v-if="day.mood" :color="getMoodColor(day.mood)">{{ day.mood }}</a-tag>
+                <a-tag v-if="day.psychologicalStage" color="purple" style="margin-left: 0.5rem;">
+                  {{ day.psychologicalStage }}
+                </a-tag>
       </div>
         </div>
             <!-- 每日行程摘要 -->
@@ -64,6 +67,21 @@
               >
                 <div class="slot-time">{{ slot.time }}</div>
                 <div class="slot-content">
+                  <!-- 活动图片 -->
+                  <div v-if="(getSlotImage(day.day, slotIndex, slot) || isImageLoading(day.day, slotIndex, slot)) && !hasImageError(day.day, slotIndex, slot)" class="slot-image-container">
+                    <img 
+                      v-if="getSlotImage(day.day, slotIndex, slot)"
+                      :src="getSlotImage(day.day, slotIndex, slot)"
+                      :alt="slot.title || slot.activity || 'Activity image'"
+                      class="slot-image"
+                      @error="() => imageErrors.add(getSlotKey(day.day, slotIndex, slot))"
+                      @click="openImagePreview(day.day, slotIndex, slot)"
+                    />
+                    <div v-else-if="isImageLoading(day.day, slotIndex, slot)" class="slot-image-loading">
+                      <span class="loading-spinner"></span>
+                    </div>
+                  </div>
+                  
                   <!-- Header 行：时间点 + 标题 + 位置 -->
                   <div class="slot-header-new">
                     <div class="slot-header-main">
@@ -91,6 +109,20 @@
                   <!-- 活动摘要 -->
                   <div v-if="getActivitySummary(slot)" class="slot-summary">
                     <p class="summary-text">{{ getActivitySummary(slot) }}</p>
+                  </div>
+
+                  <!-- 内部轨道预览（心理体验）- 主界面显示 -->
+                  <div v-if="slot.internalTrack && (slot.internalTrack.question || slot.internalTrack.ritual || slot.internalTrack.reflection)" class="internal-track-preview">
+                    <div v-if="slot.internalTrack.question" class="internal-track-preview-item">
+                      <span class="preview-icon">💭</span>
+                      <span class="preview-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') || '思考' }}：</span>
+                      <span class="preview-text">{{ slot.internalTrack.question }}</span>
+                    </div>
+                    <div v-if="slot.internalTrack.ritual && !slot.internalTrack.question" class="internal-track-preview-item">
+                      <span class="preview-icon">🎭</span>
+                      <span class="preview-label">{{ t('travelDetail.experienceDay.internalTrackRitual') || '仪式' }}：</span>
+                      <span class="preview-text">{{ slot.internalTrack.ritual }}</span>
+                    </div>
                   </div>
 
                   <!-- 关键指标一行化（胶囊 Chips） -->
@@ -168,12 +200,20 @@
                       </div>
                       
                       <!-- 预订 -->
-                      <div v-if="slot.details.recommendations?.bookingRequired !== undefined" class="slot-info-item">
+                      <div v-if="slot.details.recommendations?.bookingRequired !== undefined || isTransportOrAccommodation(slot)" class="slot-info-item">
                         <h5 class="slot-info-label">
                           <span class="info-icon">📅</span> {{ t('travelDetail.experienceDay.booking') }}
                         </h5>
                         <p class="slot-info-text">
-                          {{ slot.details.recommendations.bookingRequired ? `${t('travelDetail.experienceDay.bookingRequired')}${slot.details.recommendations.bookingAdvance || t('travelDetail.experienceDay.bookingAdvanceDefault')}` : t('travelDetail.experienceDay.noBookingRequired') }}
+                          <span v-if="slot.details.recommendations?.bookingRequired">
+                            {{ `${t('travelDetail.experienceDay.bookingRequired')}${slot.details.recommendations.bookingAdvance || t('travelDetail.experienceDay.bookingAdvanceDefault')}` }}
+                          </span>
+                          <span v-else-if="isTransportOrAccommodation(slot)">
+                            {{ t('travelDetail.experienceDay.noBookingRequired') }}，{{ t('travelDetail.experienceDay.bookingSuggestionAvailable') }}
+                          </span>
+                          <span v-else>
+                            {{ t('travelDetail.experienceDay.noBookingRequired') }}
+                          </span>
                         </p>
                       </div>
                       
@@ -234,6 +274,14 @@
                     
                     <!-- 右列：体验/建议 -->
                     <div class="slot-info-column">
+                      <!-- 当地友好建议（针对景点和住宿） -->
+                      <div v-if="slot.localTip && (slot.type === 'attraction' || slot.type === 'accommodation' || slot.category === 'attraction' || slot.category === 'accommodation')" class="slot-info-item slot-local-tip-item">
+                        <h5 class="slot-info-label">
+                          <span class="info-icon">💬</span> {{ t('travelDetail.experienceDay.localFriendlyTips') }}
+                        </h5>
+                        <p class="slot-info-text slot-local-tip-text">{{ slot.localTip }}</p>
+                      </div>
+                      
                       <!-- 行前建议（合并穿搭和其他建议） -->
                       <div v-if="slot.details.recommendations?.dressCode || slot.details.recommendations?.bestTime || slot.details.recommendations?.suitableFor" class="slot-info-item">
                         <h5 class="slot-info-label">
@@ -305,7 +353,7 @@
                       <span>📍</span> {{ t('travelDetail.experienceDay.navigate') }}
                     </a-button>
                     <a-button 
-                      v-if="slot.details?.recommendations?.bookingRequired"
+                      v-if="slot.details?.recommendations?.bookingRequired || isTransportOrAccommodation(slot)"
                       type="text" 
                       size="small" 
                       class="slot-action-btn"
@@ -353,10 +401,32 @@
                       <p class="slot-detail-text" v-if="slot.details.description.atmosphere">{{ t('travelDetail.experienceDay.atmosphere') }}：{{ slot.details.description.atmosphere }}</p>
                     </div>
                     
-                    <!-- 礼貌用语 -->
-                    <div v-if="slot.localTip" class="slot-detail-section">
-                      <h5 class="slot-detail-label">{{ t('travelDetail.experienceDay.politePhrases') }}</h5>
+                    <!-- 礼貌用语/当地友好建议（仅在非景点和住宿时显示，或作为补充信息） -->
+                    <div v-if="slot.localTip && (slot.type !== 'attraction' && slot.type !== 'accommodation' && slot.category !== 'attraction' && slot.category !== 'accommodation')" class="slot-detail-section">
+                      <h5 class="slot-detail-label">{{ t('travelDetail.experienceDay.localFriendlyTips') }}</h5>
                       <p class="slot-detail-text">{{ slot.localTip }}</p>
+                    </div>
+                    
+                    <!-- 内部轨迹（心理体验） -->
+                    <div v-if="slot.internalTrack" class="slot-detail-section internal-track-section">
+                      <h5 class="slot-detail-label">
+                        <span class="internal-track-icon">💭</span>
+                        {{ t('travelDetail.experienceDay.internalTrack') || '内在体验' }}
+                      </h5>
+                      <div class="internal-track-content">
+                        <div v-if="slot.internalTrack.question" class="internal-track-item">
+                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') || '思考' }}：</span>
+                          <p class="internal-track-text">{{ slot.internalTrack.question }}</p>
+                        </div>
+                        <div v-if="slot.internalTrack.ritual" class="internal-track-item">
+                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackRitual') || '仪式' }}：</span>
+                          <p class="internal-track-text">{{ slot.internalTrack.ritual }}</p>
+                        </div>
+                        <div v-if="slot.internalTrack.reflection" class="internal-track-item">
+                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackReflection') || '反思' }}：</span>
+                          <p class="internal-track-text">{{ slot.internalTrack.reflection }}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
@@ -381,6 +451,185 @@
           </div>
         </a-timeline-item>
       </a-timeline>
+    </section>
+
+    <!-- 心理流程阶段总览 -->
+    <section v-if="mentalFlowStages" class="mental-flow-section">
+      <h3 class="section-title">{{ t('travelDetail.experienceDay.mentalFlowStages') || '心理流程阶段' }}</h3>
+      <div class="mental-flow-grid">
+        <div
+          v-for="(stage, key) in mentalFlowStages"
+          :key="key"
+          class="mental-flow-card"
+        >
+          <h4 class="stage-title">{{ getStageName(key) }}</h4>
+          <div v-if="stage.theme" class="stage-theme">
+            <span class="stage-label">{{ t('travelDetail.experienceDay.theme') || '主题' }}：</span>
+            {{ stage.theme }}
+          </div>
+          <div v-if="stage.activities && stage.activities.length" class="stage-activities">
+            <span class="stage-label">{{ t('travelDetail.experienceDay.activities') || '活动' }}：</span>
+            <ul>
+              <li v-for="(activity, idx) in stage.activities" :key="idx">{{ activity }}</li>
+            </ul>
+          </div>
+          <div v-if="stage.emotionalGoal" class="stage-emotional">
+            <span class="stage-label">{{ t('travelDetail.experienceDay.emotionalGoal') || '情感目标' }}：</span>
+            {{ stage.emotionalGoal }}
+          </div>
+          <div v-if="stage.symbolicElement" class="stage-symbolic">
+            <span class="stage-label">{{ t('travelDetail.experienceDay.symbolicElement') || '象征元素' }}：</span>
+            {{ stage.symbolicElement }}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 人格画像和旅程设计 -->
+    <section v-if="personaProfile || journeyDesign" class="persona-journey-section">
+      <h3 class="section-title">{{ t('travelDetail.experienceDay.personaJourney') || '人格画像与旅程设计' }}</h3>
+      
+      <!-- 人格画像 -->
+      <div v-if="personaProfile" class="persona-profile-card">
+        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.personaProfile') || '人格画像' }}</h4>
+        <div class="persona-details">
+          <div v-if="personaProfile.type" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.personaType') || '类型' }}：</span>
+            {{ personaProfile.type }}
+          </div>
+          <div v-if="personaProfile.motivation" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.motivation') || '动机' }}：</span>
+            {{ personaProfile.motivation }}
+            <span v-if="personaProfile.motivation_detail">（{{ personaProfile.motivation_detail }}）</span>
+          </div>
+          <div v-if="personaProfile.dominantEmotion" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.dominantEmotion') || '主导情绪' }}：</span>
+            {{ personaProfile.dominantEmotion }}
+            <span v-if="personaProfile.desiredEmotion"> → {{ personaProfile.desiredEmotion }}</span>
+          </div>
+          <div v-if="personaProfile.travelRhythm" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.travelRhythm') || '旅行节奏' }}：</span>
+            {{ personaProfile.travelRhythm }}
+          </div>
+          <div v-if="personaProfile.socialPreference" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.socialPreference') || '社交偏好' }}：</span>
+            {{ personaProfile.socialPreference }}
+          </div>
+          <div v-if="personaProfile.cognitiveNeed" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.cognitiveNeed') || '认知需求' }}：</span>
+            {{ personaProfile.cognitiveNeed }}
+          </div>
+          <div v-if="personaProfile.foodPreference" class="persona-item">
+            <span class="persona-label">{{ t('travelDetail.experienceDay.foodPreference') || '美食偏好' }}：</span>
+            {{ personaProfile.foodPreference }}
+          </div>
+        </div>
+      </div>
+      
+      <!-- 旅程设计 -->
+      <div v-if="journeyDesign" class="journey-design-card">
+        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.journeyDesign') || '旅程设计' }}</h4>
+        <div class="journey-details">
+          <div v-if="journeyDesign.coreInsight" class="journey-item">
+            <span class="journey-label">{{ t('travelDetail.experienceDay.coreInsight') || '核心洞察' }}：</span>
+            <p class="journey-text">{{ journeyDesign.coreInsight }}</p>
+          </div>
+          <div v-if="journeyDesign.psychologicalFlow && journeyDesign.psychologicalFlow.length" class="journey-item">
+            <span class="journey-label">{{ t('travelDetail.experienceDay.psychologicalFlow') || '心理流程' }}：</span>
+            <div class="journey-flow">
+              <span v-for="(flow, idx) in journeyDesign.psychologicalFlow" :key="idx" class="flow-item">
+                {{ flow }}<span v-if="idx < journeyDesign.psychologicalFlow.length - 1"> → </span>
+              </span>
+            </div>
+          </div>
+          <div v-if="journeyDesign.symbolicElements && journeyDesign.symbolicElements.length" class="journey-item">
+            <span class="journey-label">{{ t('travelDetail.experienceDay.symbolicElements') || '象征元素' }}：</span>
+            <div class="journey-symbols">
+              <a-tag v-for="(element, idx) in journeyDesign.symbolicElements" :key="idx" color="purple">
+                {{ element }}
+              </a-tag>
+            </div>
+          </div>
+          <div v-if="journeyDesign.recommendedRhythm" class="journey-item">
+            <span class="journey-label">{{ t('travelDetail.experienceDay.recommendedRhythm') || '推荐节奏' }}：</span>
+            {{ journeyDesign.recommendedRhythm }}
+          </div>
+          <div v-if="journeyDesign.socialMode" class="journey-item">
+            <span class="journey-label">{{ t('travelDetail.experienceDay.socialMode') || '社交模式' }}：</span>
+            {{ journeyDesign.socialMode }}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 认知触发器和疗愈设计 -->
+    <section v-if="cognitiveTriggers || healingDesign" class="cognitive-healing-section">
+      <h3 class="section-title">{{ t('travelDetail.experienceDay.cognitiveHealing') || '认知与疗愈' }}</h3>
+      
+      <!-- 认知触发器 -->
+      <div v-if="cognitiveTriggers" class="cognitive-triggers-card">
+        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.cognitiveTriggers') || '认知触发器' }}</h4>
+        <div v-if="cognitiveTriggers.questions && cognitiveTriggers.questions.length" class="trigger-group">
+          <span class="trigger-label">{{ t('travelDetail.experienceDay.questions') || '问题' }}：</span>
+          <ul class="trigger-list">
+            <li v-for="(question, idx) in cognitiveTriggers.questions" :key="idx">{{ question }}</li>
+          </ul>
+        </div>
+        <div v-if="cognitiveTriggers.rituals && cognitiveTriggers.rituals.length" class="trigger-group">
+          <span class="trigger-label">{{ t('travelDetail.experienceDay.rituals') || '仪式' }}：</span>
+          <ul class="trigger-list">
+            <li v-for="(ritual, idx) in cognitiveTriggers.rituals" :key="idx">{{ ritual }}</li>
+          </ul>
+        </div>
+        <div v-if="cognitiveTriggers.moments && cognitiveTriggers.moments.length" class="trigger-group">
+          <span class="trigger-label">{{ t('travelDetail.experienceDay.moments') || '时刻' }}：</span>
+          <ul class="trigger-list">
+            <li v-for="(moment, idx) in cognitiveTriggers.moments" :key="idx">{{ moment }}</li>
+          </ul>
+        </div>
+      </div>
+      
+      <!-- 疗愈设计 -->
+      <div v-if="healingDesign" class="healing-design-card">
+        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.healingDesign') || '疗愈设计' }}</h4>
+        <div class="healing-grid">
+          <div v-if="healingDesign.sound" class="healing-item">
+            <span class="healing-icon">🔊</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.sound') || '声音' }}：</span>
+            {{ healingDesign.sound }}
+          </div>
+          <div v-if="healingDesign.scent" class="healing-item">
+            <span class="healing-icon">🌸</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.scent') || '气味' }}：</span>
+            {{ healingDesign.scent }}
+          </div>
+          <div v-if="healingDesign.light" class="healing-item">
+            <span class="healing-icon">💡</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.light') || '光线' }}：</span>
+            {{ healingDesign.light }}
+          </div>
+          <div v-if="healingDesign.texture" class="healing-item">
+            <span class="healing-icon">✨</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.texture') || '质感' }}：</span>
+            {{ healingDesign.texture }}
+          </div>
+          <div v-if="healingDesign.space" class="healing-item">
+            <span class="healing-icon">🏛️</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.space') || '空间' }}：</span>
+            {{ healingDesign.space }}
+          </div>
+          <div v-if="healingDesign.rhythm" class="healing-item">
+            <span class="healing-icon">🎵</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.rhythm') || '节奏' }}：</span>
+            {{ healingDesign.rhythm }}
+          </div>
+          <div v-if="healingDesign.community" class="healing-item">
+            <span class="healing-icon">👥</span>
+            <span class="healing-label">{{ t('travelDetail.experienceDay.community') || '社群' }}：</span>
+            {{ healingDesign.community }}
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 旅行建议 -->
@@ -517,11 +766,65 @@
         </div>
       </div>
     </a-modal>
+    
+    <!-- 图片预览模态框 -->
+    <a-modal
+      v-model:open="previewVisible"
+      :footer="null"
+      :width="'90%'"
+      :style="{ maxWidth: '1200px', top: '5vh' }"
+      class="image-preview-modal"
+      @cancel="closeImagePreview"
+      :body-style="{ padding: 0 }"
+    >
+      <div class="image-preview-container">
+        <div class="preview-image-wrapper">
+          <img 
+            v-if="previewImages[previewCurrentIndex]"
+            :src="previewImages[previewCurrentIndex]"
+            :alt="`Image ${previewCurrentIndex + 1}`"
+            class="preview-image"
+          />
+        </div>
+        <div class="preview-controls">
+          <a-button 
+            type="text" 
+            class="preview-nav-btn"
+            @click="prevImage"
+            :disabled="previewImages.length <= 1"
+          >
+            <span class="nav-icon">←</span>
+          </a-button>
+          <div class="preview-info">
+            <span class="preview-counter">{{ previewCurrentIndex + 1 }} / {{ previewImages.length }}</span>
+          </div>
+          <a-button 
+            type="text" 
+            class="preview-nav-btn"
+            @click="nextImage"
+            :disabled="previewImages.length <= 1"
+          >
+            <span class="nav-icon">→</span>
+          </a-button>
+        </div>
+        <div class="preview-thumbnails" v-if="previewImages.length > 1">
+          <div 
+            v-for="(img, index) in previewImages" 
+            :key="index"
+            class="preview-thumbnail"
+            :class="{ active: index === previewCurrentIndex }"
+            @click="previewCurrentIndex = index"
+          >
+            <img :src="img" :alt="`Thumbnail ${index + 1}`" />
+          </div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, h } from 'vue'
+import { computed, ref, h, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
@@ -531,8 +834,9 @@ import { getLocalLanguageForDestination, type LocalLanguageInfo } from '@/utils/
 import { getRatingPlatformForDestination, getRatingPlatformName } from '@/utils/ratingPlatform'
 import { Modal, message } from 'ant-design-vue'
 import { getVisaInfo } from '@/config/visa'
-import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
+import { getUserNationalityCode, getUserPermanentResidencyCode, getUserLocationCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/services/unsplashAPI'
 import {
   COUNTRY_KEYWORDS,
   MAP_URLS,
@@ -552,18 +856,25 @@ const travel = computed(() => travelListStore.getTravel(route.params.id as strin
 // 检查数据是否为行程计划格式（有days数组）
 const itineraryData = computed(() => {
   const data = travel.value?.data
-  // 如果直接是行程计划格式（有days数组）
-  if (data?.days && Array.isArray(data.days)) {
+  if (!data) return null
+  
+  // 如果直接是行程计划格式（有days数组）- 新生成的灵感行程通常是这种格式
+  if (data.days && Array.isArray(data.days) && data.days.length > 0) {
+    console.log('✅ 从 data.days 获取行程数据，天数:', data.days.length)
     return data
   }
   // 如果存储在plannerItinerary中
-  if (data?.plannerItinerary?.days && Array.isArray(data.plannerItinerary.days)) {
+  if (data.plannerItinerary?.days && Array.isArray(data.plannerItinerary.days)) {
+    console.log('✅ 从 data.plannerItinerary.days 获取行程数据')
     return data.plannerItinerary
   }
   // 如果存储在itineraryData中
-  if (data?.itineraryData?.days && Array.isArray(data.itineraryData.days)) {
+  if (data.itineraryData?.days && Array.isArray(data.itineraryData.days)) {
+    console.log('✅ 从 data.itineraryData.days 获取行程数据')
     return data.itineraryData
   }
+  
+  console.log('⚠️ 未找到行程数据（days数组）')
   return null
 })
 
@@ -687,10 +998,263 @@ const itineraryDays = computed(() => {
   }))
 })
 
+// 活动图片存储
+const activityImages = ref<Map<string, string>>(new Map())
+const activityImagesList = ref<Map<string, string[]>>(new Map()) // 存储每个活动的多张图片
+const imageLoading = ref<Set<string>>(new Set())
+const imageErrors = ref<Set<string>>(new Set())
+
+// 图片预览状态
+const previewVisible = ref(false)
+const previewImages = ref<string[]>([])
+const previewCurrentIndex = ref(0)
+
+// 获取活动的唯一键
+const getSlotKey = (day: number, slotIndex: number, slot: any): string => {
+  return `${day}-${slotIndex}-${slot.title || slot.activity || slotIndex}`
+}
+
+// 获取活动图片URL
+const getSlotImage = (day: number, slotIndex: number, slot: any): string | null => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return activityImages.value.get(key) || null
+}
+
+// 获取活动的多张图片
+const getSlotImagesList = (day: number, slotIndex: number, slot: any): string[] => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return activityImagesList.value.get(key) || []
+}
+
+// 打开图片预览
+const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
+  const key = getSlotKey(day, slotIndex, slot)
+  
+  // 如果还没有加载多张图片，先加载
+  if (!activityImagesList.value.has(key)) {
+    try {
+      const images = await getActivityImagesList(slot, destination.value, {
+        orientation: 'landscape',
+        size: 'regular',
+        count: 10
+      })
+      
+      if (images.length > 0) {
+        activityImagesList.value.set(key, images)
+      } else {
+        // 如果没有多张图片，至少使用当前显示的图片
+        const currentImage = getSlotImage(day, slotIndex, slot)
+        if (currentImage) {
+          activityImagesList.value.set(key, [currentImage])
+        } else {
+          return // 没有图片，不打开预览
+        }
+      }
+    } catch (error) {
+      console.warn('加载图片列表失败:', error)
+      // 如果加载失败，至少使用当前显示的图片
+      const currentImage = getSlotImage(day, slotIndex, slot)
+      if (currentImage) {
+        activityImagesList.value.set(key, [currentImage])
+      } else {
+        return
+      }
+    }
+  }
+  
+  const images = activityImagesList.value.get(key) || []
+  if (images.length === 0) return
+  
+  previewImages.value = images
+  previewCurrentIndex.value = 0
+  previewVisible.value = true
+}
+
+// 关闭图片预览
+const closeImagePreview = () => {
+  previewVisible.value = false
+  previewImages.value = []
+  previewCurrentIndex.value = 0
+}
+
+// 切换到上一张图片
+const prevImage = () => {
+  if (previewCurrentIndex.value > 0) {
+    previewCurrentIndex.value--
+  } else {
+    previewCurrentIndex.value = previewImages.value.length - 1
+  }
+}
+
+// 切换到下一张图片
+const nextImage = () => {
+  if (previewCurrentIndex.value < previewImages.value.length - 1) {
+    previewCurrentIndex.value++
+  } else {
+    previewCurrentIndex.value = 0
+  }
+}
+
+// 检查图片是否正在加载
+const isImageLoading = (day: number, slotIndex: number, slot: any): boolean => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return imageLoading.value.has(key)
+}
+
+// 检查图片是否加载失败
+const hasImageError = (day: number, slotIndex: number, slot: any): boolean => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return imageErrors.value.has(key)
+}
+
+// 加载活动图片
+const loadActivityImage = async (day: number, slotIndex: number, slot: any) => {
+  const key = getSlotKey(day, slotIndex, slot)
+  
+  // 如果已经有图片或正在加载，跳过
+  if (activityImages.value.has(key) || imageLoading.value.has(key)) {
+    return
+  }
+  
+  imageLoading.value.add(key)
+  
+  try {
+    const imageUrl = await getActivityImage(slot, destination.value, {
+      orientation: 'landscape',
+      size: 'regular'
+    })
+    
+    if (imageUrl) {
+      activityImages.value.set(key, imageUrl)
+    } else {
+      imageErrors.value.add(key)
+    }
+  } catch (error) {
+    console.warn(`加载活动图片失败 (${key}):`, error)
+    imageErrors.value.add(key)
+  } finally {
+    imageLoading.value.delete(key)
+  }
+}
+
+// 批量加载所有活动图片
+const loadAllActivityImages = async () => {
+  if (!itineraryDays.value.length) {
+    console.log('⚠️ 行程天数数据为空，无法加载图片')
+    return
+  }
+  
+  if (!destination.value) {
+    console.log('⚠️ 目的地信息为空，无法加载图片')
+    return
+  }
+  
+  const allSlots: Array<{ day: number; slotIndex: number; slot: any }> = []
+  
+  itineraryDays.value.forEach((day: any) => {
+    if (day.timeSlots && day.timeSlots.length > 0) {
+      day.timeSlots.forEach((slot: any, slotIndex: number) => {
+        allSlots.push({ day: day.day || 0, slotIndex, slot })
+      })
+    }
+  })
+  
+  if (allSlots.length === 0) {
+    console.log('⚠️ 没有找到活动数据，无法加载图片')
+    return
+  }
+  
+  console.log(`📸 开始加载 ${allSlots.length} 个活动的图片，目的地: ${destination.value}`)
+  
+  // 分批加载，避免一次性请求过多
+  const batchSize = 5
+  for (let i = 0; i < allSlots.length; i += batchSize) {
+    const batch = allSlots.slice(i, i + batchSize)
+    await Promise.all(
+      batch.map(({ day, slotIndex, slot }) => loadActivityImage(day, slotIndex, slot))
+    )
+    // 批次之间添加延迟，避免请求过快
+    if (i + batchSize < allSlots.length) {
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+  }
+  
+  console.log(`✅ 图片加载完成，成功加载 ${activityImages.value.size} 张图片`)
+}
+
+// 监听行程数据变化，重新加载图片
+watch(
+  [() => itineraryDays.value, () => travel.value?.id, () => destination.value],
+  ([newDays, travelId, dest]) => {
+    // 确保有行程数据、行程ID和目的地
+    if (newDays && newDays.length > 0 && travelId && dest) {
+      // 清除旧的图片数据
+      activityImages.value.clear()
+      activityImagesList.value.clear()
+      imageLoading.value.clear()
+      imageErrors.value.clear()
+      // 延迟加载，确保数据完全加载
+      setTimeout(() => {
+        if (itineraryDays.value && itineraryDays.value.length > 0 && destination.value) {
+          loadAllActivityImages()
+        }
+      }, 300)
+    }
+  },
+  { deep: true, immediate: true }
+)
+
+// 组件挂载时加载图片
+onMounted(() => {
+  // 延迟加载，确保数据已准备好
+  setTimeout(() => {
+    if (itineraryDays.value && itineraryDays.value.length > 0 && destination.value) {
+      loadAllActivityImages()
+    }
+  }, 500)
+})
+
 // 旅行建议
 const recommendations = computed(() => {
-  return itineraryData.value?.recommendations || null
+  return itineraryData.value?.recommendations || travel.value?.data?.recommendations || null
 })
+
+// 心理流程阶段
+const mentalFlowStages = computed(() => {
+  return travel.value?.data?.mentalFlowStages || null
+})
+
+// 人格画像
+const personaProfile = computed(() => {
+  return travel.value?.data?.personaProfile || null
+})
+
+// 旅程设计
+const journeyDesign = computed(() => {
+  return travel.value?.data?.journeyDesign || null
+})
+
+// 认知触发器
+const cognitiveTriggers = computed(() => {
+  return travel.value?.data?.cognitiveTriggers || null
+})
+
+// 疗愈设计
+const healingDesign = computed(() => {
+  return travel.value?.data?.healingDesign || null
+})
+
+// 获取阶段名称
+const getStageName = (key: string) => {
+  const stageNames: Record<string, string> = {
+    'summon': t('travelDetail.experienceDay.stageSummon') || '召唤',
+    'reflection': t('travelDetail.experienceDay.stageReflection') || '映照',
+    'awakening': t('travelDetail.experienceDay.stageAwakening') || '觉醒',
+    'internalization': t('travelDetail.experienceDay.stageInternalization') || '沉淀',
+    'transformation': t('travelDetail.experienceDay.stageTransformation') || '转化'
+  }
+  return stageNames[key] || key
+}
 
 // 获取每个活动对应的货币信息（根据活动的具体位置）
 const getSlotCurrency = (slot: any): CurrencyInfo => {
@@ -1040,6 +1604,17 @@ const getLocalLanguageName = (location: string): string | null => {
   return null
 }
 
+// 判断是否为交通或住宿类型
+const isTransportOrAccommodation = (slot: any): boolean => {
+  const type = (slot.type || slot.category || '').toLowerCase()
+  const title = (slot.title || slot.activity || '').toLowerCase()
+  return type === 'transport' || type === 'accommodation' || 
+         title.includes('机场') || title.includes('airport') ||
+         title.includes('酒店') || title.includes('hotel') ||
+         title.includes('交通') || title.includes('transport') ||
+         slot.details?.transportation // 如果有交通信息，也认为是交通类型
+}
+
 // 获取活动类型标签
 const getActivityTypeLabel = (type: string): string => {
   const typeMap: Record<string, string> = {
@@ -1136,18 +1711,187 @@ const handleBook = (slot: any) => {
   const activityName = slot.details?.name?.english || slot.title || slot.activity
   const bookingInfo = slot.details?.recommendations?.bookingAdvance || t('travelDetail.experienceDay.bookingAdvancePrefix')
   
+  // 判断活动类型
+  const isTransport = isTransportOrAccommodation(slot) && 
+    ((slot.type || slot.category || '').toLowerCase() === 'transport' ||
+     (slot.title || slot.activity || '').toLowerCase().includes('机场') ||
+     (slot.title || slot.activity || '').toLowerCase().includes('airport') ||
+     (slot.title || slot.activity || '').toLowerCase().includes('航班') ||
+     (slot.title || slot.activity || '').toLowerCase().includes('flight'))
+  
+  const isAccommodation = isTransportOrAccommodation(slot) && 
+    ((slot.type || slot.category || '').toLowerCase() === 'accommodation' ||
+     (slot.title || slot.activity || '').toLowerCase().includes('酒店') ||
+     (slot.title || slot.activity || '').toLowerCase().includes('hotel'))
+  
   // 判断是否为中国目的地（用于显示大众点评）
   const isChina = COUNTRY_KEYWORDS.CHINA.some(keyword => 
     destination.value?.includes(keyword) || false
   )
   
-  Modal.info({
-    title: `${t('travelDetail.experienceDay.book')} ${activityName || t('travelDetail.experienceDay.attraction')}`,
-    content: h('div', { style: { padding: '8px 0' } }, [
-      h('p', { style: { margin: '8px 0', color: '#666' } }, `${t('travelDetail.experienceDay.bookingSuggestion')}：`),
-      h('p', { style: { margin: '4px 0' } }, `· ${bookingInfo}`),
-      h('p', { style: { margin: '8px 0', marginTop: '16px', color: '#666' } }, `${t('travelDetail.experienceDay.commonBookingPlatforms')}：`),
-      h('div', { style: { marginTop: '8px' } }, [
+  // 根据活动类型生成不同的标题和链接
+  let title = ''
+  let bookingLinks: any[] = []
+  
+  if (isTransport) {
+    // 交通/机票类型
+    title = `${t('travelDetail.experienceDay.book')} ${activityName || t('travelDetail.experienceDay.flight')}`
+    
+    // 获取出发地和目的地
+    const originCode = getUserLocationCode()
+    const originName = originCode ? (PRESET_COUNTRIES[originCode as keyof typeof PRESET_COUNTRIES]?.name || '') : ''
+    const destName = destination.value || ''
+    
+    // 构建机票预订链接（包含出发地和目的地）
+    const buildFlightUrl = (platform: string, origin: string, dest: string): string => {
+      const originEncoded = encodeURIComponent(origin)
+      const destEncoded = encodeURIComponent(dest)
+      
+      switch (platform) {
+        case 'skyscanner':
+          // Skyscanner: /flights/from/origin/to/dest/
+          return origin && dest 
+            ? `https://www.skyscanner.com/transport/flights/${originEncoded}/${destEncoded}/`
+            : `https://www.skyscanner.com/transport/flights/`
+        case 'google':
+          // Google Flights: ?q=Flights from ORIGIN to DEST
+          return origin && dest
+            ? `https://www.google.com/travel/flights?q=Flights%20from%20${originEncoded}%20to%20${destEncoded}`
+            : `https://www.google.com/travel/flights?q=Flights%20to%20${destEncoded}`
+        case 'expedia':
+          // Expedia: ?originCity=ORIGIN&destinationCity=DEST
+          return origin && dest
+            ? `https://www.expedia.com/Flights-Search?originCity=${originEncoded}&destinationCity=${destEncoded}`
+            : dest
+            ? `https://www.expedia.com/Flights-Search?destinationCity=${destEncoded}`
+            : `https://www.expedia.com/Flights-Search`
+        case 'kayak':
+          // Kayak: /flights/ORIGIN/DEST/
+          return origin && dest
+            ? `https://www.kayak.com/flights/${originEncoded}/${destEncoded}/`
+            : dest
+            ? `https://www.kayak.com/flights/-/${destEncoded}/`
+            : `https://www.kayak.com/flights/`
+        default:
+          return ''
+      }
+    }
+    
+    bookingLinks = [
+      h('a', {
+        href: buildFlightUrl('skyscanner', originName, destName),
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `✈️ ${t('travelDetail.experienceDay.skyscanner')}${originName && destName ? ` (${originName} → ${destName})` : ''}`),
+      h('a', {
+        href: buildFlightUrl('google', originName, destName),
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🔍 ${t('travelDetail.experienceDay.googleFlights')}${originName && destName ? ` (${originName} → ${destName})` : ''}`),
+      h('a', {
+        href: buildFlightUrl('expedia', originName, destName),
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `✈️ ${t('travelDetail.experienceDay.expedia')}${originName && destName ? ` (${originName} → ${destName})` : ''}`),
+      h('a', {
+        href: buildFlightUrl('kayak', originName, destName),
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🎫 ${t('travelDetail.experienceDay.kayak')}${originName && destName ? ` (${originName} → ${destName})` : ''}`)
+    ]
+  } else if (isAccommodation) {
+    // 住宿类型
+    title = `${t('travelDetail.experienceDay.book')} ${activityName || t('travelDetail.experienceDay.hotel')}`
+    bookingLinks = [
+      h('a', {
+        href: `${BOOKING_PLATFORMS.BOOKING_COM}${encodeURIComponent(activityName || destination.value || '')}`,
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🏨 ${t('travelDetail.experienceDay.bookingComLabel')}`),
+      h('a', {
+        href: `${BOOKING_PLATFORMS.AGODA}${encodeURIComponent(destination.value || '')}`,
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🏨 ${t('travelDetail.experienceDay.agoda')}`),
+      h('a', {
+        href: `${BOOKING_PLATFORMS.AIRBNB}${encodeURIComponent(activityName || destination.value || '')}`,
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🏠 ${t('travelDetail.experienceDay.airbnb')}`)
+    ]
+  } else {
+    // 景点/活动类型
+    title = `${t('travelDetail.experienceDay.book')} ${activityName || t('travelDetail.experienceDay.attraction')}`
+    bookingLinks = [
+      h('a', {
+        href: `${BOOKING_PLATFORMS.BOOKING_COM}${encodeURIComponent(activityName || destination.value || '')}`,
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🏨 ${t('travelDetail.experienceDay.bookingComLabel')}`),
         h('a', {
           href: `${BOOKING_PLATFORMS.TRIPADVISOR}${encodeURIComponent(activityName || '')}`,
           target: '_blank',
@@ -1162,7 +1906,7 @@ const handleBook = (slot: any) => {
           }
         }, `🌐 ${t('travelDetail.experienceDay.defaultRatingPlatform')}`),
         h('a', {
-          href: `${BOOKING_PLATFORMS.BOOKING_COM}${encodeURIComponent(activityName || '')}`,
+        href: `${BOOKING_PLATFORMS.GETYOURGUIDE}${encodeURIComponent(activityName || '')}`,
           target: '_blank',
           style: { 
             display: 'block', 
@@ -1173,8 +1917,26 @@ const handleBook = (slot: any) => {
           onClick: (e: Event) => {
             e.stopPropagation()
           }
-        }, `🏨 ${t('travelDetail.experienceDay.bookingComLabel')}`),
-        isChina ? h('a', {
+      }, `🎫 ${t('travelDetail.experienceDay.getYourGuide')}`),
+      h('a', {
+        href: `${BOOKING_PLATFORMS.VIATOR}${encodeURIComponent(activityName || '')}`,
+        target: '_blank',
+        style: { 
+          display: 'block', 
+          margin: '4px 0', 
+          color: '#0071e3',
+          textDecoration: 'none'
+        },
+        onClick: (e: Event) => {
+          e.stopPropagation()
+        }
+      }, `🎯 ${t('travelDetail.experienceDay.viator')}`)
+    ]
+    
+    // 中国目的地添加大众点评
+    if (isChina) {
+      bookingLinks.push(
+        h('a', {
           href: `${BOOKING_PLATFORMS.DIANPING}${encodeURIComponent(activityName || '')}`,
           target: '_blank',
           style: { 
@@ -1186,8 +1948,18 @@ const handleBook = (slot: any) => {
           onClick: (e: Event) => {
             e.stopPropagation()
           }
-        }, `🍽️ ${t('travelDetail.experienceDay.dianpingLabel')}`) : null
-      ].filter(Boolean))
+        }, `🍽️ ${t('travelDetail.experienceDay.dianpingLabel')}`)
+      )
+    }
+  }
+  
+  Modal.info({
+    title: title,
+    content: h('div', { style: { padding: '8px 0' } }, [
+      h('p', { style: { margin: '8px 0', color: '#666' } }, `${t('travelDetail.experienceDay.bookingSuggestion')}：`),
+      h('p', { style: { margin: '4px 0' } }, `· ${bookingInfo}`),
+      h('p', { style: { margin: '8px 0', marginTop: '16px', color: '#666' } }, `${t('travelDetail.experienceDay.commonBookingPlatforms')}：`),
+      h('div', { style: { marginTop: '8px' } }, bookingLinks)
     ]),
     okText: t('travelDetail.experienceDay.close'),
     width: 400
@@ -1384,36 +2156,174 @@ const getActivitySummary = (slot: any): string | null => {
   return null
 }
 
-// 获取目的地国家代码
-const destinationCountryCode = computed(() => {
-  const dest = destination.value || 
-               travel.value?.location ||
-               travel.value?.data?.selectedLocation ||
-               itineraryData.value?.destination ||
-               ''
+// 获取目的地国家代码（改进的提取逻辑，参考BudgetManager）
+// 统一的提取国家代码函数（支持别名和城市名）
+const extractCountryCodeFromText = (text: string): string | null => {
+  if (!text || text === '待定') return null
   
-  if (!dest) return null
+  const textLower = text.toLowerCase()
   
-  // 尝试从PRESET_COUNTRIES中匹配国家
-  for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
-    if (dest.includes(country.name) || dest.includes(code)) {
+  // 国家别名映射（包含城市名等）
+  const countryAliases: Record<string, string[]> = {
+    'US': ['alaska', '阿拉斯加', 'fairbanks', '费尔班克斯', 'usa', 'united states', '美国', 'america'],
+    'JP': ['japan', '日本'],
+    'KR': ['korea', 'south korea', '韩国', '首尔', 'seoul'],
+    'TH': ['thailand', '泰国', '曼谷', 'bangkok'],
+    'SG': ['singapore', '新加坡'],
+    'MY': ['malaysia', '马来西亚', '吉隆坡', 'kuala lumpur'],
+    'ID': ['indonesia', '印尼', '印度尼西亚', '巴厘岛', 'bali', '雅加达', 'jakarta'],
+    'PH': ['philippines', '菲律宾', '马尼拉', 'manila'],
+    'VN': ['vietnam', '越南', '河内', 'hanoi'],
+    'AU': ['australia', '澳大利亚', '悉尼', 'sydney', '墨尔本', 'melbourne'],
+    'CA': ['canada', '加拿大', '温哥华', 'vancouver', '多伦多', 'toronto'],
+    'NZ': ['new zealand', '新西兰', '奥克兰', 'auckland'],
+    'GB': ['united kingdom', 'uk', '英国', 'britain', '伦敦', 'london'],
+    'FR': ['france', '法国', '巴黎', 'paris'],
+    'DE': ['germany', '德国', '柏林', 'berlin', '慕尼黑', 'munich'],
+    'IT': ['italy', '意大利', '罗马', 'rome', '米兰', 'milan'],
+    'ES': ['spain', '西班牙', '马德里', 'madrid', '巴塞罗那', 'barcelona'],
+    'FI': ['finland', '芬兰', '赫尔辛基', 'helsinki'],
+    'IS': ['iceland', '冰岛', 'reykjavik', '雷克雅未克'],
+    'TW': ['taiwan', '台湾', '台北', 'taipei'],
+    'HK': ['hong kong', '香港'],
+    'MO': ['macau', 'macao', '澳门']
+  }
+  
+  // 首先检查别名（包含城市名）
+  for (const [code, aliases] of Object.entries(countryAliases)) {
+    if (aliases.some(alias => textLower.includes(alias.toLowerCase()))) {
+      console.log(`✅ 从别名匹配到国家代码: ${code} (文本: ${text})`)
       return code
     }
   }
   
+  // 然后检查国家名称和代码
+  for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+    // 匹配国家名称（中文）
+    if (textLower.includes(country.name.toLowerCase())) {
+      console.log(`✅ 从国家名称匹配到代码: ${code} (文本: ${text})`)
+      return code
+    }
+    
+    // 匹配国家代码
+    if (textLower.includes(code.toLowerCase())) {
+      console.log(`✅ 从国家代码匹配: ${code} (文本: ${text})`)
+      return code
+    }
+  }
+  
+  return null
+}
+
+const destinationCountryCode = computed(() => {
+  if (!travel.value) {
+    console.log('⚠️ travel.value 为空，无法提取国家代码')
+    return null
+  }
+  
+  const data = travel.value.data as any
+  console.log('🔍 提取国家代码，travel.location:', travel.value.location, 'destination.value:', destination.value)
+  
+  // 1. 从 location 字段提取（新生成的行程通常在这里）
+  if (travel.value.location && travel.value.location !== '待定') {
+    const code = extractCountryCodeFromText(travel.value.location)
+    if (code) {
+      console.log(`✅ 从 travel.location 提取到国家代码: ${code}`)
+      return code
+    }
+  }
+  
+  // 2. 从 destination 字段提取
+  if (travel.value.destination) {
+    const code = extractCountryCodeFromText(travel.value.destination)
+    if (code) return code
+  }
+  
+  // 3. 从 data 中的 selectedLocation 提取（新生成的灵感行程通常在这里）
+  const dataDestination = data?.selectedLocation || data?.destination
+  if (dataDestination && dataDestination !== '待定') {
+    const code = extractCountryCodeFromText(dataDestination)
+    if (code) {
+      console.log(`✅ 从 data.selectedLocation 提取到国家代码: ${code}`)
+      return code
+    }
+  }
+  
+  // 4. 从 destination computed 值提取
+  const dest = destination.value
+  if (dest && dest !== '待定') {
+    const code = extractCountryCodeFromText(dest)
+    if (code) {
+      console.log(`✅ 从 destination.value 提取到国家代码: ${code}`)
+      return code
+    }
+  }
+  
+  // 5. 从 itineraryData 中提取
+  if (itineraryData.value?.destination) {
+    const code = extractCountryCodeFromText(itineraryData.value.destination)
+    if (code) {
+      console.log(`✅ 从 itineraryData.destination 提取到国家代码: ${code}`)
+      return code
+    }
+  }
+  
+  // 6. 从 days 数组中的 locations 提取
+  if (itineraryData.value?.days && Array.isArray(itineraryData.value.days)) {
+    for (const day of itineraryData.value.days) {
+      if (day.location) {
+        const code = extractCountryCodeFromText(day.location)
+        if (code) return code
+      }
+      // 也从 timeSlots 中提取
+      if (day.timeSlots && Array.isArray(day.timeSlots)) {
+        for (const slot of day.timeSlots) {
+          if (slot.location) {
+            const code = extractCountryCodeFromText(slot.location)
+            if (code) return code
+          }
+          // 从地址中提取
+          if (slot.details?.address?.english) {
+            const code = extractCountryCodeFromText(slot.details.address.english)
+            if (code) return code
+          }
+          if (slot.details?.address?.chinese) {
+            const code = extractCountryCodeFromText(slot.details.address.chinese)
+            if (code) return code
+          }
+        }
+      }
+    }
+  }
+  
+  console.log('⚠️ 未能提取到国家代码，已尝试所有数据源')
   return null
 })
 
 // 获取签证信息
 const visaInfo = computed(() => {
   const countryCode = destinationCountryCode.value
-  if (!countryCode) return null
+  if (!countryCode) {
+    console.log('⚠️ 签证信息：无法获取目的地国家代码')
+    return null
+  }
   
   const nationalityCode = getUserNationalityCode()
   const permanentResidencyCode = getUserPermanentResidencyCode()
   
+  console.log('🔍 签证信息查询:', {
+    destinationCountry: countryCode,
+    nationalityCode,
+    permanentResidencyCode
+  })
+  
   const visaInfos = getVisaInfo(countryCode, nationalityCode, permanentResidencyCode)
-  if (visaInfos.length === 0) return null
+  console.log('📋 查询到的签证信息:', visaInfos)
+  
+  if (visaInfos.length === 0) {
+    console.log('⚠️ 未找到签证信息，可能原因：1) 目的地国家代码不在数据库中 2) 用户国籍未设置 3) 该目的地对该国籍无签证数据')
+    return null
+  }
   
   return visaInfos[0]
 })
@@ -2019,6 +2929,68 @@ const getVisaActionTips = (visaType: string): any => {
   flex: 1;
 }
 
+/* 活动图片容器 */
+.slot-image-container {
+  width: 100%;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f5f5f7;
+  aspect-ratio: 16 / 9;
+  position: relative;
+}
+
+.slot-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+  cursor: pointer;
+}
+
+.slot-image:hover {
+  transform: scale(1.02);
+  opacity: 0.9;
+}
+
+.slot-image-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f7;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(0, 113, 227, 0.1);
+  border-top-color: #0071e3;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .slot-image-container {
+    margin-bottom: 12px;
+    border-radius: 10px;
+  }
+  
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border-width: 2px;
+  }
+}
+
 /* 新设计：Header 行 */
 .slot-header-new {
   margin-bottom: 12px;
@@ -2062,6 +3034,58 @@ const getVisaActionTips = (visaType: string): any => {
   background: #f9f9fb;
   border-radius: 12px;
   border-left: 3px solid #0071e3;
+}
+
+/* 内部轨道预览（主界面显示） */
+.internal-track-preview {
+  margin: 12px 0 16px 0;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #f8f9ff 0%, #f0f2ff 100%);
+  border-radius: 12px;
+  border-left: 3px solid #722ed1;
+}
+
+.internal-track-preview-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.6;
+}
+
+.preview-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.preview-label {
+  font-weight: 600;
+  color: #722ed1;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.preview-text {
+  color: #555;
+  font-size: 14px;
+  flex: 1;
+  line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .internal-track-preview {
+    padding: 10px 12px;
+    margin: 10px 0 12px 0;
+  }
+  
+  .preview-icon {
+    font-size: 14px;
+  }
+  
+  .preview-label,
+  .preview-text {
+    font-size: 13px;
+  }
 }
 
 .summary-text {
@@ -2218,6 +3242,23 @@ const getVisaActionTips = (visaType: string): any => {
   margin: 0;
   letter-spacing: -0.005em;
   font-family: 'Noto Sans SC', sans-serif;
+}
+
+/* 当地友好建议样式 */
+.slot-local-tip-item {
+  background: rgba(255, 204, 0, 0.08);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 0;
+  border-left: 3px solid rgba(255, 204, 0, 0.4);
+}
+
+.slot-local-tip-text {
+  color: #1d1d1f;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 6px;
+  font-weight: 400;
 }
 
 .info-icon {
@@ -2831,6 +3872,10 @@ const getVisaActionTips = (visaType: string): any => {
   transition: transform 0.2s;
 }
 
+.booking-suggestion {
+  margin-top: 8px;
+}
+
 .booking-link-card:hover .booking-link-arrow {
   transform: translateX(2px);
   color: #0071e3;
@@ -3120,5 +4165,427 @@ const getVisaActionTips = (visaType: string): any => {
   border: none;
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+}
+
+/* 内部轨迹样式 */
+.internal-track-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9ff;
+  border-left: 3px solid #722ed1;
+  border-radius: 4px;
+}
+
+.internal-track-icon {
+  margin-right: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.internal-track-content {
+  margin-top: 0.75rem;
+}
+
+.internal-track-item {
+  margin-bottom: 0.75rem;
+}
+
+.internal-track-item:last-child {
+  margin-bottom: 0;
+}
+
+.internal-track-label {
+  font-weight: 600;
+  color: #722ed1;
+  font-size: 0.9rem;
+}
+
+.internal-track-text {
+  margin-top: 0.25rem;
+  color: #555;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+/* 心理流程阶段样式 */
+.mental-flow-section {
+  margin-top: 3rem;
+  padding: 2rem;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.mental-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.mental-flow-card {
+  padding: 1.5rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.stage-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #722ed1;
+  margin-bottom: 1rem;
+}
+
+.stage-label {
+  font-weight: 600;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.stage-theme,
+.stage-emotional,
+.stage-symbolic {
+  margin-top: 0.75rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+.stage-activities {
+  margin-top: 0.75rem;
+}
+
+.stage-activities ul {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+  color: #555;
+}
+
+.stage-activities li {
+  margin-bottom: 0.25rem;
+}
+
+/* 人格画像和旅程设计样式 */
+.persona-journey-section {
+  margin-top: 3rem;
+  padding: 2rem;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.persona-profile-card,
+.journey-design-card {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.persona-profile-card:last-child,
+.journey-design-card:last-child {
+  margin-bottom: 0;
+}
+
+.subsection-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #722ed1;
+}
+
+.persona-details,
+.journey-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.persona-item,
+.journey-item {
+  color: #555;
+  line-height: 1.6;
+}
+
+.persona-label,
+.journey-label {
+  font-weight: 600;
+  color: #666;
+  margin-right: 0.5rem;
+}
+
+.journey-text {
+  margin-top: 0.5rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+.journey-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.flow-item {
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.journey-symbols {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* 认知和疗愈样式 */
+.cognitive-healing-section {
+  margin-top: 3rem;
+  padding: 2rem;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.cognitive-triggers-card,
+.healing-design-card {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.cognitive-triggers-card:last-child,
+.healing-design-card:last-child {
+  margin-bottom: 0;
+}
+
+.trigger-group {
+  margin-bottom: 1.5rem;
+}
+
+.trigger-group:last-child {
+  margin-bottom: 0;
+}
+
+.trigger-label {
+  font-weight: 600;
+  color: #666;
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.trigger-list {
+  margin: 0.5rem 0 0 1.5rem;
+  padding: 0;
+  color: #555;
+}
+
+.trigger-list li {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+.healing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.healing-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #f8f9ff;
+  border-radius: 4px;
+  color: #555;
+}
+
+.healing-icon {
+  font-size: 1.2rem;
+}
+
+.healing-label {
+  font-weight: 600;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.section-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 1.5rem;
+}
+
+/* 图片预览模态框 */
+.image-preview-modal :deep(.ant-modal-content) {
+  padding: 0;
+  background: #000;
+}
+
+.image-preview-modal :deep(.ant-modal-close) {
+  color: #fff;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+}
+
+.image-preview-modal :deep(.ant-modal-close:hover) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.image-preview-container {
+  position: relative;
+  width: 100%;
+  min-height: 60vh;
+  max-height: 85vh;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-image-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: calc(85vh - 200px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.preview-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
+}
+
+.preview-nav-btn {
+  color: #fff;
+  font-size: 24px;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+.preview-nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.preview-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.nav-icon {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.preview-info {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.preview-counter {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+}
+
+.preview-thumbnails {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  overflow-x: auto;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.preview-thumbnail {
+  width: 80px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.preview-thumbnail:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: scale(1.05);
+}
+
+.preview-thumbnail.active {
+  border-color: #0071e3;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.3);
+}
+
+.preview-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+@media (max-width: 768px) {
+  .image-preview-container {
+    min-height: 50vh;
+    max-height: 80vh;
+  }
+  
+  .preview-image-wrapper {
+    padding: 12px;
+  }
+  
+  .preview-image {
+    max-height: calc(80vh - 180px);
+  }
+  
+  .preview-controls {
+    padding: 12px 16px;
+  }
+  
+  .preview-nav-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+  }
+  
+  .preview-thumbnails {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+  
+  .preview-thumbnail {
+    width: 60px;
+    height: 45px;
+  }
 }
 </style>

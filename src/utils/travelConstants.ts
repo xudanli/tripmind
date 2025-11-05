@@ -127,9 +127,22 @@ export const MAP_URLS = {
 
 // 预订平台URL模板
 export const BOOKING_PLATFORMS = {
+  // 景点/活动预订
   TRIPADVISOR: 'https://www.tripadvisor.com/Search?q=',
-  BOOKING_COM: 'https://www.booking.com/searchresults.html?ss=',
+  GETYOURGUIDE: 'https://www.getyourguide.com/s/?q=',
+  VIATOR: 'https://www.viator.com/searchResults/all?text=',
   DIANPING: 'https://www.dianping.com/search?keyword=',
+  
+  // 住宿预订
+  BOOKING_COM: 'https://www.booking.com/searchresults.html?ss=',
+  AGODA: 'https://www.agoda.com/search?city=',
+  AIRBNB: 'https://www.airbnb.com/s/',
+  
+  // 交通/机票预订
+  SKYSCANNER: 'https://www.skyscanner.com/transport/flights/',
+  EXPEDIA: 'https://www.expedia.com/Flights-Search?destination=',
+  GOOGLE_FLIGHTS: 'https://www.google.com/travel/flights?q=Flights%20to%20',
+  KAYAK: 'https://www.kayak.com/flights/',
 } as const
 
 // 默认值

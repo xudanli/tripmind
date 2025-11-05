@@ -1,10 +1,10 @@
 <template>
   <div class="composer">
     <div class="composer-input-wrapper">
-      <!-- 附件按钮 -->
-      <button class="composer-attach-btn" @click="handleAttach" title="添加附件">
+      <!-- 附件按钮（暂时隐藏，功能待实现） -->
+      <!-- <button class="composer-attach-btn" @click="handleAttach" title="添加附件">
         <plus-outlined />
-      </button>
+      </button> -->
       
       <!-- 输入框 -->
       <textarea
@@ -236,26 +236,36 @@ const handleAttach = () => {
 
 .composer-send-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--ink-4);
   border: none;
   color: white;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: not-allowed;
   transition: all 0.2s;
+  opacity: 0.4;
 }
 
 .composer-send-btn-active {
   background: var(--brand);
   cursor: pointer;
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(17, 153, 142, 0.3);
 }
 
 .composer-send-btn-active:hover {
   background: var(--brand-hi);
+  box-shadow: 0 4px 12px rgba(17, 153, 142, 0.4);
+  transform: translateY(-1px);
+}
+
+.composer-send-btn :deep(.anticon) {
+  font-size: 18px;
+  font-weight: 500;
 }
 
 .composer-send-btn:disabled {

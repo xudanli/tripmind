@@ -9,6 +9,9 @@
     <!-- 预算管理 -->
     <BudgetManager :travel-id="travelId" :initial-spent="initialSpent" :initial-total="initialTotal" />
 
+    <!-- 成员管理 -->
+    <MemberManagement :travel-id="travelId" />
+
     <!-- 文件管理 -->
     <a-card :title="t('travelDetail.plannerSidebar.files')" class="sidebar-card" :bordered="false">
       <div class="file-section">
@@ -37,29 +40,6 @@
       </div>
     </a-card>
 
-    <!-- 团队协作 -->
-    <a-card :title="t('travelDetail.plannerSidebar.team')" class="sidebar-card" :bordered="false">
-      <div class="team-section">
-        <a-list :dataSource="dynamicMembers" item-layout="horizontal" size="small">
-          <template #renderItem="{ item }">
-            <a-list-item>
-              <a-list-item-meta>
-                <template #avatar>
-                  <a-avatar>{{ item.name[0] }}</a-avatar>
-                </template>
-                <template #title>{{ item.name }}</template>
-                <template #description>
-                  <a-tag size="small">{{ item.role }}</a-tag>
-                </template>
-              </a-list-item-meta>
-            </a-list-item>
-          </template>
-        </a-list>
-        <a-button type="dashed" block style="margin-top: 1rem">
-          <user-add-outlined /> {{ t('travelDetail.plannerSidebar.inviteMember') }}
-        </a-button>
-      </div>
-    </a-card>
   </a-space>
 </template>
 
@@ -71,6 +51,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import DiscussionArea from './DiscussionArea.vue'
 import TaskList from './TaskList.vue'
 import BudgetManager from './BudgetManager.vue'
+import MemberManagement from './MemberManagement.vue'
 import { 
   DownloadOutlined, 
   PlusOutlined,
@@ -160,14 +141,6 @@ const initialTotal = computed(() => {
 
 // 动态文件列表（默认空，由用户上传/导出后才出现）
 const dynamicFiles = computed(() => props.files || [])
-
-// 动态团队成员
-const dynamicMembers = computed(() => {
-  return props.members || [
-    { name: 'AI 助手', role: '规划师' },
-    { name: '用户', role: '旅行者' }
-  ]
-})
 </script>
 
 <style scoped>
@@ -177,8 +150,7 @@ const dynamicMembers = computed(() => {
 }
 
 
-.file-section,
-.team-section {
+.file-section {
   display: flex;
   flex-direction: column;
   gap: 1rem;

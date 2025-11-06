@@ -192,6 +192,20 @@ export default {
     uploadFile: 'Upload File',
     chatPlaceholder: 'Start chatting with AI to get travel suggestions',
     noFiles: 'No files yet',
+    discussion: {
+      addToItinerary: 'Add to Itinerary',
+      noItinerary: 'No itinerary data available, cannot add activity',
+      invalidDay: 'Invalid day',
+      activityAdded: 'Activity added',
+      newActivity: 'New Activity',
+      replaceActivity: 'Replace Activity',
+      replaceActivityConfirm: 'There is already an activity at this time, replace it?',
+      itineraryCard: 'Itinerary Suggestion',
+      generatingDetails: 'Generating activity details...',
+      detailsGenerated: 'Activity details generated',
+      aiEnrichmentFailed: 'AI enrichment failed, using basic information',
+      aiEnrichmentError: 'Error generating activity details'
+    },
     visaGuide: 'Visa Guide',
     noVisaInfo: 'No visa information available. Please ensure destination and nationality are set.',
     visaGuideActions: {
@@ -443,6 +457,10 @@ export default {
         deleteSuccess: 'Deleted successfully',
         aiGeneratedCannotDelete: 'AI-generated images cannot be deleted'
       },
+      setAsCover: 'Set as Cover',
+      coverImageSet: 'Cover image set successfully',
+      coverImageSetFailed: 'Failed to set cover image',
+      noImageSelected: 'Please select an image first',
       // Activity detail page translations
       estimatedStay: 'Estimated Stay',
       minutes: 'minutes',

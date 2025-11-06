@@ -179,6 +179,20 @@ export default {
     chatPlaceholder: '开始和 AI 对话，获取旅行建议吧',
     newMessages: '有新消息，点击查看',
     chatInputPlaceholder: '输入消息...',
+    discussion: {
+      addToItinerary: '添加到行程',
+      noItinerary: '当前没有行程数据，无法添加活动',
+      invalidDay: '无效的日期',
+      activityAdded: '活动已添加',
+      newActivity: '新活动',
+      replaceActivity: '替换活动',
+      replaceActivityConfirm: '该时间段已有活动，是否替换？',
+      itineraryCard: '行程建议',
+      generatingDetails: '正在生成活动详情...',
+      detailsGenerated: '活动详情已生成',
+      aiEnrichmentFailed: 'AI 生成详情失败，已使用基础信息',
+      aiEnrichmentError: '生成活动详情时出错'
+    },
     tasks: '📋 任务清单',
     taskPlaceholder: '添加新任务...',
     taskCompleted: '已完成',
@@ -483,6 +497,10 @@ export default {
         deleteSuccess: '删除成功',
         aiGeneratedCannotDelete: 'AI生成的图片不能删除'
       },
+      setAsCover: '设为封面',
+      coverImageSet: '已设置为封面图片',
+      coverImageSetFailed: '设置封面图片失败',
+      noImageSelected: '请先选择一张图片',
       // 活动详情页翻译
       estimatedStay: '预计停留',
       minutes: '分钟',

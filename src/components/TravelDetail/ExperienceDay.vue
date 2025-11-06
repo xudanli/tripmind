@@ -93,16 +93,7 @@
                           {{ slot.details.name.english }}
                         </p>
                       </div>
-                    <div class="slot-actions">
-            <a-button 
-              type="text" 
-                        size="small" 
-                        @click="openEditModal(day.day, slotIndex, slot)"
-                        class="edit-btn"
-                      >
-                        <edit-outlined />
-            </a-button>
-    </div>
+                    <!-- 编辑按钮已移除 -->
         </div>
                   </div>
 
@@ -1061,6 +1052,17 @@
             <span class="nav-icon">→</span>
           </a-button>
         </div>
+        <div class="preview-actions">
+          <a-button 
+            type="primary" 
+            class="set-cover-btn"
+            @click="setAsCover"
+            :title="t('travelDetail.experienceDay.setAsCover') || '设为封面'"
+          >
+            <span class="cover-icon">📌</span>
+            <span class="cover-text">{{ t('travelDetail.experienceDay.setAsCover') || '设为封面' }}</span>
+          </a-button>
+        </div>
         <div class="preview-thumbnails" v-if="previewImages.length > 1">
           <div 
             v-for="(img, index) in previewImages" 
@@ -1078,7 +1080,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, h, watch, onMounted } from 'vue'
+import { computed, ref, h, watch, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
@@ -1263,6 +1265,9 @@ const imageErrors = ref<Set<string>>(new Set())
 const previewVisible = ref(false)
 const previewImages = ref<string[]>([])
 const previewCurrentIndex = ref(0)
+const currentPreviewDay = ref<number | null>(null)
+const currentPreviewSlotIndex = ref<number | null>(null)
+const currentPreviewSlot = ref<any>(null)
 
 // 获取活动的唯一键
 const getSlotKey = (day: number, slotIndex: number, slot: any): string => {
@@ -1320,8 +1325,21 @@ const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
   const images = activityImagesList.value.get(key) || []
   if (images.length === 0) return
   
+  // 查找当前封面图片在列表中的索引
+  const currentCoverImage = getSlotImage(day, slotIndex, slot)
+  let initialIndex = 0
+  if (currentCoverImage) {
+    const coverIndex = images.findIndex(img => img === currentCoverImage)
+    if (coverIndex >= 0) {
+      initialIndex = coverIndex
+    }
+  }
+  
   previewImages.value = images
-  previewCurrentIndex.value = 0
+  previewCurrentIndex.value = initialIndex
+  currentPreviewDay.value = day
+  currentPreviewSlotIndex.value = slotIndex
+  currentPreviewSlot.value = slot
   previewVisible.value = true
 }
 
@@ -1330,6 +1348,101 @@ const closeImagePreview = () => {
   previewVisible.value = false
   previewImages.value = []
   previewCurrentIndex.value = 0
+  currentPreviewDay.value = null
+  currentPreviewSlotIndex.value = null
+  currentPreviewSlot.value = null
+}
+
+// 设置当前图片为封面
+const setAsCover = async () => {
+  if (currentPreviewDay.value === null || currentPreviewSlotIndex.value === null || !currentPreviewSlot.value) {
+    return
+  }
+  
+  const selectedImage = previewImages.value[previewCurrentIndex.value]
+  if (!selectedImage) {
+    message.warning(t('travelDetail.experienceDay.noImageSelected') || '请先选择一张图片')
+    return
+  }
+  
+  const day = currentPreviewDay.value
+  const slotIndex = currentPreviewSlotIndex.value
+  const slot = currentPreviewSlot.value
+  const key = getSlotKey(day, slotIndex, slot)
+  
+  // 先更新内存中的封面图片（立即生效）
+  // 使用新的 Map 实例确保 Vue 能检测到变化
+  const newActivityImages = new Map(activityImages.value)
+  newActivityImages.set(key, selectedImage)
+  activityImages.value = newActivityImages
+  
+  // 确保图片列表包含这张图片（如果不在列表中，添加到列表开头）
+  const currentImagesList = activityImagesList.value.get(key) || []
+  if (!currentImagesList.includes(selectedImage)) {
+    const newActivityImagesList = new Map(activityImagesList.value)
+    newActivityImagesList.set(key, [selectedImage, ...currentImagesList])
+    activityImagesList.value = newActivityImagesList
+  }
+  
+  // 保存到行程数据中
+  if (travel.value && itineraryData.value) {
+    try {
+      const updatedData = { ...travel.value.data }
+      let days = updatedData.days || updatedData.plannerItinerary?.days || updatedData.itineraryData?.days
+      
+      if (days && days[day] && days[day].timeSlots && days[day].timeSlots[slotIndex]) {
+        // 确保 days 数组是可变的
+        if (updatedData.days) {
+          updatedData.days = [...updatedData.days]
+        } else if (updatedData.plannerItinerary) {
+          updatedData.plannerItinerary = { ...updatedData.plannerItinerary, days: [...updatedData.plannerItinerary.days] }
+          days = updatedData.plannerItinerary.days
+        } else if (updatedData.itineraryData) {
+          updatedData.itineraryData = { ...updatedData.itineraryData, days: [...updatedData.itineraryData.days] }
+          days = updatedData.itineraryData.days
+        }
+        
+        // 确保 timeSlots 数组也是可变的
+        days[day] = { ...days[day] }
+        days[day].timeSlots = [...days[day].timeSlots]
+        
+        // 更新 slot 的图片信息（确保 slot 对象也是新的引用）
+        const targetSlot = { ...days[day].timeSlots[slotIndex] }
+        if (!targetSlot.details) {
+          targetSlot.details = {}
+        } else {
+          targetSlot.details = { ...targetSlot.details }
+        }
+        if (!targetSlot.details.images) {
+          targetSlot.details.images = {}
+        } else {
+          targetSlot.details.images = { ...targetSlot.details.images }
+        }
+        targetSlot.details.images.cover = selectedImage
+        
+        // 更新数组中的 slot
+        days[day].timeSlots[slotIndex] = targetSlot
+        
+        // 保存到 store
+        travelListStore.updateTravel(travel.value.id, {
+          data: updatedData
+        })
+        
+        // 等待响应式更新完成
+        await nextTick()
+        
+        // 再次确保封面图片已更新（使用新的 Map 实例）
+        const finalActivityImages = new Map(activityImages.value)
+        finalActivityImages.set(key, selectedImage)
+        activityImages.value = finalActivityImages
+        
+        message.success(t('travelDetail.experienceDay.coverImageSet') || '已设置为封面图片')
+      }
+    } catch (error) {
+      console.error('保存封面图片失败:', error)
+      message.error(t('travelDetail.experienceDay.coverImageSetFailed') || '设置封面图片失败')
+    }
+  }
 }
 
 // 切换到上一张图片
@@ -1368,6 +1481,13 @@ const loadActivityImage = async (day: number, slotIndex: number, slot: any) => {
   
   // 如果已经有图片或正在加载，跳过
   if (activityImages.value.has(key) || imageLoading.value.has(key)) {
+    return
+  }
+  
+  // 优先从保存的数据中加载封面图片
+  const savedCoverImage = slot.details?.images?.cover
+  if (savedCoverImage) {
+    activityImages.value.set(key, savedCoverImage)
     return
   }
   
@@ -3878,17 +3998,23 @@ const getVisaActionTips = (visaType: string): any => {
   grid-template-columns: 1fr 1fr;
   gap: 14px 20px;
   margin-bottom: 16px;
+  min-width: 0; /* 允许 grid 子元素收缩 */
+  overflow: visible; /* 确保内容不被裁剪 */
 }
 
 .slot-info-column {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0; /* 允许 flex 子元素收缩 */
+  overflow: visible; /* 确保内容不被裁剪 */
 }
 
 .slot-info-item {
   margin: 0;
   min-height: 32px;
+  min-width: 0; /* 允许 flex 子元素收缩 */
+  overflow: visible; /* 确保内容不被裁剪 */
 }
 
 .slot-info-label {
@@ -3909,6 +4035,12 @@ const getVisaActionTips = (visaType: string): any => {
   margin: 0;
   letter-spacing: -0.005em;
   font-family: 'Noto Sans SC', sans-serif;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip; /* 不使用 ellipsis，确保完整显示 */
 }
 
 
@@ -4028,6 +4160,11 @@ const getVisaActionTips = (visaType: string): any => {
   color: #555;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip; /* 不使用 ellipsis，确保完整显示 */
 }
 
 .source-text {
@@ -5234,6 +5371,48 @@ const getVisaActionTips = (visaType: string): any => {
   border-radius: 20px;
 }
 
+.preview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 20px;
+  background: rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.set-cover-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  border: none;
+  color: white;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(17, 153, 142, 0.3);
+}
+
+.set-cover-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(17, 153, 142, 0.4);
+  background: linear-gradient(135deg, #0d7a70 0%, #2dd66a 100%);
+}
+
+.set-cover-btn:active {
+  transform: translateY(0);
+}
+
+.cover-icon {
+  font-size: 16px;
+}
+
+.cover-text {
+  font-size: 14px;
+}
+
 .preview-thumbnails {
   display: flex;
   gap: 8px;
@@ -5293,6 +5472,23 @@ const getVisaActionTips = (visaType: string): any => {
     width: 40px;
     height: 40px;
     font-size: 20px;
+  }
+  
+  .preview-actions {
+    padding: 10px 16px;
+  }
+  
+  .set-cover-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+  
+  .cover-icon {
+    font-size: 14px;
+  }
+  
+  .cover-text {
+    font-size: 12px;
   }
   
   .preview-thumbnails {

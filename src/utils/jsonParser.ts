@@ -626,7 +626,7 @@ function fixUnterminatedStrings(json: string): string {
         result += '"'
       }
     } else {
-      result += '"'
+    result += '"'
     }
   }
   

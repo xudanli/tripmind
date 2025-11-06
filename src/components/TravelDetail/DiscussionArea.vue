@@ -35,6 +35,7 @@
               :group="group"
               :is-self="group.isOwn"
               :group-time="formatTime(group.time)"
+              @add-to-itinerary="handleAddToItinerary"
             />
           </template>
           
@@ -82,6 +83,9 @@ import { getUserNationalityCode } from '@/config/userProfile'
 import { getVisaInfo } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { chatWithDeepSeek } from '@/services/deepseekAPI'
+import { DeepSeekClient } from '@/llm/deepseekClient'
+import { buildLanguageRequirementBlock, buildTransportPreferenceBlock } from '@/prompts/inspiration/common'
+import { getUserLocationCode } from '@/config/userProfile'
 import MessageGroup from './DiscussionArea/MessageGroup.vue'
 import TimeDivider from './DiscussionArea/TimeDivider.vue'
 import TypingIndicator from './DiscussionArea/TypingIndicator.vue'
@@ -96,7 +100,16 @@ export interface Message {
   isOwn: boolean
   avatar?: string
   status?: 'sending' | 'sent' | 'failed' | 'read'
-  type?: 'text' | 'ai-card' | 'attachment' | 'image'
+  type?: 'text' | 'ai-card' | 'itinerary-card' | 'attachment' | 'image'
+  itineraryInfo?: {
+    time: string
+    activity: string
+    location: string
+    type: string
+    category: string
+    icon: string
+    categoryColor: string
+  }
   attachments?: Array<{
     type: 'file' | 'image'
     name: string
@@ -329,6 +342,896 @@ const shouldShowTimeDivider = (group: MessageGroup, index: number): boolean => {
 const composerPlaceholder = computed(() => {
   return t('travelDetail.chatInputPlaceholder') || '输入消息… 试试 /summary /todo /translate'
 })
+
+// 检测消息内容中的行程信息（用于卡片显示）
+const detectItineraryInfo = (content: string): any | null => {
+  const contentLower = content.toLowerCase()
+  
+  // 检查是否包含明确的添加意图关键词
+  const hasAddIntent = /添加|加入|加入行程|添加到|add.*itinerary|add.*行程|加入.*行程|我想.*添加|想要.*添加|要.*添加|行程点/.test(content)
+  
+  // 检查是否包含时间（如 10:00, 14:30, 10点, 14时等）
+  const hasTime = /\d{1,2}[:：]\d{2}|\d{1,2}[点时]/.test(content)
+  
+  // 检查是否包含活动相关关键词
+  const hasActivityKeywords = /参观|游览|去|访问|体验|活动|行程点|景点|餐厅|博物馆|公园|寺庙|海滩|山|湖|山脊|行走|静默|gallery|museum|restaurant|park|temple|beach|mountain|lake|ridge|walk|silent|visit|explore|experience|activity|attraction/.test(content)
+  
+  // 检查是否包含地点或位置信息
+  const hasLocation = /在|到|去|from|to|at|位置|地点|location|place/.test(content)
+  
+  // 检查是否包含日期信息
+  const hasDayInfo = /第[一二三四五六七八九十\d]+天|第\d+天|day\s*\d+|第一天|第二天|第三天/.test(content)
+  
+  // 如果包含行程信息，解析详细信息
+  if (hasAddIntent || (hasTime && (hasActivityKeywords || hasLocation || hasDayInfo))) {
+    // 解析时间
+    const timeMatch = content.match(/(\d{1,2})[:：](\d{2})|(\d{1,2})[点时]/)
+    let time = '10:00'
+    if (timeMatch) {
+      if (timeMatch[1] && timeMatch[2]) {
+        time = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`
+      } else if (timeMatch[3]) {
+        time = `${timeMatch[3].padStart(2, '0')}:00`
+      }
+    }
+    
+    // 解析活动名称
+    let activityName = ''
+    if (timeMatch) {
+      const timeIndex = content.indexOf(timeMatch[0])
+      if (timeIndex !== -1) {
+        const afterTime = content.substring(timeIndex + timeMatch[0].length).trim()
+        const activityMatch = afterTime.match(/^[^，。！？\n]+/)
+        if (activityMatch) {
+          activityName = activityMatch[0].trim()
+        }
+      }
+    }
+    
+    // 如果没有提取到，尝试从整个消息中提取
+    if (!activityName) {
+      const activityKeywords = ['博物馆', '餐厅', '公园', '寺庙', '海滩', '湖', '山', '画廊', '市场', '山脊', '行走',
+                                'museum', 'restaurant', 'park', 'temple', 'beach', 'lake', 'mountain', 'gallery', 'market', 'ridge', 'walk']
+      for (const keyword of activityKeywords) {
+        const match = content.match(new RegExp(`[^，。！？\\n]*${keyword}[^，。！？\\n]*`, 'i'))
+        if (match) {
+          activityName = match[0].trim()
+          break
+        }
+      }
+    }
+    
+    // 提取地点
+    let location = ''
+    const locationMatch = content.match(/(?:在|到|去|at|to|from)\s*([^，。！？\n]+)/i)
+    if (locationMatch) {
+      location = locationMatch[1].trim()
+    }
+    
+    // 识别活动类型和图标（与 handleAddToItinerary 保持一致）
+    let activityType = 'attraction'
+    let activityCategory = 'attraction'
+    let activityIcon = '📍'
+    let categoryColor = 'blue'
+    
+    // 优先识别景点相关关键词（避免误判）
+    if (contentLower.includes('寺庙') || contentLower.includes('temple') ||
+        contentLower.includes('教堂') || contentLower.includes('church') ||
+        contentLower.includes('宗教') || contentLower.includes('religious') ||
+        contentLower.includes('圣地') || contentLower.includes('sacred') ||
+        contentLower.includes('天空之门') || contentLower.includes('gate of heaven')) {
+      activityType = 'attraction'
+      activityCategory = '宗教'
+      activityIcon = '⛪'
+      categoryColor = 'purple'
+    } else if (contentLower.includes('博物馆') || contentLower.includes('museum') ||
+               contentLower.includes('画廊') || contentLower.includes('gallery') ||
+               contentLower.includes('艺术') || contentLower.includes('art')) {
+      activityType = 'attraction'
+      activityCategory = '文化'
+      activityIcon = '🏛️'
+      categoryColor = 'purple'
+    } else if (contentLower.includes('海滩') || contentLower.includes('beach') ||
+               contentLower.includes('山') || contentLower.includes('mountain') ||
+               contentLower.includes('山脊') || contentLower.includes('ridge') ||
+               contentLower.includes('湖') || contentLower.includes('lake') ||
+               contentLower.includes('公园') || contentLower.includes('park') ||
+               contentLower.includes('自然') || contentLower.includes('nature') ||
+               contentLower.includes('行走') || contentLower.includes('walk')) {
+      activityType = 'attraction'
+      activityCategory = '自然'
+      activityIcon = '🌲'
+      categoryColor = 'green'
+    } else if (contentLower.includes('酒店') || contentLower.includes('hotel') ||
+               contentLower.includes('住宿') || contentLower.includes('accommodation')) {
+      activityType = 'accommodation'
+      activityCategory = '住宿'
+      activityIcon = '🏨'
+      categoryColor = 'green'
+    } else if (contentLower.includes('交通') || contentLower.includes('transport') ||
+               contentLower.includes('机场') || contentLower.includes('airport')) {
+      activityType = 'transport'
+      activityCategory = '交通'
+      activityIcon = '🚗'
+      categoryColor = 'blue'
+    } else if (contentLower.includes('购物') || contentLower.includes('shopping')) {
+      activityType = 'shopping'
+      activityCategory = '购物'
+      activityIcon = '🛍️'
+      categoryColor = 'purple'
+    } else if (contentLower.includes('餐厅') || contentLower.includes('restaurant') || 
+               contentLower.includes('美食') || contentLower.includes('food')) {
+      activityType = 'restaurant'
+      activityCategory = '餐饮'
+      activityIcon = '🍜'
+      categoryColor = 'orange'
+    }
+    
+    return {
+      time,
+      activity: activityName || (locale.value.startsWith('zh') ? '新活动' : 'New Activity'),
+      location: location || destination.value || '',
+      type: activityType,
+      category: activityCategory,
+      icon: activityIcon,
+      categoryColor: categoryColor
+    }
+  }
+  
+  return null
+}
+
+// 处理添加到行程
+const handleAddToItinerary = async (messageId: string, content: string) => {
+  if (!itineraryData.value?.days || itineraryData.value.days.length === 0) {
+    const { message } = await import('ant-design-vue')
+    message.warning(t('travelDetail.discussion.noItinerary'))
+    return
+  }
+  
+  // 解析消息内容，提取活动信息
+  const timeStr = parseTime(content)
+  const dayMatch = content.match(/第[一二三四五六七八九十\d]+天|第\d+天|day\s*\d+|第一天|第二天|第三天|第四天|第五天/i)
+  
+  let targetDayIndex = 0
+  if (dayMatch) {
+    const dayText = dayMatch[0]
+    const chineseNumbers: Record<string, number> = {
+      '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+      '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+    }
+    const numMatch = dayText.match(/[一二三四五六七八九十]|\d+/)
+    if (numMatch) {
+      const dayNum = chineseNumbers[numMatch[0]] || parseInt(numMatch[0])
+      targetDayIndex = Math.max(0, Math.min(dayNum - 1, itineraryData.value.days.length - 1))
+    }
+  }
+  
+  // 提取活动名称和地点（简化提取，只获取核心活动名称）
+  let activityName = ''
+  let location = ''
+  
+  // 优先从关键词中提取活动名称（更准确）
+  const activityKeywords = [
+    '天空之门', 'Lempuyang', 'lempuyang', '寺庙', 'temple', '教堂', 'church',
+    '博物馆', 'museum', '画廊', 'gallery', '餐厅', 'restaurant', 
+    '公园', 'park', '海滩', 'beach', '湖', 'lake', '山', 'mountain',
+    '山脊', 'ridge', '市场', 'market', '酒店', 'hotel'
+  ]
+  
+  for (const keyword of activityKeywords) {
+    const regex = new RegExp(`([^，。！？\\n]{0,30}${keyword}[^，。！？\\n]{0,30})`, 'i')
+    const match = content.match(regex)
+    if (match) {
+      activityName = match[1].trim()
+      // 限制长度，只保留核心活动名称
+      if (activityName.length > 50) {
+        activityName = activityName.substring(0, 50) + '...'
+      }
+      break
+    }
+  }
+  
+  // 如果关键词提取失败，尝试从时间后面提取（限制长度）
+  if (!activityName && timeStr) {
+    const timeIndex = content.indexOf(timeStr)
+    if (timeIndex !== -1) {
+      const afterTime = content.substring(timeIndex + timeStr.length).trim()
+      // 只提取第一句话或前30个字符
+      const activityMatch = afterTime.match(/^([^，。！？\n]{1,30})/)
+      if (activityMatch) {
+        activityName = activityMatch[1].trim()
+      }
+    }
+  }
+  
+  // 提取地点（在、到、去等词后面的内容）
+  const locationMatch = content.match(/(?:在|到|去|at|to|from)\s*([^，。！？\n]+)/i)
+  if (locationMatch) {
+    location = locationMatch[1].trim()
+  }
+  
+  // 如果没有提取到活动名称，使用默认值
+  if (!activityName) {
+    activityName = t('travelDetail.discussion.newActivity')
+  }
+  
+  // 确定时间（如果没有提取到，使用默认时间）
+  let targetTime = timeStr || '10:00'
+  
+  // 获取目标日期
+  const targetDay = itineraryData.value.days[targetDayIndex]
+  if (!targetDay) {
+    const { message } = await import('ant-design-vue')
+    message.error(t('travelDetail.discussion.invalidDay'))
+    return
+  }
+  
+  // 识别活动类型和类别（与左侧行程节点格式一致）
+  // 注意：优先识别景点相关关键词，避免误判为餐饮
+  const contentLower = content.toLowerCase()
+  let activityType = 'attraction'
+  let activityCategory = 'attraction'
+  let activityIcon = '📍'
+  let categoryColor = 'blue'
+  
+  // 优先识别景点相关关键词（避免误判）
+  if (contentLower.includes('寺庙') || contentLower.includes('temple') ||
+      contentLower.includes('教堂') || contentLower.includes('church') ||
+      contentLower.includes('宗教') || contentLower.includes('religious') ||
+      contentLower.includes('圣地') || contentLower.includes('sacred') ||
+      contentLower.includes('天空之门') || contentLower.includes('gate of heaven')) {
+    activityType = 'attraction'
+    activityCategory = '宗教'
+    activityIcon = '⛪'
+    categoryColor = 'purple'
+  } else if (contentLower.includes('博物馆') || contentLower.includes('museum') ||
+             contentLower.includes('画廊') || contentLower.includes('gallery') ||
+             contentLower.includes('艺术') || contentLower.includes('art')) {
+    activityType = 'attraction'
+    activityCategory = '文化'
+    activityIcon = '🏛️'
+    categoryColor = 'purple'
+  } else if (contentLower.includes('海滩') || contentLower.includes('beach') ||
+             contentLower.includes('山') || contentLower.includes('mountain') ||
+             contentLower.includes('山脊') || contentLower.includes('ridge') ||
+             contentLower.includes('湖') || contentLower.includes('lake') ||
+             contentLower.includes('公园') || contentLower.includes('park') ||
+             contentLower.includes('自然') || contentLower.includes('nature') ||
+             contentLower.includes('行走') || contentLower.includes('walk')) {
+    activityType = 'attraction'
+    activityCategory = '自然'
+    activityIcon = '🌲'
+    categoryColor = 'green'
+  } else if (contentLower.includes('酒店') || contentLower.includes('hotel') ||
+             contentLower.includes('住宿') || contentLower.includes('accommodation') ||
+             contentLower.includes('入住') || contentLower.includes('check-in')) {
+    activityType = 'accommodation'
+    activityCategory = '住宿'
+    activityIcon = '🏨'
+    categoryColor = 'green'
+  } else if (contentLower.includes('交通') || contentLower.includes('transport') ||
+             contentLower.includes('机场') || contentLower.includes('airport') ||
+             contentLower.includes('车站') || contentLower.includes('station') ||
+             contentLower.includes('前往') || contentLower.includes('go to') ||
+             contentLower.includes('到达') || contentLower.includes('arrive') ||
+             contentLower.includes('抵达') || contentLower.includes('arrival')) {
+    activityType = 'transport'
+    activityCategory = '交通'
+    activityIcon = '🚗'
+    categoryColor = 'blue'
+  } else if (contentLower.includes('购物') || contentLower.includes('shopping') ||
+             contentLower.includes('市场') || contentLower.includes('market') ||
+             contentLower.includes('商店') || contentLower.includes('store')) {
+    activityType = 'shopping'
+    activityCategory = '购物'
+    activityIcon = '🛍️'
+    categoryColor = 'purple'
+  } else if (contentLower.includes('休息') || contentLower.includes('rest') ||
+             contentLower.includes('放松') || contentLower.includes('relax') ||
+             contentLower.includes('休整')) {
+    activityType = 'attraction' // rest 类型在 ExperienceDay 中不存在，使用 attraction
+    activityCategory = '休息'
+    activityIcon = '😌'
+    categoryColor = 'cyan'
+  } else if (contentLower.includes('餐厅') || contentLower.includes('restaurant') || 
+             contentLower.includes('美食') || contentLower.includes('food') ||
+             contentLower.includes('用餐') || contentLower.includes('dining') ||
+             contentLower.includes('午餐') || contentLower.includes('lunch') ||
+             contentLower.includes('晚餐') || contentLower.includes('dinner') ||
+             contentLower.includes('早餐') || contentLower.includes('breakfast')) {
+    // 餐饮类型应该使用 'restaurant' 而不是 'meal'，以匹配 ExperienceDay 的期望
+    activityType = 'restaurant'
+    activityCategory = '餐饮'
+    activityIcon = '🍜'
+    categoryColor = 'orange'
+  }
+  
+  // 提取时长（如果有提到）
+  let duration = 60 // 默认60分钟
+  const durationMatch = content.match(/(\d+)\s*(?:分钟|小时|min|hour|h|m)/i)
+  if (durationMatch) {
+    const num = parseInt(durationMatch[1])
+    if (contentLower.includes('小时') || contentLower.includes('hour') || contentLower.includes('h')) {
+      duration = num * 60
+    } else {
+      duration = num
+    }
+  }
+  
+  // 提取费用（如果有提到）
+  let cost = 0
+  const costMatch = content.match(/(\d+)\s*(?:元|块|¥|RMB|USD|\$)/i)
+  if (costMatch) {
+    cost = parseInt(costMatch[1])
+  }
+  
+  // 创建新活动 - 确保数据格式与左侧行程节点完全一致
+  const timeSlots = targetDay.timeSlots || []
+  
+  // 尝试从内容中提取详细信息（穿搭建议、文化提示等）
+  const extractDetails = (content: string) => {
+    const details: any = {
+      recommendations: {}
+    }
+    
+    // 尝试提取穿搭建议（如果内容中包含相关关键词）
+    const outfitKeywords = ['穿搭', '服装', '衣服', 'outfit', 'dress', 'clothing', 'wear']
+    const outfitMatch = content.match(/(?:穿搭|服装|衣服|outfit|dress|clothing|wear)[:：]?\s*([^。！？\n]{20,200})/i)
+    if (outfitMatch && outfitMatch[1]) {
+      details.recommendations.outfitSuggestions = outfitMatch[1].trim()
+    }
+    
+    // 尝试提取文化提示（如果内容中包含相关关键词）
+    const culturalKeywords = ['文化', '当地', '习俗', '礼仪', 'cultural', 'local', 'custom', 'etiquette']
+    const culturalMatch = content.match(/(?:文化|当地|习俗|礼仪|cultural|local|custom|etiquette)[:：]?\s*([^。！？\n]{20,200})/i)
+    if (culturalMatch && culturalMatch[1]) {
+      details.recommendations.culturalTips = culturalMatch[1].trim()
+    }
+    
+    // 尝试提取最佳时间
+    const bestTimeMatch = content.match(/(?:最佳时间|最佳时段|best.*time|recommended.*time)[:：]?\s*([^。！？\n]{10,100})/i)
+    if (bestTimeMatch && bestTimeMatch[1]) {
+      details.recommendations.bestTime = bestTimeMatch[1].trim()
+    }
+    
+    // 尝试提取着装要求
+    const dressCodeMatch = content.match(/(?:着装|dress.*code|着装要求)[:：]?\s*([^。！？\n]{10,100})/i)
+    if (dressCodeMatch && dressCodeMatch[1]) {
+      details.recommendations.dressCode = dressCodeMatch[1].trim()
+    }
+    
+    // 尝试提取季节特色
+    const seasonalMatch = content.match(/(?:季节|seasonal|季节特色)[:：]?\s*([^。！？\n]{10,100})/i)
+    if (seasonalMatch && seasonalMatch[1]) {
+      details.recommendations.seasonal = seasonalMatch[1].trim()
+    }
+    
+    // 如果内容很长，尝试提取更详细的信息
+    if (content.length > 200) {
+      // 尝试提取描述性内容作为详细说明
+      const descriptionMatch = content.match(/(?:描述|说明|详情|description|details)[:：]?\s*([^。！？\n]{30,300})/i)
+      if (descriptionMatch && descriptionMatch[1] && !details.recommendations.outfitSuggestions && !details.recommendations.culturalTips) {
+        // 如果没有找到特定的建议，使用描述作为备注
+        details.recommendations.description = descriptionMatch[1].trim()
+      }
+    }
+    
+    return details
+  }
+  
+  const extractedDetails = extractDetails(content)
+  
+  // 生成完整的 timeSlot JSON 结构，与左侧行程活动节点完全一致
+  // 参考 ExperienceDay.vue 中 addPOIToItinerary 和 handleAddSlot 的结构
+  const newSlot: any = {
+    // ========== 基础字段（必需，与左侧显示一致） ==========
+    time: targetTime, // 时间字符串，格式 "HH:MM"
+    title: activityName, // 活动标题（ExperienceDay 使用 slot.title || slot.activity）
+    activity: activityName, // 活动描述（PlannerTimeline 使用 slot.activity）
+    location: location || destination.value || '', // 地点（ExperienceDay 和 PlannerTimeline 都使用）
+    type: activityType, // 活动类型 (attraction/restaurant/accommodation/shopping/transport)
+    category: activityCategory, // 类别（如"自然"、"文化"、"餐饮"等，PlannerTimeline 显示）
+    duration: duration, // 时长（分钟），数字类型（ExperienceDay 使用 slot.duration）
+    notes: (() => {
+      // notes 字段：提取第一句话或前100个字符作为简短描述（PlannerTimeline 显示）
+      const firstSentence = content.match(/^[^。！？\n]{1,100}/)
+      if (firstSentence) {
+        return firstSentence[0].trim()
+      }
+      return content.substring(0, 100).trim()
+    })(),
+    cost: cost, // 费用（数字）
+    
+    // ========== 显示相关字段（PlannerTimeline 需要） ==========
+    icon: activityIcon, // 图标（PlannerTimeline 使用 slot.icon）
+    categoryColor: categoryColor, // 类别颜色（PlannerTimeline 使用 slot.categoryColor）
+    completed: false, // 完成状态（PlannerTimeline 使用 slot.completed）
+    
+    // ========== 详细信息（details）- 与 ExperienceDay 显示结构完全一致 ==========
+    details: {
+      // 名称信息（ExperienceDay 使用 slot.details.name.english 作为副标题）
+      name: location ? {
+        chinese: locale.value.startsWith('zh') ? location : undefined,
+        english: locale.value.startsWith('en') ? location : undefined,
+        local: location // 当地语言名称
+      } : undefined,
+      
+      // 地址信息（ExperienceDay 显示 slot.details.address）
+      address: location ? {
+        chinese: locale.value.startsWith('zh') ? location : undefined,
+        english: locale.value.startsWith('en') ? location : undefined,
+        local: location, // 当地语言地址
+        landmark: undefined // 附近地标
+      } : undefined,
+      
+      // 交通信息（ExperienceDay 显示 slot.details.transportation）
+      transportation: undefined,
+      
+      // 营业/开放时间（ExperienceDay 显示 slot.details.openingHours）
+      openingHours: undefined,
+      
+      // 费用明细（ExperienceDay 显示 slot.details.pricing）
+      pricing: cost > 0 ? {
+        general: cost,
+        detail: undefined
+      } : undefined,
+      
+      // 评分（ExperienceDay 显示 slot.details.rating）
+      rating: undefined,
+      
+      // 推荐和建议（ExperienceDay 显示多个字段）
+      recommendations: {
+        // 从内容中提取的建议
+        ...extractedDetails.recommendations,
+        
+        // 建议停留时间（ExperienceDay 显示 slot.details.recommendations.suggestedDuration）
+        suggestedDuration: duration ? `${duration}分钟` : undefined,
+        
+        // 最佳时间（ExperienceDay 显示 slot.details.recommendations.bestTime）
+        // 已在 extractedDetails.recommendations 中
+        
+        // 着装要求（ExperienceDay 显示 slot.details.recommendations.dressCode）
+        // 已在 extractedDetails.recommendations 中
+        
+        // 季节特色（ExperienceDay 显示 slot.details.recommendations.seasonal）
+        // 已在 extractedDetails.recommendations 中
+        
+        // 预订相关（ExperienceDay 显示 slot.details.recommendations.bookingRequired）
+        bookingRequired: undefined,
+        bookingAdvance: undefined,
+        
+        // 适合人群（ExperienceDay 显示 slot.details.recommendations.suitableFor）
+        suitableFor: undefined,
+        
+        // 不适合人群（ExperienceDay 显示 slot.details.recommendations.notSuitableFor）
+        notSuitableFor: undefined,
+        
+        // 特殊注意事项（ExperienceDay 显示 slot.details.recommendations.specialNotes）
+        specialNotes: undefined,
+        
+        // 穿搭建议（ExperienceDay 显示 slot.details.recommendations.outfitSuggestions）
+        // 已在 extractedDetails.recommendations 中
+        
+        // 文化提示（ExperienceDay 显示 slot.details.recommendations.culturalTips）
+        // 已在 extractedDetails.recommendations 中
+      },
+      
+      // 描述和特色（ExperienceDay 显示 slot.details.description）
+      description: undefined,
+      
+      // 图片信息（ExperienceDay 使用 slot.details.images.cover）
+      images: undefined
+    },
+    
+    // ========== 坐标信息（ExperienceDay 可能使用） ==========
+    coordinates: undefined,
+    
+    // ========== 内部轨道（心理体验，ExperienceDay 显示 slot.internalTrack） ==========
+    internalTrack: undefined
+  }
+  
+  // 确保只添加一个活动：检查是否已存在相同时间的活动
+  const existingSlot = timeSlots.find((slot: any) => {
+    const slotTime = parseTime(slot.time || '')
+    return slotTime === targetTime
+  })
+  
+  if (existingSlot) {
+    const { message, Modal } = await import('ant-design-vue')
+    Modal.confirm({
+      title: t('travelDetail.discussion.replaceActivity'),
+      content: `${t('travelDetail.discussion.replaceActivityConfirm')} (${locale.value.startsWith('zh') ? '第' : 'Day '}${targetDayIndex + 1}${locale.value.startsWith('zh') ? '天' : ''} ${targetTime}: "${existingSlot.title || existingSlot.activity}")`,
+      onOk: () => {
+        // 替换现有活动
+        const existingIndex = timeSlots.findIndex((slot: any) => {
+          const slotTime = parseTime(slot.time || '')
+          return slotTime === targetTime
+        })
+        if (existingIndex >= 0) {
+          timeSlots[existingIndex] = newSlot
+          saveItineraryUpdate(targetDayIndex, targetDay, timeSlots, activityName, targetTime)
+        }
+      }
+    })
+    return
+  }
+  
+  // 插入到时间顺序正确的位置（确保只添加一个活动）
+  let insertIndex = timeSlots.length
+  for (let i = 0; i < timeSlots.length; i++) {
+    const slotTime = parseTime(timeSlots[i].time || '')
+    if (slotTime && slotTime > targetTime) {
+      insertIndex = i
+      break
+    }
+  }
+  
+  // 先添加基础活动（立即显示）
+  timeSlots.splice(insertIndex, 0, newSlot)
+  
+  // 更新行程数据
+  if (!targetDay.timeSlots) {
+    targetDay.timeSlots = timeSlots
+  }
+  
+  // 保存更新（先保存基础信息）
+  saveItineraryUpdate(targetDayIndex, targetDay, timeSlots, activityName, targetTime)
+  
+  // 异步调用 AI 生成完整的活动详情
+  enrichActivityWithAI(newSlot, targetDayIndex, insertIndex, targetDay, timeSlots, content).catch((error) => {
+    console.warn('AI 生成活动详情失败，使用基础信息:', error)
+  })
+}
+
+// 使用 AI 生成完整的活动详情
+const enrichActivityWithAI = async (
+  slot: any,
+  dayIndex: number,
+  slotIndex: number,
+  targetDay: any,
+  timeSlots: any[],
+  originalContent: string
+) => {
+  const { message } = await import('ant-design-vue')
+  
+  try {
+    // 显示加载提示
+    const loadingMessage = message.loading(t('travelDetail.discussion.generatingDetails') || '正在生成活动详情...', 0)
+    
+    const llm = new DeepSeekClient()
+    const isEnglish = locale.value.startsWith('en')
+    
+    // 格式化目的地为"国家+省市"格式
+    const formatDestination = (baseLocation: string): string => {
+      if (!baseLocation) return ''
+      
+      // 获取国家信息
+      const country = travel.value?.data?.currentCountry || 
+                     itineraryData.value?.country ||
+                     travel.value?.data?.locationCountries?.[baseLocation] ||
+                     ''
+      
+      // 如果目的地已经包含国家信息（如"中国 · 北京"或"中国 北京"），直接返回
+      if (baseLocation.includes(country) || baseLocation.includes('·')) {
+        // 如果格式是"国家 · 省市"，转换为"国家 省市"
+        return baseLocation.replace(/\s*·\s*/g, ' ').trim()
+      }
+      
+      // 格式化：国家+省市
+      if (country) {
+        // 移除 baseLocation 中可能已包含的国家名称（避免重复）
+        let location = baseLocation.replace(new RegExp(country, 'g'), '').trim()
+        
+        // 如果 location 为空，使用原始 baseLocation
+        if (!location) {
+          location = baseLocation
+        }
+        
+        // 组合为"国家 省市"格式（使用空格分隔，不使用·）
+        return `${country} ${location}`.trim()
+      }
+      
+      return baseLocation
+    }
+    
+    // 使用 computed 的 destination，并添加多个后备选项确保获取完整的目的地信息
+    let baseDest = destination.value
+    
+    // 如果 computed destination 为空，尝试从多个来源获取
+    if (!baseDest) {
+      baseDest = travel.value?.location || 
+                 travel.value?.data?.selectedLocation || 
+                 travel.value?.data?.destination ||
+                 itineraryData.value?.destination ||
+                 (itineraryData.value?.days?.[0]?.timeSlots?.[0]?.location) ||
+                 (itineraryData.value?.days?.[0]?.timeSlots?.[0]?.details?.address?.chinese) ||
+                 (itineraryData.value?.days?.[0]?.timeSlots?.[0]?.details?.address?.english) ||
+                 ''
+    }
+    
+    // 如果仍然没有目的地，尝试从 slot.location 获取
+    if (!baseDest && slot.location) {
+      baseDest = slot.location
+    }
+    
+    // 格式化为"国家+省市"格式
+    const dest = formatDestination(baseDest)
+    
+    // 记录目的地获取情况（用于调试）
+    if (!dest) {
+      console.warn('⚠️ 目的地未指定，尝试从活动位置推断:', {
+        travelLocation: travel.value?.location,
+        selectedLocation: travel.value?.data?.selectedLocation,
+        dataDestination: travel.value?.data?.destination,
+        itineraryDestination: itineraryData.value?.destination,
+        slotLocation: slot.location,
+        currentCountry: travel.value?.data?.currentCountry,
+        locationCountries: travel.value?.data?.locationCountries
+      })
+    } else {
+      console.log('✅ 格式化后的目的地:', dest)
+    }
+    
+    // 获取用户上下文
+    const transportPreference = 'public_transit_and_walking' // 默认值，可以从用户配置获取
+    
+    // 构建语言要求
+    const languageRequirement = buildLanguageRequirementBlock(
+      locale.value,
+      ['title', 'activity', 'notes', 'details.name', 'details.address', 'details.recommendations']
+    )
+    
+    // 构建交通偏好
+    const transportBlock = buildTransportPreferenceBlock(locale.value, transportPreference)
+    
+    // 构建系统提示词
+    const systemPrompt = isEnglish
+      ? `You are a travel activity detail generator. Generate comprehensive, location-specific information for a SINGLE activity.
+
+${languageRequirement}
+
+Activity Context:
+- Activity Name: ${slot.title || slot.activity}
+- Location: ${slot.location || dest}
+- Type: ${slot.type}
+- Category: ${slot.category}
+- Time: ${slot.time}
+- Destination: ${dest || 'Not specified'}
+- Day: Day ${dayIndex + 1}
+
+${transportBlock}
+
+Generate detailed information for this ONE activity with complete location details:
+- Enhance title and activity description (make them vivid and location-specific)
+- Generate complete details structure:
+  * name (chinese, english, **local** - MUST include local language name)
+  * address (chinese, english, **local** - MUST include local language address, landmark)
+  * transportation (fromStation with walkTime/distance, busLines with busStop, subway with lines/station, driving, shuttle, parking)
+  * openingHours (if applicable)
+  * pricing (if applicable)
+  * rating (if available)
+  * recommendations:
+    - suggestedDuration (e.g., "90-120分钟")
+    - bestTime (if applicable)
+    - dressCode (if applicable)
+    - seasonal (if applicable)
+    - outfitSuggestions (50-100 words, practical outfit recommendations)
+    - culturalTips (50-100 words, local cultural etiquette and friendly practices)
+    - bookingRequired, bookingAdvance (if applicable)
+    - suitableFor, notSuitableFor (if applicable)
+    - specialNotes (if applicable)
+  * description (cuisine, specialty, atmosphere, highlights - if applicable)
+  * images (cover image URL if available)
+
+${dest ? `Use REAL location information in ${dest}. Make the information practical and accurate.` : '⚠️ WARNING: Destination is not specified. Please provide location-specific information based on the activity name and context.'}
+
+Return ONLY JSON:
+{
+  "title": "Enhanced activity title",
+  "activity": "Enhanced activity description",
+  "location": "Specific location with area/district",
+  "notes": "Detailed notes (40+ words)",
+  "duration": ${slot.duration || 60},
+  "cost": ${slot.cost || 0},
+  "details": {
+    "name": { "chinese": "...", "english": "...", "local": "..." },
+    "address": { "chinese": "...", "english": "...", "local": "...", "landmark": "..." },
+    "transportation": { ... },
+    "openingHours": { ... },
+    "pricing": { ... },
+    "rating": { ... },
+    "recommendations": { ... },
+    "description": { ... }
+  },
+  "coordinates": { "lat": 0, "lng": 0 },
+  "internalTrack": { "question": "...", "ritual": "...", "reflection": "..." }
+}`
+      : `你是一个旅行活动详情生成器。为单个活动生成全面、具体的地理位置信息。
+
+${languageRequirement}
+
+活动上下文：
+- 活动名称：${slot.title || slot.activity}
+- 位置：${slot.location || dest}
+- 类型：${slot.type}
+- 类别：${slot.category}
+- 时间：${slot.time}
+- 目的地：${dest || '未指定'}
+- 天数：第${dayIndex + 1}天
+
+${transportBlock}
+
+为这个活动生成详细信息，包含完整的地点详情：
+- 增强标题和活动描述（使其生动且具体到地点）
+- 生成完整的 details 结构：
+  * name（chinese、english、**local** - 必须包含当地语言名称）
+  * address（chinese、english、**local** - 必须包含当地语言地址、地标）
+  * transportation（fromStation 步行时间/距离、busLines 公交路线+busStop 站名、subway 地铁线路+站名、driving 驾车说明、shuttle 接驳车、parking 停车信息）
+  * openingHours（如适用）
+  * pricing（如适用）
+  * rating（如可用）
+  * recommendations：
+    - suggestedDuration（如"90-120分钟"）
+    - bestTime（如适用）
+    - dressCode（如适用）
+    - seasonal（如适用）
+    - outfitSuggestions（50-100字，实用的穿搭建议）
+    - culturalTips（50-100字，当地文化礼仪和友好行为）
+    - bookingRequired、bookingAdvance（如适用）
+    - suitableFor、notSuitableFor（如适用）
+    - specialNotes（如适用）
+  * description（菜系、特色、氛围、亮点 - 如适用）
+  * images（封面图片 URL，如可用）
+
+${dest ? `使用${dest}的真实地点信息。使信息实用且准确。` : '⚠️ 警告：目的地未指定。请根据活动名称和上下文提供地点相关信息。'}
+
+只返回JSON：
+{
+  "title": "增强的活动标题",
+  "activity": "增强的活动描述",
+  "location": "具体地点（含区域/街区）",
+  "notes": "详细备注（40+字）",
+  "duration": ${slot.duration || 60},
+  "cost": ${slot.cost || 0},
+  "details": {
+    "name": { "chinese": "...", "english": "...", "local": "..." },
+    "address": { "chinese": "...", "english": "...", "local": "...", "landmark": "..." },
+    "transportation": { ... },
+    "openingHours": { ... },
+    "pricing": { ... },
+    "rating": { ... },
+    "recommendations": { ... },
+    "description": { ... }
+  },
+  "coordinates": { "lat": 0, "lng": 0 },
+  "internalTrack": { "question": "...", "ritual": "...", "reflection": "..." }
+}`
+
+    const userPrompt = isEnglish
+      ? `Generate detailed information for this activity: "${slot.title || slot.activity}" at ${slot.location || dest || 'location not specified'} on Day ${dayIndex + 1} at ${slot.time}.
+
+${dest ? `Destination: ${dest}` : '⚠️ Destination is not specified. Please infer location from activity context.'}
+
+Original user message: ${originalContent.substring(0, 200)}`
+      : `为这个活动生成详细信息："${slot.title || slot.activity}"，位置：${slot.location || dest || '位置未指定'}，第${dayIndex + 1}天，时间：${slot.time}。
+
+${dest ? `目的地：${dest}` : '⚠️ 目的地未指定。请根据活动上下文推断地点。'}
+
+原始用户消息：${originalContent.substring(0, 200)}`
+
+    // 调用 LLM 生成详情
+    const enrichedData = await llm.jsonFromLLM(systemPrompt, userPrompt, {
+      temperature: 0.8,
+      max_tokens: 2000,
+      fallbackArrays: []
+    })
+
+    // 合并 AI 生成的数据到现有 slot
+    if (enrichedData && typeof enrichedData === 'object') {
+      // 更新基础字段
+      if (enrichedData.title) slot.title = enrichedData.title
+      if (enrichedData.activity) slot.activity = enrichedData.activity
+      if (enrichedData.location) slot.location = enrichedData.location
+      if (enrichedData.notes) slot.notes = enrichedData.notes
+      if (typeof enrichedData.duration === 'number') slot.duration = enrichedData.duration
+      if (typeof enrichedData.cost === 'number') slot.cost = enrichedData.cost
+      
+      // 深度合并 details
+      if (enrichedData.details) {
+        slot.details = {
+          ...slot.details,
+          ...enrichedData.details,
+          // 确保 recommendations 被正确合并
+          recommendations: {
+            ...slot.details.recommendations,
+            ...enrichedData.details.recommendations
+          }
+        }
+      }
+      
+      // 更新坐标
+      if (enrichedData.coordinates) {
+        slot.coordinates = enrichedData.coordinates
+      }
+      
+      // 更新内部轨道
+      if (enrichedData.internalTrack) {
+        slot.internalTrack = enrichedData.internalTrack
+      }
+      
+      // 更新数组中的 slot
+      timeSlots[slotIndex] = { ...slot }
+      
+      // 保存更新后的数据
+      saveItineraryUpdate(dayIndex, targetDay, timeSlots, slot.title || slot.activity, slot.time)
+      
+      loadingMessage()
+      message.success(t('travelDetail.discussion.detailsGenerated') || '活动详情已生成')
+    } else {
+      loadingMessage()
+      message.warning(t('travelDetail.discussion.aiEnrichmentFailed') || 'AI 生成详情失败，已使用基础信息')
+    }
+  } catch (error) {
+    console.error('AI 生成活动详情失败:', error)
+    const { message: msg } = await import('ant-design-vue')
+    msg.error(t('travelDetail.discussion.aiEnrichmentError') || '生成活动详情时出错')
+    throw error
+  }
+}
+
+// 保存行程更新的辅助函数（确保数据格式正确）
+const saveItineraryUpdate = (
+  targetDayIndex: number,
+  targetDay: any,
+  timeSlots: any[],
+  activityName: string,
+  targetTime: string
+) => {
+  if (!travel.value || !props.travelId) return
+  
+  const updatedData = { ...travel.value.data }
+  
+  // 更新对应的数据结构
+  if (updatedData.days) {
+    updatedData.days = [...updatedData.days]
+    updatedData.days[targetDayIndex] = {
+      ...targetDay,
+      timeSlots: [...timeSlots] // 确保是新的数组引用
+    }
+  } else if (updatedData.plannerItinerary?.days) {
+    updatedData.plannerItinerary = {
+      ...updatedData.plannerItinerary,
+      days: [...updatedData.plannerItinerary.days]
+    }
+    updatedData.plannerItinerary.days[targetDayIndex] = {
+      ...targetDay,
+      timeSlots: [...timeSlots]
+    }
+  } else if (updatedData.itineraryData?.days) {
+    updatedData.itineraryData = {
+      ...updatedData.itineraryData,
+      days: [...updatedData.itineraryData.days]
+    }
+    updatedData.itineraryData.days[targetDayIndex] = {
+      ...targetDay,
+      timeSlots: [...timeSlots]
+    }
+  }
+  
+  // 保存到 store
+  travelListStore.updateTravel(props.travelId, {
+    data: updatedData
+  })
+  
+  // 显示成功提示
+  import('ant-design-vue').then(({ message }) => {
+    const successMsg = locale.value.startsWith('zh')
+      ? `已添加活动"${activityName}"到第${targetDayIndex + 1}天 ${targetTime}`
+      : `Added activity "${activityName}" to Day ${targetDayIndex + 1} at ${targetTime}`
+    message.success(successMsg)
+  })
+}
 
 // 加载保存的消息
 const loadMessages = () => {
@@ -1520,33 +2423,43 @@ Please answer user questions in a friendly, professional tone, providing specifi
         // 如果 API 调用失败，使用备用回复
         const finalResponse = aiResponseContent || generateAIResponse(userMessageContent)
       
+      // 检查回复内容是否包含行程信息，如果是则使用卡片格式
+      const itineraryInfo = detectItineraryInfo(finalResponse)
+      const messageType = itineraryInfo ? 'itinerary-card' : 'text'
+      
       const aiResponse: Message = {
         id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
         author: 'AI 助手',
         role: 'AI助手',
-          content: finalResponse,
+        content: finalResponse,
         timestamp: Date.now(),
         isOwn: false,
-        type: 'text',
-        status: 'sent'
+        type: messageType,
+        status: 'sent',
+        itineraryInfo: itineraryInfo // 添加行程信息
       }
       
       await pushAndMaybeScroll(aiResponse)
       } catch (error) {
         console.error('DeepSeek API call failed, using fallback:', error)
         // 如果 API 调用失败，使用备用回复
-        const aiResponseContent = generateAIResponse(userMessageContent)
-        const aiResponse: Message = {
-          id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-          author: 'AI 助手',
-          role: 'AI助手',
-          content: aiResponseContent,
-          timestamp: Date.now(),
-          isOwn: false,
-          type: 'text',
-          status: 'sent'
-        }
-        await pushAndMaybeScroll(aiResponse)
+      const aiResponseContent = generateAIResponse(userMessageContent)
+        // 检查回复内容是否包含行程信息
+        const itineraryInfo = detectItineraryInfo(aiResponseContent)
+        const messageType = itineraryInfo ? 'itinerary-card' : 'text'
+      
+      const aiResponse: Message = {
+        id: crypto.randomUUID?.() ?? `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+        author: 'AI 助手',
+        role: 'AI助手',
+        content: aiResponseContent,
+        timestamp: Date.now(),
+        isOwn: false,
+          type: messageType,
+          status: 'sent',
+          itineraryInfo: itineraryInfo
+      }
+      await pushAndMaybeScroll(aiResponse)
       } finally {
       loading.value = false
       isTyping.value = false

@@ -9,6 +9,13 @@ export const API_CONFIG = {
   UNSPLASH_SECRET_KEY: 'N8-j4rRI2cGZQUy8oqGyPQWtfljPHn1Ub6hGJw37lv8',
   UNSPLASH_API_URL: 'https://api.unsplash.com',
   
+  // iStockPhoto (Getty Images) API 配置
+  // 注意：iStockPhoto 是 Getty Images 的一部分，需要 API key 和付费订阅
+  // 获取 API key: https://developers.gettyimages.com/
+  ISTOCKPHOTO_API_KEY: import.meta.env.VITE_ISTOCKPHOTO_API_KEY || '',
+  ISTOCKPHOTO_API_SECRET: import.meta.env.VITE_ISTOCKPHOTO_API_SECRET || '',
+  ISTOCKPHOTO_API_URL: 'https://api.gettyimages.com/v3',
+  
   // 基础URL - 根据环境切换
   BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://api.emotional-travel.com',
   
@@ -27,9 +34,14 @@ export const API_CONFIG = {
     TEMPORAL_PERCEPTION: '/emotional-travel/temporal-perception',
     // Unsplash API 端点
     UNSPLASH_SEARCH: '/search/photos',
+    // iStockPhoto (Getty Images) API 端点
+    ISTOCKPHOTO_SEARCH: '/search/images',
+    ISTOCKPHOTO_OAUTH: '/oauth2/token',
     // 旅行攻略 API 端点
     TRAVEL_GUIDES: '/travel-guides',
-    TRAVEL_GUIDES_SEARCH: '/travel-guides/search'
+    TRAVEL_GUIDES_SEARCH: '/travel-guides/search',
+    // 图片代理端点（后端需要实现）
+    PROXY_ISTOCKPHOTO: '/api/proxy/istockphoto'
   },
   
   // 请求配置

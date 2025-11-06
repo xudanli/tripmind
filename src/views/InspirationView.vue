@@ -177,7 +177,7 @@
 
               <div class="result-highlights">
                 <h5>🎯 {{ t('home.inspiration.experienceHighlights') }}</h5>
-                <div class="highlights-grid">
+                <div v-if="displayHighlights.length > 0" class="highlights-grid">
                   <div 
                     v-for="(highlight, index) in displayHighlights" 
                     :key="index" 
@@ -200,6 +200,10 @@
                     </div>
                     <div class="highlight-gradient"></div>
                   </div>
+                </div>
+                <div v-else class="highlights-empty">
+                  <div class="empty-highlight-icon">🤖</div>
+                  <p class="empty-highlight-text">{{ t('home.inspiration.emptyHighlights') || '请输入你的旅行灵感,让我为你创造独特的旅程体验。' }}</p>
                 </div>
               </div>
 
@@ -966,6 +970,32 @@ const exploreMore = () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
+}
+
+.highlights-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  border-radius: 12px;
+  text-align: center;
+  min-height: 200px;
+}
+
+.empty-highlight-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.6;
+}
+
+.empty-highlight-text {
+  color: #666;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 400px;
+  margin: 0;
 }
 
 .highlight-card {

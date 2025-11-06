@@ -35,6 +35,7 @@
               :group-time="group.time"
               @retry="handleRetry"
               @action="handleAction"
+              @add-to-itinerary="handleAddToItinerary"
             />
         </div>
       </div>
@@ -55,11 +56,20 @@ interface Message {
   content: string
   timestamp: number
   status?: 'sending' | 'sent' | 'failed' | 'read'
-  type?: 'text' | 'ai-card' | 'attachment' | 'image'
+  type?: 'text' | 'ai-card' | 'itinerary-card' | 'attachment' | 'image'
   aiActions?: Array<{
     label: string
     action: string
   }>
+  itineraryInfo?: {
+    time: string
+    activity: string
+    location: string
+    type: string
+    category: string
+    icon: string
+    categoryColor: string
+  }
 }
 
 interface MessageGroup {
@@ -86,6 +96,7 @@ const { t, locale } = useI18n()
 const emit = defineEmits<{
   retry: [messageId: string]
   action: [action: string, messageId: string]
+  addToItinerary: [messageId: string, content: string]
 }>()
 
 const handleRetry = (messageId: string) => {
@@ -94,6 +105,10 @@ const handleRetry = (messageId: string) => {
 
 const handleAction = (action: string, messageId: string) => {
   emit('action', action, messageId)
+}
+
+const handleAddToItinerary = (messageId: string, content: string) => {
+  emit('addToItinerary', messageId, content)
 }
 
 // 是否显示头像和头部（仅首条消息显示）

@@ -129,9 +129,44 @@ export async function generateInspirationJourney(
       logger.log('   ✅ 行程校验通过')
     }
 
-    // 6. 返回修复后的结果
+    // 6. 从 Itinerary 生成 highlights（如果不存在）
+    const finalItinerary = validation.fixed || itinerary
+    let result: any = { ...finalItinerary }
+    
+    // 如果缺少 highlights，从 psychologicalFlow 或 days 中提取
+    if (!result.highlights || (Array.isArray(result.highlights) && result.highlights.length === 0)) {
+      const highlights: string[] = []
+      
+      // 从 psychologicalFlow 提取
+      if (result.psychologicalFlow && Array.isArray(result.psychologicalFlow) && result.psychologicalFlow.length > 0) {
+        highlights.push(...result.psychologicalFlow.slice(0, 3))
+      }
+      
+      // 从 days 的 theme 提取
+      if (result.days && Array.isArray(result.days) && result.days.length > 0) {
+        const themes = result.days
+          .slice(0, 3)
+          .map((day: any) => day.theme)
+          .filter((theme: any) => theme && typeof theme === 'string')
+        highlights.push(...themes)
+      }
+      
+      // 如果还是没有，使用默认值
+      if (highlights.length === 0) {
+        highlights.push(
+          language.startsWith('en') ? 'Unique Experience' : '独特体验',
+          language.startsWith('en') ? 'Personalized Journey' : '个性化旅程',
+          language.startsWith('en') ? 'Memorable Moments' : '难忘时刻'
+        )
+      }
+      
+      result.highlights = highlights.slice(0, 6) // 最多6个
+      logger.log(`   ✅ 生成了 ${result.highlights.length} 个体验亮点`)
+    }
+    
+    // 7. 返回修复后的结果
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    return validation.fixed || itinerary
+    return result
   } catch (error: any) {
     logger.error('❌ 生成灵感旅程失败:', error)
     console.error('❌ 详细错误信息:', {

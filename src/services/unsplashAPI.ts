@@ -1,9 +1,11 @@
 /**
  * Unsplash API 服务
  * 用于获取旅行相关的图片
+ * 如果 Unsplash 失败，会自动回退到 iStockPhoto/Pexels
  */
 
 import { API_CONFIG } from '@/config/api'
+import { searchIStockPhoto, searchIStockPhotoSingle, type IStockPhoto } from './istockphotoAPI'
 
 export interface UnsplashPhoto {
   id: string
@@ -21,6 +23,30 @@ export interface UnsplashPhoto {
   user: {
     name: string
     username: string
+  }
+}
+
+/**
+ * 将 iStockPhoto 格式转换为 UnsplashPhoto 格式（用于兼容）
+ */
+function convertIStockToUnsplash(photo: IStockPhoto): UnsplashPhoto {
+  return {
+    id: photo.id,
+    urls: {
+      raw: photo.url,
+      full: photo.url,
+      regular: photo.url,
+      small: photo.thumbnail,
+      thumb: photo.thumbnail
+    },
+    width: photo.width,
+    height: photo.height,
+    description: photo.description || null,
+    alt_description: photo.title || null,
+    user: {
+      name: photo.title,
+      username: 'istockphoto'
+    }
   }
 }
 
@@ -95,8 +121,20 @@ export async function searchUnsplashPhotos(
   } catch (error: any) {
     // 只在非网络错误时输出警告（网络错误可能是正常的超时）
     if (error?.message && !error.message.includes('fetch')) {
-      console.warn('Unsplash搜索失败:', error.message)
+      console.warn('Unsplash搜索失败，尝试使用 iStockPhoto/Pexels:', error.message)
     }
+    
+    // 如果 Unsplash 失败，尝试使用 iStockPhoto/Pexels 作为后备
+    try {
+      const istockPhotos = await searchIStockPhoto(query, options)
+      if (istockPhotos.length > 0) {
+        console.log(`✅ 使用 iStockPhoto/Pexels 获取到 ${istockPhotos.length} 张图片`)
+        return istockPhotos.map(convertIStockToUnsplash)
+      }
+    } catch (fallbackError: any) {
+      console.warn('iStockPhoto/Pexels 后备也失败:', fallbackError.message)
+    }
+    
     return []
   }
 }
@@ -111,8 +149,24 @@ export async function searchUnsplashPhoto(
     per_page?: number
   } = {}
 ): Promise<UnsplashPhoto | null> {
-  const photos = await searchUnsplashPhotos(query, { ...options, per_page: 1 })
-  return photos.length > 0 ? (photos[0] || null) : null
+  try {
+    const photos = await searchUnsplashPhotos(query, { ...options, per_page: 1 })
+    if (photos.length > 0) {
+      return photos[0]
+    }
+    
+    // 如果 Unsplash 没有结果，尝试 iStockPhoto/Pexels
+    const istockPhoto = await searchIStockPhotoSingle(query, options)
+    if (istockPhoto) {
+      console.log('✅ 使用 iStockPhoto/Pexels 获取图片')
+      return convertIStockToUnsplash(istockPhoto)
+    }
+    
+    return null
+  } catch (error: any) {
+    console.warn('搜索图片失败:', error.message)
+    return null
+  }
 }
 
 /**

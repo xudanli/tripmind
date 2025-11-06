@@ -3,6 +3,9 @@
  * 包括国籍、精通语言等
  */
 
+// 交通方式偏好类型
+export type TransportationPreference = 'public_transit_and_walking' | 'driving_and_walking'
+
 export interface UserProfileConfig {
   // 用户国籍
   nationality: {
@@ -23,6 +26,10 @@ export interface UserProfileConfig {
   heldVisas: string[]
   // 精通的语言列表（可以多选）
   proficientLanguages: string[]
+  // 交通方式偏好（默认为公共交通+步行）
+  preferredTransportMode?: TransportationPreference
+  // 货币偏好（默认为人民币）
+  preferredCurrency?: string // ISO 4217 货币代码，如 'CNY', 'USD', 'EUR'
 }
 
 // 支持的语言列表
@@ -74,7 +81,9 @@ export function getUserProfileOrDefault(): UserProfileConfig {
     location: null,
     permanentResidency: null,
     heldVisas: [],
-    proficientLanguages: ['zh-CN'] // 默认中文
+    proficientLanguages: ['zh-CN'], // 默认中文
+    preferredTransportMode: 'public_transit_and_walking', // 默认：公共交通+短距离步行
+    preferredCurrency: 'CNY' // 默认：人民币
   }
   
   return defaultProfile
@@ -132,6 +141,11 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
     return false
   }
   
+  // 验证货币代码（如果存在）
+  if (config.preferredCurrency && typeof config.preferredCurrency !== 'string') {
+    return false
+  }
+  
   return true
 }
 
@@ -169,5 +183,17 @@ export function getUserProficientLanguages(): string[] {
 export function isUserProficientIn(languageCode: string): boolean {
   const proficientLanguages = getUserProficientLanguages()
   return proficientLanguages.includes(languageCode)
+}
+
+// 获取用户交通方式偏好
+export function getUserTransportPreference(): TransportationPreference {
+  const profile = getUserProfile()
+  return profile?.preferredTransportMode || 'public_transit_and_walking'
+}
+
+// 获取用户货币偏好
+export function getUserPreferredCurrency(): string {
+  const profile = getUserProfile()
+  return profile?.preferredCurrency || 'CNY'
 }
 

@@ -795,8 +795,10 @@ export const useTravelStore = defineStore('travel', () => {
       console.log('灵感模式：识别到的意图', intent)
       
       // 第二步：生成行程计划（调用 AI）
+      console.log('⏳ 开始调用 generateInspirationJourney，这可能需要 1-3 分钟...')
+      console.log('📝 用户输入:', input)
       const inspirationData = await generateInspirationJourney(input, currentLanguage, userCountry, undefined, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
-      console.log('灵感模式：生成的行程计划', inspirationData)
+      console.log('✅ 灵感模式：生成的行程计划', inspirationData)
       
       // 新的数据结构是行程计划格式（包含days数组）
       // 如果包含locations字段，则补齐国家信息（向后兼容）

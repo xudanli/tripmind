@@ -61,7 +61,28 @@ export async function searchUnsplashPhotos(
     )
 
     if (!response.ok) {
-      throw new Error(`Unsplash API error: ${response.status} ${response.statusText}`)
+      let errorText = ''
+      try {
+        errorText = await response.text()
+      } catch (e) {
+        // 忽略读取错误文本的失败
+      }
+      
+      const errorMsg = `Unsplash API error: ${response.status} ${response.statusText}`
+      
+      // 403错误通常是API key问题或权限问题
+      if (response.status === 403) {
+        console.warn(`⚠️ Unsplash API 403 Forbidden - 可能是API key无效或权限不足`)
+        if (errorText) {
+          console.warn(`   错误详情: ${errorText.substring(0, 200)}`)
+        }
+      } else if (response.status === 401) {
+        console.warn(`⚠️ Unsplash API 401 Unauthorized - API key可能无效`)
+      } else if (response.status === 429) {
+        console.warn(`⚠️ Unsplash API 429 Too Many Requests - 请求频率过高，请稍后再试`)
+      }
+      
+      throw new Error(errorMsg)
     }
 
     const data: UnsplashSearchResponse = await response.json()
@@ -72,7 +93,10 @@ export async function searchUnsplashPhotos(
     
     return []
   } catch (error: any) {
-    console.warn('Unsplash搜索失败:', error.message)
+    // 只在非网络错误时输出警告（网络错误可能是正常的超时）
+    if (error?.message && !error.message.includes('fetch')) {
+      console.warn('Unsplash搜索失败:', error.message)
+    }
     return []
   }
 }

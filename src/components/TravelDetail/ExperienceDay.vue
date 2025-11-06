@@ -160,20 +160,47 @@
                         <h5 class="slot-info-label">
                           <span class="info-icon">🚌</span> {{ t('travelDetail.experienceDay.transportation') }}
                         </h5>
-                        <p class="slot-info-text">
+                        <p class="slot-info-text transportation-info">
+                          <!-- 步行 -->
                           <span v-if="slot.details.transportation.fromStation?.walkTime">
                             {{ t('travelDetail.experienceDay.walking') }}{{ slot.details.transportation.fromStation.walkTime }}{{ t('travelDetail.experienceDay.minutes') }}{{ t('travelDetail.experienceDay.minutesReachable') }}
                           </span>
-                          <span v-else-if="!slot.details.transportation.fromStation?.walkTime && (!slot.details.transportation.busLines || !slot.details.transportation.busLines.length)">
-                            {{ t('travelDetail.experienceDay.walkingNotReachable') }}
+                          <span v-else-if="slot.details.transportation.fromStation?.distance">
+                            {{ slot.details.transportation.fromStation.distance }}
                           </span>
-                          <span v-if="slot.details.transportation.busLines && slot.details.transportation.busLines.length">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime"> · </span>
-                            {{ t('travelDetail.experienceDay.bus') }}{{ slot.details.transportation.busLines.join('/') }}{{ t('travelDetail.experienceDay.route') }}
+                          <!-- 公交 -->
+                          <span v-if="slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length">
+                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance"> · </span>
+                            {{ t('travelDetail.experienceDay.bus') }}{{ Array.isArray(slot.details.transportation.busLines) ? slot.details.transportation.busLines.join('/') : slot.details.transportation.busLines }}{{ t('travelDetail.experienceDay.route') }}
+                            <span v-if="slot.details.transportation.busStop">（{{ slot.details.transportation.busStop }}）</span>
                           </span>
+                          <!-- 地铁 -->
+                          <span v-if="slot.details.transportation.subway?.available">
+                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length)"> · </span>
+                            {{ t('travelDetail.experienceDay.subway') || '地铁' }}
+                            <span v-if="slot.details.transportation.subway.lines && Array.isArray(slot.details.transportation.subway.lines) && slot.details.transportation.subway.lines.length">
+                              {{ Array.isArray(slot.details.transportation.subway.lines) ? slot.details.transportation.subway.lines.join('/') : slot.details.transportation.subway.lines }}{{ t('travelDetail.experienceDay.route') || '号线' }}
+                            </span>
+                            <span v-if="slot.details.transportation.subway.station">（{{ slot.details.transportation.subway.station }}）</span>
+                          </span>
+                          <!-- 驾车 -->
+                          <span v-if="slot.details.transportation.driving">
+                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available"> · </span>
+                            {{ slot.details.transportation.driving }}
+                          </span>
+                          <!-- 接驳车/班车 -->
+                          <span v-if="slot.details.transportation.shuttle">
+                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available || slot.details.transportation.driving"> · </span>
+                            {{ slot.details.transportation.shuttle }}
+                          </span>
+                          <!-- 停车信息 -->
                           <span v-if="slot.details.transportation.parking">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || (slot.details.transportation.busLines && slot.details.transportation.busLines.length)"> · </span>
+                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available || slot.details.transportation.driving || slot.details.transportation.shuttle"> · </span>
                             {{ slot.details.transportation.parking }}
+                          </span>
+                          <!-- 如果都没有，显示步行不可达 -->
+                          <span v-if="!slot.details.transportation.fromStation?.walkTime && !slot.details.transportation.fromStation?.distance && (!slot.details.transportation.busLines || !Array.isArray(slot.details.transportation.busLines) || !slot.details.transportation.busLines.length) && !slot.details.transportation.subway?.available && !slot.details.transportation.driving && !slot.details.transportation.shuttle">
+                            {{ t('travelDetail.experienceDay.walkingNotReachable') }}
                           </span>
                         </p>
                       </div>
@@ -231,13 +258,21 @@
                       </div>
                       
                       <!-- 位置 -->
-                      <div v-if="slot.location || slot.details?.address" class="slot-info-item">
+                      <div v-if="slot.location || slot.details?.address || slot.details?.name" class="slot-info-item">
                         <h5 class="slot-info-label">
                           <span class="info-icon">📍</span> {{ t('travelDetail.experienceDay.location') }}
                         </h5>
                         <p class="slot-info-text">
                           <template v-if="shouldShowChineseOnly">
-                            <!-- 中国国籍+中国目的地：只显示中文地址 -->
+                            <!-- 中国国籍+中国目的地：优先显示当地名称，然后中文地址 -->
+                            <span v-if="slot.details?.name?.local" class="location-local-name">
+                              {{ slot.details.name.local }}
+                              <span v-if="slot.details.address?.chinese || slot.details.address?.local">，</span>
+                            </span>
+                            <span v-if="slot.details?.address?.local" class="location-address-local">
+                              {{ slot.details.address.local }}
+                              <span v-if="slot.details.address?.chinese || slot.details.address?.landmark"> · </span>
+                            </span>
                             <span v-if="slot.details?.address?.chinese">
                               {{ slot.details.address.chinese }}
                               <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
@@ -245,7 +280,15 @@
                             <span v-else-if="slot.location">{{ slot.location }}</span>
                           </template>
                           <template v-else-if="locale.value === 'zh-CN'">
-                            <!-- 中文模式：优先显示中文地址 -->
+                            <!-- 中文模式：优先显示当地名称，然后中文地址 -->
+                            <span v-if="slot.details?.name?.local" class="location-local-name">
+                              {{ slot.details.name.local }}
+                              <span v-if="slot.details.address?.local || slot.details.address?.chinese || slot.details.address?.english">，</span>
+                            </span>
+                            <span v-if="slot.details?.address?.local" class="location-address-local">
+                              {{ slot.details.address.local }}
+                              <span v-if="slot.details.address?.chinese || slot.details.address?.english"> · </span>
+                            </span>
                             <span v-if="slot.details?.address?.chinese">
                               {{ slot.details.address.chinese }}
                               <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
@@ -257,7 +300,15 @@
                             <span v-else-if="slot.location">{{ slot.location }}</span>
                           </template>
                           <template v-else>
-                            <!-- 英文模式：优先显示英文地址 -->
+                            <!-- 英文模式：优先显示当地名称，然后英文地址 -->
+                            <span v-if="slot.details?.name?.local" class="location-local-name">
+                              {{ slot.details.name.local }}
+                              <span v-if="slot.details.address?.local || slot.details.address?.english || slot.details.address?.chinese">，</span>
+                            </span>
+                            <span v-if="slot.details?.address?.local" class="location-address-local">
+                              {{ slot.details.address.local }}
+                              <span v-if="slot.details.address?.english || slot.details.address?.chinese"> · </span>
+                            </span>
                             <span v-if="slot.details?.address?.english">
                               {{ slot.details.address.english }}
                               <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
@@ -274,12 +325,20 @@
                     
                     <!-- 右列：体验/建议 -->
                     <div class="slot-info-column">
-                      <!-- 当地友好建议（针对景点和住宿） -->
-                      <div v-if="slot.localTip && (slot.type === 'attraction' || slot.type === 'accommodation' || slot.category === 'attraction' || slot.category === 'accommodation')" class="slot-info-item slot-local-tip-item">
+                      <!-- 穿搭建议 -->
+                      <div v-if="slot.details.recommendations?.outfitSuggestions" class="slot-info-item">
                         <h5 class="slot-info-label">
-                          <span class="info-icon">💬</span> {{ t('travelDetail.experienceDay.localFriendlyTips') }}
+                          <span class="info-icon">👗</span> {{ t('travelDetail.experienceDay.outfitSuggestions') }}
                         </h5>
-                        <p class="slot-info-text slot-local-tip-text">{{ slot.localTip }}</p>
+                        <p class="slot-info-text outfit-suggestions-text">{{ slot.details.recommendations.outfitSuggestions }}</p>
+                      </div>
+                      
+                      <!-- 当地文化友好提示 -->
+                      <div v-if="slot.details.recommendations?.culturalTips" class="slot-info-item">
+                        <h5 class="slot-info-label">
+                          <span class="info-icon">🌍</span> {{ t('travelDetail.experienceDay.culturalTips') }}
+                        </h5>
+                        <p class="slot-info-text cultural-tips-text">{{ slot.details.recommendations.culturalTips }}</p>
                       </div>
                       
                       <!-- 行前建议（合并穿搭和其他建议） -->
@@ -310,7 +369,7 @@
                             {{ t('travelDetail.experienceDay.transportationCost') }}：{{ formatCurrency(slot.details.pricing.general, getSlotCurrency(slot)) }}
                             <span v-if="slot.details.pricing.description">（{{ slot.details.pricing.description }}）</span>
                           </span>
-                          <span v-if="slot.details.pricing.detail?.children && slot.details.pricing.detail.children.price > 0">
+                          <span v-if="slot.details.pricing.detail?.children && slot.details.pricing.detail.children.price && (typeof slot.details.pricing.detail.children.price === 'number' ? slot.details.pricing.detail.children.price > 0 : parseFloat(slot.details.pricing.detail.children.price) > 0)">
                             <span v-if="slot.details.pricing.general"> · </span>
                             {{ t('travelDetail.experienceDay.children') }}{{ formatCurrency(slot.details.pricing.detail.children.price, getSlotCurrency(slot)) }}
                             <span v-if="slot.details.pricing.detail.children.ageRange">（{{ slot.details.pricing.detail.children.ageRange }}）</span>
@@ -353,6 +412,14 @@
                       <span>📍</span> {{ t('travelDetail.experienceDay.navigate') }}
                     </a-button>
                     <a-button 
+                      type="text" 
+                      size="small" 
+                      class="slot-action-btn"
+                      @click="openSearchModal(day.day, slotIndex, slot)"
+                    >
+                      <span>🔍</span> {{ t('travelDetail.experienceDay.searchNearby') || '搜索附近' }}
+                    </a-button>
+                    <a-button 
                       v-if="slot.details?.recommendations?.bookingRequired || isTransportOrAccommodation(slot)"
                       type="text" 
                       size="small" 
@@ -373,6 +440,22 @@
                       type="text" 
                       size="small" 
                       class="slot-action-btn"
+                      @click="handleEdit(day.day, slotIndex, slot)"
+                    >
+                      <span>✏️</span> {{ t('travelDetail.experienceDay.edit') || '编辑' }}
+                    </a-button>
+                    <a-button 
+                      type="text" 
+                      size="small" 
+                      class="slot-action-btn slot-action-danger"
+                      @click="handleDeleteSlot(day.day, slotIndex)"
+                    >
+                      <span>🗑️</span> {{ t('travelDetail.experienceDay.delete') || '删除' }}
+                    </a-button>
+                    <a-button 
+                      type="text" 
+                      size="small" 
+                      class="slot-action-btn"
                       @click="toggleDetails(day.day, slotIndex)"
                     >
                       <span>↧</span> {{ expandedDetails[`${day.day}-${slotIndex}`] ? t('travelDetail.experienceDay.collapse') : t('travelDetail.experienceDay.more') }}
@@ -382,6 +465,19 @@
                   <!-- 信息来源 -->
                   <div v-if="slot.details" class="slot-source-info">
                     <span class="source-text">{{ t('travelDetail.experienceDay.informationSource') }}：{{ getSourceInfo(slot) }}</span>
+                    <template v-if="getSourceLinks(slot).length > 0">
+                      <template v-for="(link, linkIndex) in getSourceLinks(slot)" :key="linkIndex">
+                        <a 
+                          :href="link.url" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          class="source-link"
+                        >
+                          {{ link.label }}
+                        </a>
+                        <span v-if="linkIndex < getSourceLinks(slot).length - 1">、</span>
+                      </template>
+                    </template>
                     <span v-if="slot.details.lastUpdated" class="source-text"> · {{ t('travelDetail.experienceDay.updated') }}：{{ formatDate(slot.details.lastUpdated) }}</span>
                   </div>
                   
@@ -399,12 +495,6 @@
                       <p class="slot-detail-text" v-if="slot.details.description.cuisine">{{ t('travelDetail.experienceDay.cuisineType') }}：{{ slot.details.description.cuisine }}</p>
                       <p class="slot-detail-text" v-if="slot.details.description.specialty">{{ t('travelDetail.experienceDay.specialty') }}：{{ slot.details.description.specialty }}</p>
                       <p class="slot-detail-text" v-if="slot.details.description.atmosphere">{{ t('travelDetail.experienceDay.atmosphere') }}：{{ slot.details.description.atmosphere }}</p>
-                    </div>
-                    
-                    <!-- 礼貌用语/当地友好建议（仅在非景点和住宿时显示，或作为补充信息） -->
-                    <div v-if="slot.localTip && (slot.type !== 'attraction' && slot.type !== 'accommodation' && slot.category !== 'attraction' && slot.category !== 'accommodation')" class="slot-detail-section">
-                      <h5 class="slot-detail-label">{{ t('travelDetail.experienceDay.localFriendlyTips') }}</h5>
-                      <p class="slot-detail-text">{{ slot.localTip }}</p>
                     </div>
                     
                     <!-- 内部轨迹（心理体验） -->
@@ -447,6 +537,30 @@
                   </div>
                 </div>
               </div>
+              
+              <!-- 添加活动按钮 -->
+              <div class="add-slot-button-container">
+                <a-button 
+                  type="dashed" 
+                  size="small" 
+                  class="add-slot-btn"
+                  @click="handleAddSlot(day.day, slotIndex)"
+                >
+                  <span>➕</span> {{ t('travelDetail.experienceDay.addActivity') || '添加活动' }}
+                </a-button>
+              </div>
+            </div>
+            
+            <!-- 在最后一个时间段后也显示添加按钮 -->
+            <div v-if="slotIndex === day.timeSlots.length - 1" class="add-slot-button-container add-slot-button-last">
+              <a-button 
+                type="dashed" 
+                size="small" 
+                class="add-slot-btn"
+                @click="handleAddSlot(day.day, day.timeSlots.length)"
+              >
+                <span>➕</span> {{ t('travelDetail.experienceDay.addActivity') || '添加活动' }}
+              </a-button>
             </div>
           </div>
         </a-timeline-item>
@@ -767,6 +881,146 @@
       </div>
     </a-modal>
     
+    <!-- 搜索附近POI模态框 -->
+    <a-modal
+      v-model:open="searchModalVisible"
+      :title="t('travelDetail.experienceDay.searchNearby') || '搜索附近'"
+      width="900px"
+      :footer="null"
+      :mask-closable="false"
+      :body-style="{ maxHeight: '720px', overflowY: 'auto' }"
+    >
+      <div class="poi-search-container">
+        <!-- 搜索位置信息 -->
+        <div class="search-location-info">
+          <div class="location-display">
+            <span class="location-icon">📍</span>
+            <span class="location-text">
+              {{ searchLocation.name }}
+              <span v-if="searchLocation.address" class="location-address"> · {{ searchLocation.address }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 类别选择 -->
+        <div class="category-selector">
+          <div class="category-label">{{ t('travelDetail.experienceDay.searchCategory') || '搜索类别' }}：</div>
+          <a-radio-group v-model:value="selectedSearchCategory" @change="handleCategoryChange">
+            <a-radio-button value="restaurant">
+              <span>🍽️</span> {{ t('travelDetail.experienceDay.restaurant') }}
+            </a-radio-button>
+            <a-radio-button value="attraction">
+              <span>🏛️</span> {{ t('travelDetail.experienceDay.attraction') }}
+            </a-radio-button>
+            <a-radio-button value="gas_station">
+              <span>⛽</span> {{ t('travelDetail.experienceDay.gasStation') || '加油站' }}
+            </a-radio-button>
+            <a-radio-button value="ev_charging">
+              <span>🔌</span> {{ t('travelDetail.experienceDay.evCharging') || '充电桩' }}
+            </a-radio-button>
+            <a-radio-button value="rest_area">
+              <span>🛋️</span> {{ t('travelDetail.experienceDay.restArea') || '休息站' }}
+            </a-radio-button>
+          </a-radio-group>
+        </div>
+
+        <!-- 搜索状态 -->
+        <div v-if="searching" class="search-status">
+          <a-spin :spinning="true" />
+          <span style="margin-left: 8px;">{{ t('travelDetail.experienceDay.searching') || '正在搜索...' }}</span>
+        </div>
+
+        <!-- 搜索结果 -->
+        <div v-if="!searching && searchResults.length > 0" class="search-results">
+          <div class="results-header">
+            <span class="results-count">{{ t('travelDetail.experienceDay.foundResults') || '找到' }} {{ searchResults.length }} {{ t('travelDetail.experienceDay.results') || '个结果' }}</span>
+          </div>
+          <div class="results-list">
+            <div 
+              v-for="(poi, index) in searchResults" 
+              :key="index"
+              class="poi-result-card"
+            >
+              <!-- POI照片 -->
+              <div v-if="poi.photo" class="poi-photo">
+                <img :src="poi.photo" :alt="poi.name.chinese || poi.name.english" />
+              </div>
+              
+              <!-- POI信息 -->
+              <div class="poi-info">
+                <div class="poi-header">
+                  <h4 class="poi-name">
+                    <span v-if="poi.name.local" class="local-name">{{ poi.name.local }}</span>
+                    <span v-if="poi.name.chinese" class="chinese-name">{{ poi.name.chinese }}</span>
+                    <span v-if="poi.name.english" class="english-name">{{ poi.name.english }}</span>
+                  </h4>
+                  <a-tag v-if="poi.rating" :color="poi.rating.score >= 4 ? 'green' : poi.rating.score >= 3 ? 'orange' : 'red'">
+                    ⭐ {{ poi.rating.score }}
+                  </a-tag>
+                </div>
+                
+                <div class="poi-address">
+                  <span class="address-icon">📍</span>
+                  <span>{{ poi.address.chinese || poi.address.english || poi.address.local || '地址未知' }}</span>
+                  <span v-if="poi.distance" class="distance-badge">{{ poi.distance }}</span>
+                </div>
+                
+                <div class="poi-recommendation">
+                  <span class="recommendation-icon">💡</span>
+                  <span>{{ poi.recommendation }}</span>
+                </div>
+                
+                <div class="poi-meta">
+                  <span v-if="poi.estimatedDuration" class="meta-item">
+                    <span class="meta-icon">⏱️</span>
+                    <span class="meta-label">{{ selectedSearchCategory === 'ev_charging' ? '充电时长' : selectedSearchCategory === 'gas_station' ? '预计停留' : '预计停留' }}：</span>
+                    {{ poi.estimatedDuration }}
+                  </span>
+                  <span v-if="poi.pricing?.general" class="meta-item">
+                    <span class="meta-icon">💰</span>
+                    {{ formatCurrency(poi.pricing.general, (() => {
+                      const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || 'CNY'
+                      return getCurrencyByCode(unit) || getSearchLocationCurrency.value || { code: 'CNY', symbol: '¥', name: '人民币' }
+                    })()) }}
+                  </span>
+                  <span v-if="poi.openingHours?.hours" class="meta-item">
+                    <span class="meta-icon">🕐</span>
+                    <span class="meta-label">营业时间：</span>
+                    {{ poi.openingHours.hours }}
+                  </span>
+                </div>
+              </div>
+              
+              <!-- 操作按钮 -->
+              <div class="poi-actions">
+                <a-button 
+                  type="primary" 
+                  size="small"
+                  @click="addPOIToItinerary(poi)"
+                >
+                  {{ t('travelDetail.experienceDay.addToItinerary') || '添加到行程' }}
+                </a-button>
+                <a-button 
+                  type="text" 
+                  size="small"
+                  @click="viewPOIDetails(poi)"
+                >
+                  {{ t('travelDetail.experienceDay.viewDetails') || '查看详情' }}
+                </a-button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 无结果 -->
+        <div v-if="!searching && searchResults.length === 0 && hasSearched" class="no-results">
+          <a-empty 
+            :description="t('travelDetail.experienceDay.noResults') || '未找到相关结果'"
+          />
+        </div>
+      </div>
+    </a-modal>
+    
     <!-- 图片预览模态框 -->
     <a-modal
       v-model:open="previewVisible"
@@ -829,7 +1083,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
 import { CalendarOutlined, EditOutlined, EnvironmentOutlined, DownOutlined, PlusOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons-vue'
-import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
+import { getCurrencyForDestination, getCurrencyByCode, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { getLocalLanguageForDestination, type LocalLanguageInfo } from '@/utils/localLanguage'
 import { getRatingPlatformForDestination, getRatingPlatformName } from '@/utils/ratingPlatform'
 import { Modal, message } from 'ant-design-vue'
@@ -837,6 +1091,7 @@ import { getVisaInfo } from '@/config/visa'
 import { getUserNationalityCode, getUserPermanentResidencyCode, getUserLocationCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/services/unsplashAPI'
+import { searchNearbyPOI, type POIResult, type POICategory } from '@/services/poiSearchAPI'
 import {
   COUNTRY_KEYWORDS,
   MAP_URLS,
@@ -1506,6 +1761,48 @@ const editingData = ref<{
   bookingLinks: [],
 })
 
+// 搜索状态
+const searchModalVisible = ref(false)
+const searching = ref(false)
+const searchResults = ref<POIResult[]>([])
+const selectedSearchCategory = ref<POICategory>('restaurant')
+const hasSearched = ref(false)
+const searchLocation = ref<{
+  name: string
+  address?: string
+  coordinates?: { lat: number; lng: number }
+}>({ name: '' })
+const currentSearchContext = ref<{
+  day: number
+  slotIndex: number
+  slot: any
+} | null>(null)
+
+// 获取搜索位置的货币（根据位置地址推断）
+const getSearchLocationCurrency = computed(() => {
+  try {
+    if (!searchLocation.value.name && !searchLocation.value.address) {
+      const overall = getOverallCurrency()
+      return overall || { code: 'CNY', symbol: '¥', name: '人民币' }
+    }
+    
+    // 从位置名称或地址中提取国家信息
+    const locationText = `${searchLocation.value.name} ${searchLocation.value.address || ''}`
+    const currency = getCurrencyForDestination(locationText)
+    
+    // 如果识别到非人民币，使用该货币；否则使用整体货币
+    if (currency && currency.code && currency.code !== 'CNY') {
+      return currency
+    }
+    
+    const overall = getOverallCurrency()
+    return overall || { code: 'CNY', symbol: '¥', name: '人民币' }
+  } catch (error) {
+    console.warn('获取搜索位置货币失败:', error)
+    return { code: 'CNY', symbol: '¥', name: '人民币' }
+  }
+})
+
 // 获取当前正在编辑的活动
 const getCurrentSlot = () => {
   if (!editingSlot.value || !itineraryData.value?.days) return null
@@ -1524,7 +1821,7 @@ const toggleDetails = (day: number, slotIndex: number) => {
 }
 
 // 打开编辑弹窗
-const openEditModal = (day: number, slotIndex: number, slot: any) => {
+const handleEdit = (day: number, slotIndex: number, slot: any) => {
   editingSlot.value = { day, slotIndex }
   editingData.value = {
     title: slot.title || slot.activity || '',
@@ -1534,6 +1831,300 @@ const openEditModal = (day: number, slotIndex: number, slot: any) => {
     bookingLinks: slot.bookingLinks || [],
   }
   editModalVisible.value = true
+}
+
+// 删除活动
+const handleDeleteSlot = (day: number, slotIndex: number) => {
+  if (!itineraryData.value?.days) {
+    message.error('无法删除：行程数据不存在')
+    return
+  }
+  
+  const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
+  if (dayIndex === -1) {
+    message.error('无法删除：找不到对应的行程日期')
+    return
+  }
+  
+  const slot = itineraryData.value.days[dayIndex].timeSlots?.[slotIndex]
+  if (!slot) {
+    message.error('无法删除：找不到对应的活动')
+    return
+  }
+  
+  Modal.confirm({
+    title: t('travelDetail.experienceDay.confirmDelete') || '确认删除',
+    content: t('travelDetail.experienceDay.confirmDeleteContent') || `确定要删除活动"${slot.title || slot.activity || '未命名活动'}"吗？`,
+    okText: t('travelDetail.experienceDay.confirm') || '确定',
+    cancelText: t('travelDetail.experienceDay.cancel') || '取消',
+    onOk: () => {
+      itineraryData.value.days[dayIndex].timeSlots.splice(slotIndex, 1)
+      
+      // 保存到 store
+      if (travel.value) {
+        travelListStore.updateTravel(travel.value.id, {
+          data: itineraryData.value,
+        })
+        message.success(t('travelDetail.experienceDay.deleteSuccess') || '活动已删除')
+      }
+    }
+  })
+}
+
+// 添加活动
+const handleAddSlot = (day: number, insertIndex: number) => {
+  if (!itineraryData.value?.days) {
+    message.error('无法添加：行程数据不存在')
+    return
+  }
+  
+  const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
+  if (dayIndex === -1) {
+    message.error('无法添加：找不到对应的行程日期')
+    return
+  }
+  
+  const timeSlots = itineraryData.value.days[dayIndex].timeSlots || []
+  
+  // 计算新活动的时间
+  let newTime = '10:00'
+  if (insertIndex > 0 && timeSlots[insertIndex - 1]) {
+    // 如果插入位置之前有活动，使用前一个活动的时间加30分钟
+    const prevSlot = timeSlots[insertIndex - 1]
+    const prevTime = prevSlot.time || '10:00'
+    const [hours, minutes] = prevTime.split(':').map(Number)
+    const nextTime = new Date(2000, 0, 1, hours, minutes + 30)
+    newTime = `${String(nextTime.getHours()).padStart(2, '0')}:${String(nextTime.getMinutes()).padStart(2, '0')}`
+  } else if (timeSlots.length > 0 && timeSlots[timeSlots.length - 1]) {
+    // 如果插入到末尾，使用最后一个活动的时间加30分钟
+    const lastSlot = timeSlots[timeSlots.length - 1]
+    const lastTime = lastSlot.time || '10:00'
+    const [hours, minutes] = lastTime.split(':').map(Number)
+    const nextTime = new Date(2000, 0, 1, hours, minutes + 30)
+    newTime = `${String(nextTime.getHours()).padStart(2, '0')}:${String(nextTime.getMinutes()).padStart(2, '0')}`
+  }
+  
+  // 创建新活动
+  const newSlot = {
+    time: newTime,
+    title: t('travelDetail.experienceDay.newActivity') || '新活动',
+    activity: t('travelDetail.experienceDay.newActivity') || '新活动',
+    location: '',
+    type: 'attraction',
+    category: 'attraction',
+    duration: '30分钟',
+    notes: '',
+    cost: 0,
+    details: {}
+  }
+  
+  // 插入到指定位置
+  timeSlots.splice(insertIndex, 0, newSlot)
+  
+  // 保存到 store
+  if (travel.value) {
+    travelListStore.updateTravel(travel.value.id, {
+      data: itineraryData.value,
+    })
+    message.success(t('travelDetail.experienceDay.addSuccess') || '活动已添加')
+    
+    // 自动打开编辑弹窗
+    handleEdit(day, insertIndex, newSlot)
+  }
+}
+
+// 打开搜索模态框
+const openSearchModal = async (day: number, slotIndex: number, slot: any) => {
+  currentSearchContext.value = { day, slotIndex, slot }
+  
+  // 设置搜索位置
+  const locationName = slot.details?.name?.chinese || slot.details?.name?.english || slot.location || slot.title || '当前位置'
+  const locationAddress = slot.details?.address?.chinese || slot.details?.address?.english || slot.location
+  const coordinates = slot.coordinates ? { lat: slot.coordinates.lat, lng: slot.coordinates.lng } : undefined
+  
+  searchLocation.value = {
+    name: locationName,
+    address: locationAddress,
+    coordinates
+  }
+  
+  // 重置搜索状态
+  searchResults.value = []
+  hasSearched.value = false
+  selectedSearchCategory.value = 'restaurant'
+  
+  // 打开模态框并自动搜索
+  searchModalVisible.value = true
+  await performSearch()
+}
+
+// 执行搜索
+const performSearch = async () => {
+  if (!searchLocation.value.name) {
+    message.warning('搜索位置信息不完整')
+    return
+  }
+  
+  searching.value = true
+  hasSearched.value = false
+  searchResults.value = []
+  
+  console.log(`🔍 [UI] 开始搜索${selectedSearchCategory.value}，位置: ${searchLocation.value.name}`)
+  
+  try {
+    const results = await searchNearbyPOI(
+      searchLocation.value,
+      selectedSearchCategory.value,
+      {
+        language: locale.value,
+        radius: 5,
+        maxResults: 5
+      }
+    )
+    
+    console.log(`✅ [UI] 搜索完成，获得 ${results.length} 个结果`)
+    searchResults.value = results
+    hasSearched.value = true
+    
+    if (results.length === 0) {
+      console.warn(`⚠️ [UI] 未找到结果，类别: ${selectedSearchCategory.value}`)
+      message.info('未找到相关结果，请尝试其他类别或位置')
+    }
+  } catch (error) {
+    console.error('❌ [UI] 搜索失败:', error)
+    console.error('❌ [UI] 错误详情:', error instanceof Error ? error.stack : error)
+    message.error(`搜索失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    hasSearched.value = true // 即使失败也标记为已搜索，显示"无结果"
+  } finally {
+    searching.value = false
+    console.log(`🏁 [UI] 搜索状态更新完成`)
+  }
+}
+
+// 处理类别改变
+const handleCategoryChange = () => {
+  performSearch()
+}
+
+// 添加POI到行程
+const addPOIToItinerary = (poi: POIResult) => {
+  if (!currentSearchContext.value || !itineraryData.value?.days) {
+    message.error('无法添加：行程数据不存在')
+    return
+  }
+  
+  const { day, slotIndex, slot } = currentSearchContext.value
+  const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
+  
+  if (dayIndex === -1) {
+    message.error('无法添加：找不到对应的行程日期')
+    return
+  }
+  
+  // 创建新的时间槽
+  const timeSlots = itineraryData.value.days[dayIndex].timeSlots || []
+  
+  // 计算新时间槽的时间（插入到当前槽之后）
+  const currentSlot = timeSlots[slotIndex]
+  const currentTime = currentSlot?.time || '12:00'
+  const [hours, minutes] = currentTime.split(':').map(Number)
+  const nextTime = new Date(2000, 0, 1, hours, minutes + 30) // 30分钟后
+  const nextTimeStr = `${String(nextTime.getHours()).padStart(2, '0')}:${String(nextTime.getMinutes()).padStart(2, '0')}`
+  
+  const newSlot = {
+    time: nextTimeStr,
+    title: poi.name.chinese || poi.name.english || poi.name.local || '新地点',
+    activity: poi.name.chinese || poi.name.english || poi.name.local || '',
+    location: poi.address.chinese || poi.address.english || poi.address.local || '',
+    type: poi.category === 'restaurant' ? 'restaurant' : poi.category === 'attraction' ? 'attraction' : 'activity',
+    category: poi.category,
+    duration: poi.estimatedDuration || '30分钟',
+    notes: poi.recommendation || '',
+    cost: poi.pricing?.general ? (typeof poi.pricing.general === 'number' ? poi.pricing.general : parseFloat(String(poi.pricing.general)) || 0) : 0,
+    coordinates: poi.coordinates,
+    details: {
+      name: poi.name,
+      address: poi.address,
+      coordinates: poi.coordinates,
+      rating: poi.rating ? {
+        score: poi.rating.score,
+        platform: poi.rating.platform,
+        reviewCount: poi.rating.reviewCount
+      } : undefined,
+      pricing: poi.pricing,
+      openingHours: poi.openingHours,
+      contact: poi.contact,
+      photo: poi.photo ? [poi.photo] : undefined,
+      recommendations: {
+        description: poi.recommendation
+      }
+    }
+  }
+  
+  // 插入到当前槽之后
+  timeSlots.splice(slotIndex + 1, 0, newSlot)
+  
+  // 保存到store
+  travelListStore.updateTravel(route.params.id as string, {
+    ...itineraryData.value
+  })
+  
+  message.success('已添加到行程')
+  searchModalVisible.value = false
+}
+
+// 查看POI详情
+const viewPOIDetails = (poi: POIResult) => {
+  Modal.info({
+    title: poi.name.chinese || poi.name.english || poi.name.local || 'POI详情',
+    width: 600,
+    bodyStyle: { maxHeight: '720px', overflowY: 'auto' },
+    content: h('div', { style: { padding: '16px 0' } }, [
+      poi.photo ? h('img', {
+        src: poi.photo,
+        style: { width: '100%', borderRadius: '8px', marginBottom: '16px' }
+      }) : null,
+      h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '地址：'),
+        poi.address.chinese || poi.address.english || poi.address.local || '地址未知'
+      ]),
+      poi.distance ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '距离：'),
+        poi.distance
+      ]) : null,
+      poi.recommendation ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '推荐理由：'),
+        poi.recommendation
+      ]) : null,
+      poi.rating ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '评分：'),
+        `⭐ ${poi.rating.score}${poi.rating.platform ? ` (${poi.rating.platform})` : ''}${poi.rating.reviewCount ? ` · ${poi.rating.reviewCount}条评论` : ''}`
+      ]) : null,
+      poi.openingHours?.hours ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '营业时间：'),
+        poi.openingHours.hours
+      ]) : null,
+      poi.pricing?.general ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '价格：'),
+        formatCurrency(poi.pricing.general, (() => {
+          const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || 'CNY'
+          return getCurrencyByCode(unit) || getSearchLocationCurrency.value || { code: 'CNY', symbol: '¥', name: '人民币' }
+        })())
+      ]) : null,
+      poi.estimatedDuration ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', selectedSearchCategory.value === 'ev_charging' ? '充电时长：' : selectedSearchCategory.value === 'gas_station' ? '预计停留：' : '预计停留：'),
+        poi.estimatedDuration
+      ]) : null,
+      poi.contact?.phone ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '电话：'),
+        h('a', { href: `tel:${poi.contact.phone}`, style: { color: '#0071e3' } }, poi.contact.phone)
+      ]) : null,
+      poi.contact?.website ? h('div', { style: { marginBottom: '12px' } }, [
+        h('strong', '网站：'),
+        h('a', { href: poi.contact.website, target: '_blank', style: { color: '#0071e3' } }, poi.contact.website)
+      ]) : null,
+    ])
+  })
 }
 
 // 取消编辑
@@ -2088,13 +2679,52 @@ const hasValidPricing = (pricing: any): boolean => {
 
 // 获取信息来源
 const getSourceInfo = (slot: any): string => {
+  const sources: string[] = []
+  
   if (slot.details?.rating?.platform) {
-    return slot.details.rating.platform
+    sources.push(slot.details.rating.platform)
   }
   if (slot.details?.source) {
-    return slot.details.source
+    sources.push(slot.details.source)
   }
+  if (slot.details?.officialWebsite) {
+    sources.push(t('travelDetail.experienceDay.officialWebsite') || '官方网站')
+  }
+  if (slot.details?.sourceUrl) {
+    sources.push(t('travelDetail.experienceDay.sourceLink') || '来源链接')
+  }
+  
+  if (sources.length === 0) {
   return t('travelDetail.experienceDay.defaultSource')
+  }
+  
+  return sources.join('、')
+}
+
+// 获取信息来源链接
+const getSourceLinks = (slot: any): Array<{ label: string; url: string }> => {
+  const links: Array<{ label: string; url: string }> = []
+  
+  if (slot.details?.officialWebsite) {
+    links.push({
+      label: t('travelDetail.experienceDay.officialWebsite') || '官方网站',
+      url: slot.details.officialWebsite
+    })
+  }
+  if (slot.details?.sourceUrl) {
+    links.push({
+      label: t('travelDetail.experienceDay.sourceLink') || '来源链接',
+      url: slot.details.sourceUrl
+    })
+  }
+  if (slot.details?.rating?.platformUrl) {
+    links.push({
+      label: slot.details.rating.platform || '评分平台',
+      url: slot.details.rating.platformUrl
+    })
+  }
+  
+  return links
 }
 
 // 格式化日期
@@ -2402,6 +3032,43 @@ const handleShowVisaTips = () => {
           marginLeft: '8px'
         } 
       }, `${info.duration}天`)
+    ]) : null,
+    
+    // 申请链接（如果有）
+    info.applicationUrl ? h('div', {
+      key: 'application-link',
+      style: {
+        marginBottom: '16px',
+        display: 'flex',
+        justifyContent: 'center'
+      }
+    }, [
+      h('a', {
+        href: info.applicationUrl,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '8px 16px',
+          background: '#1890ff',
+          color: '#fff',
+          borderRadius: '6px',
+          textDecoration: 'none',
+          fontWeight: 500,
+          transition: 'all 0.3s ease'
+        },
+        onMouseenter: (e: any) => {
+          e.target.style.background = '#40a9ff'
+        },
+        onMouseleave: (e: any) => {
+          e.target.style.background = '#1890ff'
+        }
+      }, [
+        h('span', '🔗'),
+        h('span', info.visaType === 'e-visa' ? (t('travelDetail.visaGuideActions.applyEvisa') || '在线申请电子签证') : (t('travelDetail.visaGuideActions.applyVisa') || '申请签证'))
+      ])
     ]) : null,
     
     // 具体建议
@@ -3244,22 +3911,6 @@ const getVisaActionTips = (visaType: string): any => {
   font-family: 'Noto Sans SC', sans-serif;
 }
 
-/* 当地友好建议样式 */
-.slot-local-tip-item {
-  background: rgba(255, 204, 0, 0.08);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 0;
-  border-left: 3px solid rgba(255, 204, 0, 0.4);
-}
-
-.slot-local-tip-text {
-  color: #1d1d1f;
-  font-size: 14px;
-  line-height: 1.6;
-  margin-top: 6px;
-  font-weight: 400;
-}
 
 .info-icon {
   font-size: 14px;
@@ -3303,6 +3954,41 @@ const getVisaActionTips = (visaType: string): any => {
   font-weight: 500;
 }
 
+.slot-action-danger {
+  color: #ff4d4f !important;
+}
+
+.slot-action-danger:hover {
+  background: rgba(255, 77, 79, 0.08) !important;
+}
+
+/* 添加活动按钮 */
+.add-slot-button-container {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: center;
+}
+
+.add-slot-button-container.add-slot-button-last {
+  margin-top: 16px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.15);
+}
+
+.add-slot-btn {
+  width: 100%;
+  border-color: #d9d9d9;
+  color: #666;
+  transition: all 0.3s ease;
+}
+
+.add-slot-btn:hover {
+  border-color: #0071e3;
+  color: #0071e3;
+  background: rgba(0, 113, 227, 0.04);
+}
+
 /* 信息来源 */
 .slot-source-info {
   margin-top: 12px;
@@ -3311,6 +3997,37 @@ const getVisaActionTips = (visaType: string): any => {
   font-size: 11px;
   color: #86868b;
   line-height: 1.5;
+}
+
+.source-link {
+  color: #1890ff;
+  text-decoration: none;
+  margin-left: 4px;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.location-local-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.location-address-local {
+  color: #666;
+}
+
+.transportation-info {
+  line-height: 1.6;
+}
+
+.outfit-suggestions-text,
+.cultural-tips-text {
+  line-height: 1.7;
+  color: #555;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .source-text {
@@ -4587,5 +5304,215 @@ const getVisaActionTips = (visaType: string): any => {
     width: 60px;
     height: 45px;
   }
+}
+
+/* POI搜索相关样式 */
+.poi-search-container {
+  padding: 8px 0;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.search-location-info {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 6px;
+}
+
+.location-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.location-icon {
+  font-size: 18px;
+}
+
+.location-text {
+  font-weight: 500;
+  color: #333;
+}
+
+.location-address {
+  color: #666;
+  font-size: 14px;
+}
+
+.category-selector {
+  margin-bottom: 20px;
+}
+
+.category-label {
+  margin-bottom: 12px;
+  font-weight: 500;
+  color: #333;
+}
+
+.search-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+  color: #666;
+}
+
+.search-results {
+  margin-top: 20px;
+}
+
+.results-header {
+  margin-bottom: 16px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 10;
+  padding: 8px 0;
+}
+
+.results-count {
+  font-weight: 500;
+  color: #333;
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(800px - 200px); /* 减去其他元素的高度 */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.poi-result-card {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: #fff;
+  transition: all 0.3s;
+}
+
+.poi-result-card:hover {
+  border-color: #722ed1;
+  box-shadow: 0 2px 8px rgba(114, 46, 209, 0.1);
+}
+
+.poi-photo {
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.poi-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poi-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.poi-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.poi-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.local-name {
+  font-size: 18px;
+  color: #722ed1;
+}
+
+.chinese-name,
+.english-name {
+  font-size: 14px;
+  color: #666;
+}
+
+.poi-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #666;
+  font-size: 14px;
+}
+
+.address-icon {
+  font-size: 16px;
+}
+
+.distance-badge {
+  padding: 2px 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+}
+
+.poi-recommendation {
+  display: flex;
+  gap: 8px;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.recommendation-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.poi-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #666;
+  font-size: 13px;
+}
+
+.meta-icon {
+  font-size: 14px;
+}
+
+.meta-label {
+  color: #888;
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+.poi-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.no-results {
+  padding: 40px 0;
 }
 </style>

@@ -3,17 +3,14 @@
  */
 
 import { buildDestinationConstraint } from '@/utils/inspirationCore'
+import { buildVisaInfoBlock, buildUserContextBlock } from './common'
 
 export type LanguageCode = 'zh-CN' | 'en' | string
 
 const isEN = (lang: LanguageCode) => String(lang).startsWith('en')
 
-export interface IntentResult {
-  intentType: string
-  keywords: string[]
-  emotionTone: string
-  description: string
-}
+// IntentResult 已迁移到 validators/itinerarySchema.ts
+import type { IntentResult } from '@/validators/itinerarySchema'
 
 export interface JourneyPromptArgs {
   language: LanguageCode
@@ -66,33 +63,114 @@ export function buildJourneyPrompt(args: JourneyPromptArgs): string {
 - 情绪基调：${intent.emotionTone}
 - 关键词：${intent.keywords.filter(k => k !== selectedDestination).join('、') || '未指定'}`
 
-  const loc1 = userCountry 
-    ? (isEN(language) ? `\n📍 User Location: ${userCountry}` : `\n📍 用户地理位置：${userCountry}`) 
-    : ''
-  const loc2 = userNationality 
-    ? (isEN(language) ? `\n🌍 User Nationality: ${userNationality}` : `\n🌍 用户国籍：${userNationality}`) 
-    : ''
-  const loc3 = userPermanentResidency 
-    ? (isEN(language) ? `\n🪪 Permanent Residency: ${userPermanentResidency}` : `\n🪪 永久居民身份：${userPermanentResidency}`) 
-    : ''
-  const visa1 = heldVisas.length 
-    ? (isEN(language) ? `\n🎫 Held Visas: ${heldVisas.join(', ')}` : `\n🎫 已持有签证：${heldVisas.join('、')}`) 
-    : ''
-  const visa2 = visaFreeDestinations.length 
-    ? (isEN(language) ? `\n✅ Visa-free/VOA: ${visaFreeDestinations.join(', ')}` : `\n✅ 免签/落地签：${visaFreeDestinations.join('、')}`) 
-    : ''
-  const visa3 = visaInfoSummary 
-    ? (isEN(language) ? `\n📋 Visa info: ${visaInfoSummary}` : `\n📋 签证信息：${visaInfoSummary}`) 
-    : ''
+  const userContextBlock = buildUserContextBlock(language, {
+    userCountry,
+    userNationality,
+    userPermanentResidency
+  })
+  
+  const visaInfoBlock = buildVisaInfoBlock(language, {
+    heldVisas,
+    visaFreeDestinations,
+    visaInfoSummary
+  })
 
   const structure = isEN(language)
-    ? `You MUST return a valid JSON object with the EXACT dual-track structure. Generate exactly ${targetDays} days. Start date: ${startDate}`
-    : `你必须返回一个有效的 JSON 对象并严格遵循双轨结构。恰好生成 ${targetDays} 天。开始日期：${startDate}`
+    ? `You MUST return a valid JSON object with the EXACT dual-track structure. Generate exactly ${targetDays} days. Start date: ${startDate}
+
+**JSON Structure Required:**
+{
+  "title": "Journey title",
+  "destination": "Destination name",
+  "duration": ${targetDays},
+  "summary": "Journey summary",
+  "psychologicalFlow": ["stage1", "stage2", ...],
+  "coreInsight": "Core insight",
+  "days": [
+    {
+      "day": 1,
+      "date": "${startDate}",
+      "theme": "Day theme",
+      "mood": "Day mood",
+      "summary": "Day summary",
+      "psychologicalStage": "Stage name",
+      "timeSlots": [
+        {
+          "time": "HH:MM",
+          "title": "Activity title",
+          "activity": "Activity description",
+          "location": "Location name",
+          "type": "activity|meal|rest",
+          "category": "Category",
+          "duration": 60,
+          "notes": "Notes",
+          "cost": 0,
+          "coordinates": { "lat": 0, "lng": 0 },
+          "internalTrack": {
+            "question": "Question",
+            "ritual": "Ritual",
+            "reflection": "Reflection"
+          }
+        }
+      ]
+    }
+    // ... ${targetDays} days total
+  ],
+  "totalCost": 0,
+  "recommendations": {}
+}
+
+⚠️ CRITICAL: The "days" array MUST contain exactly ${targetDays} day objects. Each day must have a complete structure.`
+    : `你必须返回一个有效的 JSON 对象并严格遵循双轨结构。恰好生成 ${targetDays} 天。开始日期：${startDate}
+
+**必需的 JSON 结构：**
+{
+  "title": "旅程标题",
+  "destination": "目的地名称",
+  "duration": ${targetDays},
+  "summary": "旅程摘要",
+  "psychologicalFlow": ["阶段1", "阶段2", ...],
+  "coreInsight": "核心洞察",
+  "days": [
+    {
+      "day": 1,
+      "date": "${startDate}",
+      "theme": "当日主题",
+      "mood": "当日情绪",
+      "summary": "当日摘要",
+      "psychologicalStage": "心理阶段",
+      "timeSlots": [
+        {
+          "time": "HH:MM",
+          "title": "活动标题",
+          "activity": "活动描述",
+          "location": "地点名称",
+          "type": "activity|meal|rest",
+          "category": "类别",
+          "duration": 60,
+          "notes": "备注",
+          "cost": 0,
+          "coordinates": { "lat": 0, "lng": 0 },
+          "internalTrack": {
+            "question": "问题",
+            "ritual": "仪式",
+            "reflection": "反思"
+          }
+        }
+      ]
+    }
+    // ... 共 ${targetDays} 天
+  ],
+  "totalCost": 0,
+  "recommendations": {}
+}
+
+⚠️ 关键要求："days" 数组必须恰好包含 ${targetDays} 个 day 对象。每一天都必须有完整的结构。`
 
   return `${header}
 
 ${intentBlock}
-${destinationNote}${loc1}${loc2}${loc3}${visa1}${visa2}${visa3}
+${destinationNote}${userContextBlock}${visaInfoBlock}
 
 ${referenceCatalog}
 ${locationGuidance}

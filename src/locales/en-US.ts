@@ -192,6 +192,12 @@ export default {
     uploadFile: 'Upload File',
     chatPlaceholder: 'Start chatting with AI to get travel suggestions',
     noFiles: 'No files yet',
+    visaGuide: 'Visa Guide',
+    noVisaInfo: 'No visa information available. Please ensure destination and nationality are set.',
+    visaGuideActions: {
+      applyVisa: 'Apply for Visa',
+      applyEvisa: 'Apply for E-Visa Online'
+    },
     started: 'Spent',
     totalBudget: 'Total Budget',
     plannerHero: {
@@ -511,6 +517,11 @@ export default {
       packingTips: 'Packing Tips',
       localTips: 'Local Tips',
       informationSource: 'Information Source',
+      subway: 'Subway',
+      officialWebsite: 'Official Website',
+      sourceLink: 'Source Link',
+      outfitSuggestions: 'Outfit Suggestions',
+      culturalTips: 'Cultural Tips',
       updated: 'Updated',
       reviews: 'reviews',
       clickToViewReviews: 'Click to view reviews',
@@ -534,7 +545,28 @@ export default {
       hotel: 'Hotel',
       // Attraction booking platforms
       getYourGuide: 'GetYourGuide',
-      viator: 'Viator'
+      viator: 'Viator',
+      // POI search related
+      searchNearby: 'Search Nearby',
+      searchCategory: 'Search Category',
+      gasStation: 'Gas Station',
+      evCharging: 'EV Charging Station',
+      restArea: 'Rest Area',
+      searching: 'Searching...',
+      foundResults: 'Found',
+      results: 'results',
+      addToItinerary: 'Add to Itinerary',
+      viewDetails: 'View Details',
+      noResults: 'No results found',
+      edit: 'Edit',
+      delete: 'Delete',
+      addActivity: 'Add Activity',
+      confirmDelete: 'Confirm Delete',
+      confirmDeleteContent: 'Are you sure you want to delete this activity?',
+      confirm: 'Confirm',
+      deleteSuccess: 'Activity deleted',
+      addSuccess: 'Activity added',
+      newActivity: 'New Activity'
     },
     bookingInfo: {
       title: 'Booking Information',

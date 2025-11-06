@@ -233,6 +233,10 @@ export default {
     noFiles: '暂无文件',
     visaGuide: '签证指引',
     noVisaInfo: '暂无签证信息，请确保已设置目的地和国籍信息',
+    visaGuideActions: {
+      applyVisa: '申请签证',
+      applyEvisa: '在线申请电子签证'
+    },
     record: '记录',
     started: '已花费',
     totalBudget: '总预算',
@@ -563,6 +567,11 @@ export default {
       internalTrackQuestion: '思考',
       internalTrackRitual: '仪式',
       internalTrackReflection: '反思',
+      subway: '地铁',
+      officialWebsite: '官方网站',
+      sourceLink: '来源链接',
+      outfitSuggestions: '穿搭建议',
+      culturalTips: '当地文化友好提示',
       bookingComLabel: 'Booking.com',
       dianpingLabel: '大众点评',
       // 交通预订平台
@@ -577,7 +586,28 @@ export default {
       hotel: '酒店',
       // 景点预订平台
       getYourGuide: 'GetYourGuide',
-      viator: 'Viator'
+      viator: 'Viator',
+      // POI搜索相关
+      searchNearby: '搜索附近',
+      searchCategory: '搜索类别',
+      gasStation: '加油站',
+      evCharging: '充电桩',
+      restArea: '休息站',
+      searching: '正在搜索...',
+      foundResults: '找到',
+      results: '个结果',
+      addToItinerary: '添加到行程',
+      viewDetails: '查看详情',
+      noResults: '未找到相关结果',
+      edit: '编辑',
+      delete: '删除',
+      addActivity: '添加活动',
+      confirmDelete: '确认删除',
+      confirmDeleteContent: '确定要删除此活动吗？',
+      confirm: '确定',
+      deleteSuccess: '活动已删除',
+      addSuccess: '活动已添加',
+      newActivity: '新活动'
     },
     bookingInfo: {
       title: '订票信息',

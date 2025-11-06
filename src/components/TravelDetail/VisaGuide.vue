@@ -53,6 +53,17 @@
           :description="`建议提前${getRecommendedDays()}天申请签证，以确保出行顺利。`"
         >
         </a-alert>
+        <div v-if="visaInfo.applicationUrl" class="visa-application-link">
+          <a-button 
+            type="primary" 
+            :href="visaInfo.applicationUrl" 
+            target="_blank"
+            rel="noopener noreferrer"
+            class="application-btn"
+          >
+            <span>🔗</span> {{ t('travelDetail.visaGuideActions.applyVisa') || '申请签证' }}
+          </a-button>
+        </div>
         <div class="action-tips">
           <p><strong>申请建议：</strong></p>
           <ul>
@@ -73,6 +84,17 @@
           :description="`您可以在线申请电子签证，通常处理时间较快。建议提前申请以确保出行顺利。`"
         >
         </a-alert>
+        <div v-if="visaInfo.applicationUrl" class="visa-application-link">
+          <a-button 
+            type="primary" 
+            :href="visaInfo.applicationUrl" 
+            target="_blank"
+            rel="noopener noreferrer"
+            class="application-btn"
+          >
+            <span>🔗</span> {{ t('travelDetail.visaGuideActions.applyEvisa') || '在线申请电子签证' }}
+          </a-button>
+        </div>
         <div class="action-tips">
           <p><strong>申请建议：</strong></p>
           <ul>
@@ -110,7 +132,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons-vue'
+import { useI18n } from 'vue-i18n'
 import type { VisaInfo } from '@/config/visa'
+
+const { t } = useI18n()
 
 interface Props {
   visaInfo: VisaInfo | null
@@ -287,6 +312,19 @@ const getRecommendedDays = () => {
 .action-tips li {
   margin: 4px 0;
   color: #666;
+}
+
+.visa-application-link {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.application-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
 }
 </style>
 

@@ -8,8 +8,11 @@ import {
   getUserProfile, 
   setUserProfile, 
   getUserProfileOrDefault,
-  type UserProfileConfig 
+  SUPPORTED_LANGUAGES,
+  type UserProfileConfig,
+  type TransportationPreference
 } from '@/config/userProfile'
+import { getAllCurrencies, type CurrencyInfo } from '@/utils/currency'
 import { message } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 
@@ -21,7 +24,21 @@ const userProfileModalVisible = ref(false)
 const selectedInterfaceLanguage = ref<string>('zh-CN')
 const selectedNationality = ref<string>('') // 国籍（用于判断签证需求）
 const selectedLocation = ref<string>('') // 我所在国家（用于推荐目的地）
+const selectedPermanentResidency = ref<string>('') // 永久居民身份
+const selectedHeldVisas = ref<string[]>([]) // 已持有的签证
+const selectedProficientLanguages = ref<string[]>(['zh-CN']) // 精通的语言列表
+const selectedTransportMode = ref<TransportationPreference>('public_transit_and_walking') // 交通方式偏好
+const selectedCurrency = ref<string>('CNY') // 货币偏好
 const userProfile = ref<UserProfileConfig | null>(null)
+
+// 货币选项
+const currencyOptions = computed(() => {
+  const currencies = getAllCurrencies()
+  return currencies.map(currency => ({
+    label: `${currency.symbol} ${currency.name} (${currency.code})`,
+    value: currency.code
+  }))
+})
 
 // 响应式用户配置，用于显示（保存后会更新）
 const reactiveUserProfile = ref<UserProfileConfig>(getUserProfileOrDefault())
@@ -45,6 +62,11 @@ const handleUserProfileClick = () => {
   selectedInterfaceLanguage.value = i18nStore.currentLocale
   selectedNationality.value = profile.nationality?.countryCode || ''
   selectedLocation.value = profile.location?.countryCode || ''
+  selectedPermanentResidency.value = profile.permanentResidency?.countryCode || ''
+  selectedHeldVisas.value = profile.heldVisas || []
+  selectedProficientLanguages.value = profile.proficientLanguages || ['zh-CN']
+  selectedTransportMode.value = profile.preferredTransportMode || 'public_transit_and_walking'
+  selectedCurrency.value = profile.preferredCurrency || 'CNY'
 }
 
 // 保存用户个人信息
@@ -68,9 +90,16 @@ const handleUserProfileSave = () => {
           countryCode: selectedLocation.value
         }
       : null,
-    permanentResidency: null,
-    heldVisas: [],
-    proficientLanguages: ['zh-CN'] // 默认中文
+    permanentResidency: selectedPermanentResidency.value
+      ? {
+          country: PRESET_COUNTRIES[selectedPermanentResidency.value]?.name || '',
+          countryCode: selectedPermanentResidency.value
+        }
+      : null,
+    heldVisas: selectedHeldVisas.value || [],
+    proficientLanguages: selectedProficientLanguages.value.length > 0 ? selectedProficientLanguages.value : ['zh-CN'],
+    preferredTransportMode: selectedTransportMode.value,
+    preferredCurrency: selectedCurrency.value || 'CNY'
   }
   
   setUserProfile(newProfile)
@@ -260,6 +289,187 @@ onMounted(() => {
           </div>
         </a-card>
         
+        <!-- 3.1 永久居民身份 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🪪</span>
+              永久居民身份
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>永久居民身份</span>
+                <span class="form-label-subtitle">（如绿卡、永久居留权等）</span>
+              </label>
+              <a-select
+                v-model:value="selectedPermanentResidency"
+                placeholder="请选择您的永久居民身份国家（可选）"
+                style="width: 100%"
+                allow-clear
+              >
+                <a-select-option 
+                  v-for="option in countryOptions" 
+                  :key="option.value" 
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </a-select-option>
+              </a-select>
+              <div class="form-hint">
+                💡 如果您持有永久居民身份（如美国绿卡、加拿大永久居留权等），选择后系统会在推荐目的地和签证建议时考虑此因素
+                <br/>
+                <span class="hint-example">例如：持有美国绿卡后，前往某些国家可能享受签证便利或豁免</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+        
+        <!-- 3.2 已持有的签证 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🎫</span>
+              已持有的签证
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>已持有的有效签证</span>
+                <span class="form-label-subtitle">（可多选）</span>
+              </label>
+              <a-select
+                v-model:value="selectedHeldVisas"
+                mode="multiple"
+                placeholder="请选择您已持有的有效签证国家（可选）"
+                style="width: 100%"
+                allow-clear
+              >
+                <a-select-option 
+                  v-for="option in countryOptions" 
+                  :key="option.value" 
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </a-select-option>
+              </a-select>
+              <div class="form-hint">
+                💡 如果您已持有某些国家的有效签证，选择后系统会在推荐目的地时给予最高优先级
+                <br/>
+                <span class="hint-example">例如：已持有申根签证后，前往申根区国家时系统会优先推荐，因为无需再申请签证</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+        
+        <!-- 1.1 精通语言 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🗣️</span>
+              精通语言
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>我精通的语言</span>
+                <span class="form-label-subtitle">（可多选）</span>
+              </label>
+              <a-select
+                v-model:value="selectedProficientLanguages"
+                mode="multiple"
+                placeholder="请选择您精通的语言（至少选择一种）"
+                style="width: 100%"
+              >
+                <a-select-option 
+                  v-for="lang in SUPPORTED_LANGUAGES" 
+                  :key="lang.code" 
+                  :value="lang.code"
+                >
+                  {{ lang.name }} ({{ lang.nativeName }})
+                </a-select-option>
+              </a-select>
+              <div class="form-hint">
+                💡 您精通的语言，系统会根据您的语言偏好调整显示格式和内容
+                <br/>
+                <span class="hint-example">例如：精通日语后，系统在显示日本目的地信息时会优先使用日语名称</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+        
+        <!-- 4. 货币偏好 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">💵</span>
+              货币偏好
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>偏好货币</span>
+                <span class="form-label-subtitle">（用于显示费用和价格）</span>
+              </label>
+              <a-select
+                v-model:value="selectedCurrency"
+                placeholder="请选择您的偏好货币"
+                style="width: 100%"
+              >
+                <a-select-option 
+                  v-for="option in currencyOptions" 
+                  :key="option.value" 
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </a-select-option>
+              </a-select>
+              <div class="form-hint">
+                💡 系统会根据您的货币偏好显示费用和价格信息
+                <br/>
+                <span class="hint-example">例如：选择美元后，行程中的费用信息会以美元显示</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+        
+        <!-- 5. 交通方式偏好 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🚌</span>
+              交通方式偏好
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">
+                <span>默认交通方式</span>
+                <span class="form-label-subtitle">（用于生成行程时推荐交通方式）</span>
+              </label>
+              <a-radio-group v-model:value="selectedTransportMode" style="width: 100%">
+                <a-radio value="public_transit_and_walking" style="display: block; margin-bottom: 12px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px;">
+                  <div style="font-weight: 500; margin-bottom: 4px;">🚌 公共交通 + 短距离步行</div>
+                  <div style="font-size: 12px; color: #888;">优先使用地铁、公交、轻轨等公共交通工具，配合短距离步行</div>
+                </a-radio>
+                <a-radio value="driving_and_walking" style="display: block; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px;">
+                  <div style="font-weight: 500; margin-bottom: 4px;">🚗 驾车 + 短距离步行</div>
+                  <div style="font-size: 12px; color: #888;">优先使用自驾或租车，配合短距离步行到达目的地</div>
+                </a-radio>
+              </a-radio-group>
+              <div class="form-hint">
+                💡 系统会根据您的偏好，在生成行程时推荐相应的交通方式
+                <br/>
+                <span class="hint-example">例如：选择"公共交通+步行"后，生成的行程会优先推荐地铁、公交等公共交通工具</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+        
         <!-- 信息用途说明 -->
         <div class="info-footer">
           <div class="info-box">
@@ -267,6 +477,10 @@ onMounted(() => {
             <ul class="info-list">
               <li>判断签证需求并提供签证指引</li>
               <li>在未指定目的地时，优先推荐您所在国家或附近地区的目的地</li>
+              <li>考虑永久居民身份和已持有签证，提供更精准的推荐</li>
+              <li>根据您的语言偏好调整内容显示格式</li>
+              <li>根据货币偏好显示费用和价格信息</li>
+              <li>根据交通方式偏好生成个性化的行程</li>
           </ul>
           </div>
         </div>

@@ -260,15 +260,27 @@ export function getCurrencyForDestination(destination: string): CurrencyInfo {
 /**
  * 格式化金额显示
  */
-export function formatCurrency(amount: number, currency: CurrencyInfo): string {
+export function formatCurrency(amount: number | string | null | undefined, currency: CurrencyInfo): string {
+  // 处理非数字类型
+  if (amount == null || amount === '') {
+    return `${currency.symbol}0`
+  }
+  
+  const numAmount = typeof amount === 'number' ? amount : parseFloat(String(amount))
+  
+  // 如果转换后仍不是有效数字，返回0
+  if (isNaN(numAmount)) {
+    return `${currency.symbol}0`
+  }
+  
   // 对于日元、韩元、越南盾、印尼盾等小面额货币，不显示小数点
   const noDecimalCurrencies = ['JPY', 'KRW', 'VND', 'IDR']
   if (noDecimalCurrencies.includes(currency.code)) {
-    return `${currency.symbol}${Math.round(amount)}`
+    return `${currency.symbol}${Math.round(numAmount)}`
   }
   
   // 其他货币保留两位小数
-  return `${currency.symbol}${amount.toFixed(2)}`
+  return `${currency.symbol}${numAmount.toFixed(2)}`
 }
 
 /**

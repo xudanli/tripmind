@@ -18,6 +18,8 @@ export interface VisaInfo {
   description?: string
   // 停留期限（天数）
   duration?: number
+  // 申请链接（官方签证申请网站）
+  applicationUrl?: string
 }
 
 /**
@@ -52,7 +54,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       destinationName: '日本',
       visaType: 'visa-required',
       applicableTo: '中国护照',
-      description: '需要提前申请签证，但签证流程相对简化'
+      description: '需要提前申请签证，但签证流程相对简化',
+      applicationUrl: 'https://www.cn.emb-japan.go.jp/consular/visa_shikaku.htm'
     }],
     'US-PR': [{
       destinationCountry: 'JP',
@@ -91,7 +94,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'e-visa',
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
-      duration: 30
+      duration: 30,
+      applicationUrl: 'https://www.malaysiavisa.com.my/'
     }],
     'US-PR': [{
       destinationCountry: 'MY',
@@ -131,7 +135,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'e-visa',
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
-      duration: 30
+      duration: 30,
+      applicationUrl: 'https://evisa.xuatnhapcanh.gov.vn/'
     }],
     'US-PR': [{
       destinationCountry: 'VN',
@@ -189,7 +194,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'visa-required',
       applicableTo: '中国护照',
       description: '需要提前申请签证（B1/B2旅游签证），建议提前2-3个月申请',
-      duration: 180
+      duration: 180,
+      applicationUrl: 'https://www.ustraveldocs.com/cn_zh/'
     }],
     'US-PR': [{
       destinationCountry: 'US',
@@ -209,7 +215,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'e-visa',
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
-      duration: 30
+      duration: 30,
+      applicationUrl: 'https://www.evisa.gov.tr/'
     }],
     'US-PR': [{
       destinationCountry: 'TR',
@@ -306,7 +313,8 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'visa-required',
       applicableTo: '中国护照',
       description: '需要提前申请申根签证（冰岛属于申根区）',
-      duration: 90
+      duration: 90,
+      applicationUrl: 'https://www.schengenvisainfo.com/zh/iceland-visa/'
     }],
     'US-PR': [{
       destinationCountry: 'IS',

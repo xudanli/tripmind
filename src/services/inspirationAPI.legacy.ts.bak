@@ -22,11 +22,6 @@ export {
   generateInspirationJourney
 } from '@/apis/inspiration'
 
-// 导出其他遗留函数（保持向后兼容）
-export {
-  personaVoiceBank,
-  getPersonaVoice,
-  switchPersonaBasedOnEmotion,
-  generatePersonaResponse,
-  generatePsychologicalJourney
-} from './inspirationAPI.legacy'
+// 导出其他可能被使用的函数（如果它们还没有迁移）
+// 这些函数暂时保留在原位置，后续会逐步迁移
+export { getPersonaVoice, switchPersonaBasedOnEmotion, generatePersonaResponse, generatePsychologicalJourney } from './inspirationAPI.legacy'

@@ -51,14 +51,6 @@
 
           <!-- Inspiration 模式：体验日 -->
           <template v-else-if="travel?.mode === 'inspiration'">
-            <!-- 签证指引（Inspiration模式显示在顶部） -->
-            <VisaGuide 
-              v-if="visaInfo && destinationCountry"
-              :visa-info="visaInfo"
-              :destination-country="destinationCountry"
-              :destination-name="destinationName"
-              style="margin-bottom: 24px;"
-            />
             <ExperienceDay />
           </template>
 
@@ -859,7 +851,6 @@ const getBudgetColor = () => {
   .main-content.inspiration-mode :deep(.sidebar-after-hero) {
     display: block !important; /* 确保显示 */
     position: sticky;
-    top: 68vh; /* 从顶部开始显示，与左侧内容对齐 */
     align-self: flex-start;
     z-index: 10;
     max-height: none !important; /* 移除高度限制，允许完整显示内容 */
@@ -944,11 +935,7 @@ const getBudgetColor = () => {
 @media (max-width: 991px) {
   .main-content {
     padding: 0 clamp(1rem, 3vw, 2rem);
-  }
-  
-  .main-content.inspiration-mode {
     max-width: 100%;
-    padding: 0 clamp(1rem, 3vw, 2rem);
   }
   
   .main-content :deep(.ant-col[class*="lg-8"]) {

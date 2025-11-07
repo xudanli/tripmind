@@ -503,6 +503,8 @@ export default {
       noImageSelected: '请先选择一张图片',
       // 活动详情页翻译
       estimatedStay: '预计停留',
+      chargingDuration: '充电时长',
+      stayDuration: '入住时长',
       minutes: '分钟',
       walking: '步行',
       minutesReachable: '分钟可达',

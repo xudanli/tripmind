@@ -253,63 +253,18 @@
                         <h5 class="slot-info-label">
                           <span class="info-icon">📍</span> {{ t('travelDetail.experienceDay.location') }}
                         </h5>
-                        <p class="slot-info-text">
-                          <template v-if="shouldShowChineseOnly">
-                            <!-- 中国国籍+中国目的地：优先显示当地名称，然后中文地址 -->
-                            <span v-if="slot.details?.name?.local" class="location-local-name">
-                              {{ slot.details.name.local }}
-                              <span v-if="slot.details.address?.chinese || slot.details.address?.local">，</span>
+                        <p class="slot-info-text location-lines">
+                          <template v-if="getSlotLocationLines(slot).length">
+                            <span
+                              v-for="(line, lineIndex) in getSlotLocationLines(slot)"
+                              :key="lineIndex"
+                              class="location-line"
+                              :class="`location-line-${line.type}`"
+                            >
+                              {{ line.text }}
                             </span>
-                            <span v-if="slot.details?.address?.local" class="location-address-local">
-                              {{ slot.details.address.local }}
-                              <span v-if="slot.details.address?.chinese || slot.details.address?.landmark"> · </span>
-                            </span>
-                            <span v-if="slot.details?.address?.chinese">
-                              {{ slot.details.address.chinese }}
-                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
-                            </span>
-                            <span v-else-if="slot.location">{{ slot.location }}</span>
                           </template>
-                          <template v-else-if="locale.value === 'zh-CN'">
-                            <!-- 中文模式：优先显示当地名称，然后中文地址 -->
-                            <span v-if="slot.details?.name?.local" class="location-local-name">
-                              {{ slot.details.name.local }}
-                              <span v-if="slot.details.address?.local || slot.details.address?.chinese || slot.details.address?.english">，</span>
-                            </span>
-                            <span v-if="slot.details?.address?.local" class="location-address-local">
-                              {{ slot.details.address.local }}
-                              <span v-if="slot.details.address?.chinese || slot.details.address?.english"> · </span>
-                            </span>
-                            <span v-if="slot.details?.address?.chinese">
-                              {{ slot.details.address.chinese }}
-                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
-                            </span>
-                            <span v-else-if="slot.details?.address?.english">
-                              {{ slot.details.address.english }}
-                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
-                            </span>
-                            <span v-else-if="slot.location">{{ slot.location }}</span>
-                          </template>
-                          <template v-else>
-                            <!-- 英文模式：优先显示当地名称，然后英文地址 -->
-                            <span v-if="slot.details?.name?.local" class="location-local-name">
-                              {{ slot.details.name.local }}
-                              <span v-if="slot.details.address?.local || slot.details.address?.english || slot.details.address?.chinese">，</span>
-                            </span>
-                            <span v-if="slot.details?.address?.local" class="location-address-local">
-                              {{ slot.details.address.local }}
-                              <span v-if="slot.details.address?.english || slot.details.address?.chinese"> · </span>
-                            </span>
-                            <span v-if="slot.details?.address?.english">
-                              {{ slot.details.address.english }}
-                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
-                            </span>
-                            <span v-else-if="slot.details?.address?.chinese">
-                              {{ slot.details.address.chinese }}
-                              <span v-if="slot.details.address.landmark"> · {{ slot.details.address.landmark }}</span>
-                            </span>
-                            <span v-else-if="slot.location">{{ slot.location }}</span>
-                          </template>
+                          <span v-else>{{ slot.location || '位置待更新' }}</span>
                         </p>
                       </div>
                     </div>
@@ -737,33 +692,6 @@
       </div>
     </section>
 
-    <!-- 旅行建议 -->
-    <section v-if="recommendations" class="recommendations-section">
-      <h3 class="section-title">{{ t('travelDetail.experienceDay.travelSuggestions') }}</h3>
-      <div class="recommendations-grid">
-        <div v-if="recommendations.bestTimeToVisit" class="recommendation-card">
-          <h4>{{ t('travelDetail.experienceDay.bestTimeToVisit') }}</h4>
-          <p>{{ recommendations.bestTimeToVisit }}</p>
-    </div>
-        <div v-if="recommendations.weatherAdvice" class="recommendation-card">
-          <h4>{{ t('travelDetail.experienceDay.weatherAdvice') }}</h4>
-          <p>{{ recommendations.weatherAdvice }}</p>
-        </div>
-        <div v-if="recommendations.packingTips && recommendations.packingTips.length" class="recommendation-card">
-          <h4>{{ t('travelDetail.experienceDay.packingTips') }}</h4>
-          <ul>
-            <li v-for="(tip, index) in recommendations.packingTips" :key="index">{{ tip }}</li>
-        </ul>
-        </div>
-        <div v-if="recommendations.localTips && recommendations.localTips.length" class="recommendation-card">
-          <h4>{{ t('travelDetail.experienceDay.localTips') }}</h4>
-          <ul>
-            <li v-for="(tip, index) in recommendations.localTips" :key="index">{{ tip }}</li>
-        </ul>
-            </div>
-          </div>
-    </section>
-    
     <!-- 编辑活动弹窗 -->
     <a-modal
       v-model:open="editModalVisible"
@@ -903,6 +831,9 @@
             <a-radio-button value="attraction">
               <span>🏛️</span> {{ t('travelDetail.experienceDay.attraction') }}
             </a-radio-button>
+            <a-radio-button value="accommodation">
+              <span>🏨</span> {{ t('travelDetail.experienceDay.accommodation') }}
+            </a-radio-button>
             <a-radio-button value="gas_station">
               <span>⛽</span> {{ t('travelDetail.experienceDay.gasStation') || '加油站' }}
             </a-radio-button>
@@ -952,7 +883,17 @@
                 
                 <div class="poi-address">
                   <span class="address-icon">📍</span>
-                  <span>{{ poi.address.chinese || poi.address.english || poi.address.local || '地址未知' }}</span>
+                  <div class="address-lines">
+                    <span
+                      v-for="(line, lineIndex) in getPOIAddressLines(poi)"
+                      :key="lineIndex"
+                      class="address-line"
+                      :class="`address-line-${line.type}`"
+                    >
+                      {{ line.text }}
+                    </span>
+                    <span v-if="getPOIAddressLines(poi).length === 0">{{ '地址未知' }}</span>
+                  </div>
                   <span v-if="poi.distance" class="distance-badge">{{ poi.distance }}</span>
                 </div>
                 
@@ -964,7 +905,7 @@
                 <div class="poi-meta">
                   <span v-if="poi.estimatedDuration" class="meta-item">
                     <span class="meta-icon">⏱️</span>
-                    <span class="meta-label">{{ selectedSearchCategory === 'ev_charging' ? '充电时长' : selectedSearchCategory === 'gas_station' ? '预计停留' : '预计停留' }}：</span>
+                    <span class="meta-label">{{ durationLabel }}：</span>
                     {{ poi.estimatedDuration }}
                   </span>
                   <span v-if="poi.pricing?.general" class="meta-item">
@@ -1589,11 +1530,6 @@ onMounted(() => {
   }, 500)
 })
 
-// 旅行建议
-const recommendations = computed(() => {
-  return itineraryData.value?.recommendations || travel.value?.data?.recommendations || null
-})
-
 // 心理流程阶段
 const mentalFlowStages = computed(() => {
   return travel.value?.data?.mentalFlowStages || null
@@ -1886,6 +1822,15 @@ const searchModalVisible = ref(false)
 const searching = ref(false)
 const searchResults = ref<POIResult[]>([])
 const selectedSearchCategory = ref<POICategory>('restaurant')
+const durationLabel = computed(() => {
+  if (selectedSearchCategory.value === 'ev_charging') {
+    return t('travelDetail.experienceDay.chargingDuration') || '充电时长'
+  }
+  if (selectedSearchCategory.value === 'accommodation') {
+    return t('travelDetail.experienceDay.stayDuration') || '入住时长'
+  }
+  return t('travelDetail.experienceDay.estimatedStay') || '预计停留'
+})
 const hasSearched = ref(false)
 const searchLocation = ref<{
   name: string
@@ -1922,6 +1867,87 @@ const getSearchLocationCurrency = computed(() => {
     return { code: 'CNY', symbol: '¥', name: '人民币' }
   }
 })
+
+interface LocationNameInfo {
+  local?: string
+  english?: string
+  chinese?: string
+}
+
+interface LocationAddressInfo {
+  local?: string
+  english?: string
+  chinese?: string
+  landmark?: string
+}
+
+interface LocationFormatOptions {
+  name?: LocationNameInfo | null
+  address?: LocationAddressInfo | null
+  fallback?: string | null
+}
+
+type LocationLineType = 'localName' | 'localAddress' | 'english' | 'chinese' | 'landmark' | 'fallback'
+
+interface LocationLineEntry {
+  text: string
+  type: LocationLineType
+}
+
+const formatLocationLines = ({ name, address, fallback }: LocationFormatOptions): LocationLineEntry[] => {
+  const lines: LocationLineEntry[] = []
+  const pushLine = (value?: string | null, type: LocationLineType = 'fallback') => {
+    if (!value) return
+    const normalized = value.trim()
+    if (!normalized) return
+    if (!lines.some(line => line.text === normalized)) {
+      lines.push({ text: normalized, type })
+    }
+  }
+
+  pushLine(name?.local, 'localName')
+  pushLine(name?.english, 'english')
+
+  pushLine(address?.local, 'localAddress')
+
+  if (address?.english) {
+    pushLine(address.landmark ? `${address.english} · ${address.landmark}` : address.english, 'english')
+  }
+
+  if (!address?.english) {
+    pushLine(address?.chinese ? (address.landmark ? `${address.chinese} · ${address.landmark}` : address.chinese) : null, 'chinese')
+  }
+
+  if (address?.english && address?.chinese) {
+    pushLine(address.chinese, 'chinese')
+  }
+
+  if (address?.landmark && !lines.some(line => line.text.includes(address.landmark!))) {
+    pushLine(address.landmark, 'landmark')
+  }
+
+  if (!lines.length) {
+    pushLine(fallback, 'fallback')
+  }
+
+  return lines
+}
+
+const getSlotLocationLines = (slot: any): LocationLineEntry[] => {
+  return formatLocationLines({
+    name: slot?.details?.name || null,
+    address: slot?.details?.address || null,
+    fallback: slot?.location || null,
+  })
+}
+
+const getPOIAddressLines = (poi: POIResult): LocationLineEntry[] => {
+  return formatLocationLines({
+    name: null,
+    address: poi.address || null,
+    fallback: poi.address?.english || poi.address?.chinese || null,
+  })
+}
 
 // 获取当前正在编辑的活动
 const getCurrentSlot = () => {
@@ -2195,6 +2221,8 @@ const addPOIToItinerary = (poi: POIResult) => {
 
 // 查看POI详情
 const viewPOIDetails = (poi: POIResult) => {
+  const addressLines = getPOIAddressLines(poi)
+
   Modal.info({
     title: poi.name.chinese || poi.name.english || poi.name.local || 'POI详情',
     width: 600,
@@ -2204,9 +2232,10 @@ const viewPOIDetails = (poi: POIResult) => {
         src: poi.photo,
         style: { width: '100%', borderRadius: '8px', marginBottom: '16px' }
       }) : null,
-      h('div', { style: { marginBottom: '12px' } }, [
+      h('div', { style: { marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '4px' } }, [
         h('strong', '地址：'),
-        poi.address.chinese || poi.address.english || poi.address.local || '地址未知'
+        ...addressLines.map(line => h('span', line.text)),
+        addressLines.length === 0 ? h('span', '地址未知') : null
       ]),
       poi.distance ? h('div', { style: { marginBottom: '12px' } }, [
         h('strong', '距离：'),
@@ -2232,7 +2261,7 @@ const viewPOIDetails = (poi: POIResult) => {
         })())
       ]) : null,
       poi.estimatedDuration ? h('div', { style: { marginBottom: '12px' } }, [
-        h('strong', selectedSearchCategory.value === 'ev_charging' ? '充电时长：' : selectedSearchCategory.value === 'gas_station' ? '预计停留：' : '预计停留：'),
+        h('strong', `${durationLabel.value}：`),
         poi.estimatedDuration
       ]) : null,
       poi.contact?.phone ? h('div', { style: { marginBottom: '12px' } }, [
@@ -4150,6 +4179,42 @@ const getVisaActionTips = (visaType: string): any => {
   color: #666;
 }
 
+.location-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.location-line {
+  color: #333;
+  word-break: break-word;
+}
+
+.location-line-localName {
+  font-weight: 600;
+  color: #222;
+}
+
+.location-line-english {
+  color: #2f54eb;
+}
+
+.location-line-localAddress {
+  color: #595959;
+}
+
+.location-line-chinese {
+  color: #595959;
+}
+
+.location-line-landmark {
+  color: #722ed1;
+}
+
+.location-line-fallback {
+  color: #8c8c8c;
+}
+
 .transportation-info {
   line-height: 1.6;
 }
@@ -4479,20 +4544,6 @@ const getVisaActionTips = (visaType: string): any => {
   letter-spacing: -0.01em;
 }
 
-/* 3. 旅行建议 - Apple 风格 */
-.recommendations-section {
-  padding: 120px 40px;
-  max-width: 1024px;
-  margin: 0 auto;
-  background: #f5f5f7;
-}
-
-@media (max-width: 768px) {
-  .recommendations-section {
-    padding: 80px 24px;
-  }
-}
-
 .section-title {
   font-size: 48px;
   font-weight: 300;
@@ -4509,93 +4560,6 @@ const getVisaActionTips = (visaType: string): any => {
     font-size: 36px;
     margin-bottom: 48px;
   }
-}
-
-.recommendations-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-}
-
-@media (max-width: 768px) {
-  .recommendations-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-}
-
-.recommendation-card {
-  background: #ffffff;
-  border-radius: 18px;
-  padding: 32px;
-  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.recommendation-card:hover {
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
-}
-
-@media (max-width: 768px) {
-  .recommendation-card {
-    padding: 24px;
-  }
-}
-
-.recommendation-card h4 {
-  font-size: 21px;
-  font-weight: 300;
-  line-height: 1.3;
-  letter-spacing: -0.015em;
-  margin: 0 0 16px 0;
-  color: #1d1d1f;
-  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
-}
-
-@media (max-width: 768px) {
-  .recommendation-card h4 {
-    font-size: 19px;
-  }
-}
-
-.recommendation-card p {
-  font-size: 17px;
-  line-height: 1.58;
-  letter-spacing: -0.01em;
-  color: #1d1d1f;
-  margin: 0;
-  font-weight: 400;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-@media (max-width: 768px) {
-  .recommendation-card p {
-    font-size: 15px;
-    line-height: 1.47;
-  }
-}
-
-.recommendation-card ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.recommendation-card li {
-  padding: 8px 0;
-  font-size: 17px;
-  line-height: 1.58;
-  letter-spacing: -0.01em;
-  color: #1d1d1f;
-  position: relative;
-  padding-left: 20px;
-  font-weight: 400;
-}
-
-.recommendation-card li::before {
-  content: '•';
 }
 
 /* 编辑功能样式 */
@@ -5644,16 +5608,52 @@ const getVisaActionTips = (visaType: string): any => {
   color: #666;
 }
 
+
 .poi-address {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   color: #666;
   font-size: 14px;
+  flex-wrap: wrap;
 }
 
 .address-icon {
   font-size: 16px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.address-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.address-line {
+  color: #555;
+  word-break: break-word;
+}
+
+.address-line-localName,
+.address-line-localAddress {
+  color: #333;
+}
+
+.address-line-english {
+  color: #2f54eb;
+}
+
+.address-line-chinese {
+  color: #595959;
+}
+
+.address-line-landmark {
+  color: #722ed1;
+}
+
+.address-line-fallback {
+  color: #8c8c8c;
 }
 
 .distance-badge {

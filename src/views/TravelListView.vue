@@ -281,6 +281,14 @@ const handleCreateJourney = (mode: 'planner' | 'seeker' | 'inspiration') => {
 // 打开旅程详情（点击卡片）
 const handleOpenTravel = (travel: Travel) => {
   console.log('打开旅程:', travel)
+  if (travel.mode === 'inspiration') {
+    const data = travel.data || {}
+    const hasFullItinerary = data?.hasFullItinerary || (Array.isArray(data?.days) && data.days.length > 0)
+    if (!hasFullItinerary || travel.status === 'draft') {
+      message.info('灵感行程仍在生成中，请稍候再查看。')
+      return
+    }
+  }
   // 跳转到旅行详情页
   router.push(`/travel/${travel.id}`)
 }

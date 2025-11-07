@@ -7,6 +7,16 @@ import emotionalTravelAPI, {
   type FeedbackRequest 
 } from '@/services/emotionalTravelAPI'
 import { plannerAPI, type PlannerItineraryResponse } from '@/services/plannerAPI'
+import { subscribeLogEvents, LogLevel } from '@/utils/inspiration/core/logger'
+
+interface GenerationLogEntry {
+  id: number
+  message: string
+  level: 'info' | 'warn' | 'error'
+  timestamp: number
+}
+
+let unsubscribeLogEvents: (() => void) | null = null
 
 export interface PlannerFormData {
   destination: string
@@ -359,6 +369,36 @@ export const useTravelStore = defineStore('travel', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const currentMode = ref<'planner' | 'seeker' | 'inspiration' | null>(null)
+  const generationLogs = ref<GenerationLogEntry[]>([])
+
+  const pushGenerationLog = (message: string, level: 'info' | 'warn' | 'error' = 'info', timestamp?: number) => {
+    const text = (message ?? '').toString().trim()
+    if (!text) return
+    const entry: GenerationLogEntry = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      message: text,
+      level,
+      timestamp: timestamp ?? Date.now()
+    }
+    generationLogs.value = [...generationLogs.value, entry].slice(-150)
+  }
+
+  const clearGenerationLogs = () => {
+    generationLogs.value = []
+  }
+
+  if (!unsubscribeLogEvents) {
+    unsubscribeLogEvents = subscribeLogEvents(event => {
+      // 仅在灵感生成场景捕获日志（adapter 命名空间）
+      if (event.namespace && !event.namespace.includes('adapter')) return
+      const level: 'info' | 'warn' | 'error' = event.level === LogLevel.ERROR
+        ? 'error'
+        : event.level === LogLevel.WARN
+          ? 'warn'
+          : 'info'
+      pushGenerationLog(event.message, level, event.timestamp)
+    })
+  }
 
   // Actions
   const setPlannerData = (data: Partial<PlannerFormData>) => {
@@ -420,6 +460,8 @@ export const useTravelStore = defineStore('travel', () => {
 
   // 使用 Planner API 生成行程
   const generateItinerary = async (mode: 'planner' | 'seeker') => {
+    clearGenerationLogs()
+    pushGenerationLog(mode === 'planner' ? '🚀 开始生成 Planner 智能行程...' : '🚀 开始生成 Seeker 心情行程...')
     setLoading(true)
     setError(null)
     
@@ -429,8 +471,10 @@ export const useTravelStore = defineStore('travel', () => {
       if (mode === 'planner') {
         // 使用新的 Planner API 生成智能行程
         console.log('Planner 模式：开始生成智能行程...', plannerData.value)
+        pushGenerationLog('📡 Planner：已发送行程生成请求，正在等待 AI 响应...')
         const plannerResponse = await plannerAPI.generateItinerary(plannerData.value)
         console.log('Planner 模式：AI 生成的行程', plannerResponse)
+        pushGenerationLog('✅ Planner：行程生成完成，正在整理数据...')
         
         // 保存 Planner 行程数据
         plannerItinerary.value = plannerResponse
@@ -474,8 +518,10 @@ export const useTravelStore = defineStore('travel', () => {
         console.log('Seeker 模式：开始意图识别...', userContext)
         const intent = await detectInspirationIntent(userContext, currentLanguage)
         console.log('Seeker 模式：识别到的意图', intent)
+        pushGenerationLog(`🧭 检测到旅行意图：${intent.intentType || '未知'}`)
         
         // 调用情感旅行 API 生成 Seeker 行程
+        pushGenerationLog('📡 Seeker：正在生成情绪化旅程草稿...')
         const aiData: any = await emotionalTravelAPI.generateTravelPlan({
           mood: moodData.value.currentMood,
           experience: moodData.value.desiredExperience,
@@ -496,6 +542,7 @@ export const useTravelStore = defineStore('travel', () => {
         
         // 不再插入“体验日”
         
+        pushGenerationLog('✅ Seeker：行程草稿已生成，正在整理结构...')
         generatedData = {
           destination: (aiData as any).data?.destination || '未知目的地',
           duration: (aiData as any).data?.duration || 5,
@@ -537,6 +584,8 @@ export const useTravelStore = defineStore('travel', () => {
 
   // 生成心理旅程（基于问卷）
   const generatePsychologicalJourney = async (personalityProfile: any, selectedDestination?: string) => {
+    clearGenerationLogs()
+    pushGenerationLog('🚀 开始生成心理旅程推荐...')
     setLoading(true)
     setError(null)
     
@@ -638,6 +687,7 @@ export const useTravelStore = defineStore('travel', () => {
       }
       
       console.log('心理旅程模式：开始生成...', personalityProfile)
+      pushGenerationLog('🧠 正在分析人格问卷与心理画像...')
       console.log('📍 用户选择的目的地:', selectedDestination || '未选择')
       console.log('📍 推荐范围：', userCountry ? `优先${userCountry}国内或附近地区` : '全球（未检测到地理位置）')
       console.log('🌍 显示格式：', userNationality ? `基于${userNationality}国籍的文化偏好` : '使用默认格式')
@@ -646,6 +696,7 @@ export const useTravelStore = defineStore('travel', () => {
       // 传递用户选择的目的地、国籍、永久居民身份、已持有签证和签证信息
       const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
       console.log('心理旅程模式：生成完成', inspirationData)
+      pushGenerationLog('✅ 已获取 AI 生成的旅程数据，正在整理...')
       console.log('📦 返回的数据包含:', {
         locations: inspirationData.locations?.length || 0,
         recommendedDestinations: inspirationData.recommendedDestinations?.length || 0,
@@ -676,6 +727,7 @@ export const useTravelStore = defineStore('travel', () => {
       
       // 确保数据正确设置
       console.log('📝 准备设置 inspirationData，locations数量:', inspirationData.locations?.length || 0)
+      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
       setInspirationData(inspirationData)
       setCurrentMode('inspiration')
       
@@ -686,14 +738,18 @@ export const useTravelStore = defineStore('travel', () => {
       console.log('✅ 验证：当前 inspirationData.title:', currentData?.title)
     } catch (err) {
       console.error('生成心理旅程失败:', err)
+      pushGenerationLog('❌ 生成心理旅程失败', 'error')
       setError('生成心理旅程失败，请重试')
     } finally {
       setLoading(false)
+      pushGenerationLog('🏁 生成流程结束')
     }
   }
 
   // 生成灵感内容
   const generateInspiration = async (input: string) => {
+    clearGenerationLogs()
+    pushGenerationLog('🚀 开始生成灵感旅程...')
     setLoading(true)
     setError(null)
     
@@ -793,12 +849,15 @@ export const useTravelStore = defineStore('travel', () => {
       console.log('灵感模式：开始意图识别...', input)
       const intent = await detectInspirationIntent(input, currentLanguage)
       console.log('灵感模式：识别到的意图', intent)
+      pushGenerationLog(`🧭 检测到旅行意图：${intent.intentType || '未知'}`)
       
       // 第二步：生成行程计划（调用 AI）
       console.log('⏳ 开始调用 generateInspirationJourney，这可能需要 1-3 分钟...')
       console.log('📝 用户输入:', input)
+      pushGenerationLog('📡 正在生成灵感旅程细节（可能需要 1-3 分钟）...')
       const inspirationData = await generateInspirationJourney(input, currentLanguage, userCountry, undefined, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
       console.log('✅ 灵感模式：生成的行程计划', inspirationData)
+      pushGenerationLog('✅ 灵感旅程生成完成，正在整理体验亮点...')
       
       // 新的数据结构是行程计划格式（包含days数组）
       // 如果包含locations字段，则补齐国家信息（向后兼容）
@@ -824,10 +883,12 @@ export const useTravelStore = defineStore('travel', () => {
       }
       
       setInspirationData(inspirationData)
+      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
       setCurrentMode('inspiration')
       
     } catch (err) {
       console.error('生成灵感内容失败，尝试使用本地灵感库回退:', err)
+      pushGenerationLog('⚠️ 生成失败，尝试使用本地灵感库回退', 'warn')
       try {
         // 使用本地灵感库作为回退方案
         const suggestions = await getLocalInspirationDestinations()
@@ -836,6 +897,7 @@ export const useTravelStore = defineStore('travel', () => {
           const localData = buildInspirationFromLocal(fallback)
           setInspirationData(localData)
           setCurrentMode('inspiration')
+          pushGenerationLog('✅ 已加载本地灵感库的备用推荐')
         } else {
           setError('生成灵感内容失败，请重试')
         }
@@ -844,6 +906,7 @@ export const useTravelStore = defineStore('travel', () => {
       }
     } finally {
       setLoading(false)
+      pushGenerationLog('🏁 生成流程结束')
     }
   }
 
@@ -916,6 +979,7 @@ export const useTravelStore = defineStore('travel', () => {
     loading.value = false
     error.value = null
     currentMode.value = null
+    clearGenerationLogs()
   }
 
   return {
@@ -937,6 +1001,8 @@ export const useTravelStore = defineStore('travel', () => {
     setCurrentMode,
     setLoading,
     setError,
+    generationLogs,
+    clearGenerationLogs,
     generateItinerary,
     generateInspiration,
     generatePsychologicalJourney,

@@ -463,6 +463,8 @@ export default {
       noImageSelected: 'Please select an image first',
       // Activity detail page translations
       estimatedStay: 'Estimated Stay',
+      chargingDuration: 'Charging Duration',
+      stayDuration: 'Stay Duration',
       minutes: 'minutes',
       walking: 'Walking',
       minutesReachable: 'min reachable',

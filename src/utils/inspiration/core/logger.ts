@@ -71,6 +71,37 @@ function levelToTag(level: LogLevel): string {
 
 /** -------- 默认 Console Transport -------- */
 
+interface LogEvent {
+  level: LogLevel
+  message: string
+  namespace?: string
+  timestamp: number
+  meta?: Meta[]
+}
+
+type LogSubscriber = (event: LogEvent) => void
+
+const logSubscribers = new Set<LogSubscriber>()
+
+export function subscribeLogEvents(callback: LogSubscriber): () => void {
+  logSubscribers.add(callback)
+  return () => {
+    logSubscribers.delete(callback)
+  }
+}
+
+function emitLogEvent(event: LogEvent) {
+  if (!logSubscribers.size) return
+  logSubscribers.forEach(subscriber => {
+    try {
+      subscriber(event)
+    } catch (error) {
+      // 避免订阅者异常影响日志主流程
+      console.error('log subscriber error:', error)
+    }
+  })
+}
+
 export class ConsoleTransport implements Transport {
   log(level: LogLevel, msg: string, meta?: Meta) {
     const line = meta === undefined ? msg : `${msg} ${typeof meta === 'string' ? meta : safeStringify(meta)}`;
@@ -153,19 +184,35 @@ export class Logger {
       };
       const s = truncate(safeStringify(payload), this.cut);
       this.out.log(level, s);
+      emitLogEvent({
+        level,
+        message: s,
+        namespace: this.ns,
+        timestamp: Date.now(),
+      });
     } else {
       // 拼接文本行 + 可选元数据
       const head = [prefixTs, tag, prefixNs].filter(Boolean).join(' ');
       const base = head ? `${head} ${msg}` : msg;
+      let output = base;
       if (!metaArr.length) {
         this.out.log(level, base);
       } else if (metaArr.length === 1 && (typeof metaArr[0] === 'string')) {
-        this.out.log(level, `${base} ${truncate(String(metaArr[0]), this.cut)}`);
+        output = `${base} ${truncate(String(metaArr[0]), this.cut)}`;
+        this.out.log(level, output);
       } else {
         // 将复杂 meta 统一安全序列化并截断
         const meta = truncate(safeStringify(metaArr.length === 1 ? metaArr[0] : metaArr), this.cut);
+        output = `${base} ${meta}`;
         this.out.log(level, base, meta);
       }
+      emitLogEvent({
+        level,
+        message: output,
+        namespace: this.ns,
+        timestamp: Date.now(),
+        meta: metaArr.length ? metaArr : undefined,
+      });
     }
   }
 }

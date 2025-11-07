@@ -1,12 +1,12 @@
 /**
- * POI搜索服务 - 使用AI搜索附近的餐饮、景点、加油站、充电桩、休息站
+ * POI搜索服务 - 使用AI搜索附近的餐饮、景点、住宿、加油站、充电桩、休息站
  */
 
 import { askDeepSeek, parseJSONSafe, logger } from '@/utils/inspirationCore'
 import { searchUnsplashPhoto } from './unsplashAPI'
 import { getCachedPOIResults, setCachedPOIResults } from '@/utils/poiCache'
 
-export type POICategory = 'restaurant' | 'attraction' | 'gas_station' | 'ev_charging' | 'rest_area'
+export type POICategory = 'restaurant' | 'attraction' | 'accommodation' | 'gas_station' | 'ev_charging' | 'rest_area'
 
 export interface POIResult {
   name: {
@@ -80,6 +80,7 @@ export async function searchNearbyPOI(
   const categoryLabels: Record<POICategory, { zh: string; en: string }> = {
     restaurant: { zh: '餐饮', en: 'Restaurant' },
     attraction: { zh: '旅游景点', en: 'Tourist Attraction' },
+    accommodation: { zh: '住宿', en: 'Accommodation' },
     gas_station: { zh: '加油站', en: 'Gas Station' },
     ev_charging: { zh: '新能源车充电桩', en: 'EV Charging Station' },
     rest_area: { zh: '休息站', en: 'Rest Area' }

@@ -184,10 +184,10 @@
                     class="highlight-card"
                   >
                     <div class="highlight-number">{{ index + 1 }}</div>
-                    <div class="highlight-content">
                       <div class="highlight-icon">
                         {{ getHighlightIcon(typeof highlight === 'string' ? highlight : highlight.title) }}
                       </div>
+                    <div class="highlight-content">
                       <div class="highlight-title">
                         {{ typeof highlight === 'string' ? highlight : highlight.title }}
                       </div>
@@ -460,6 +460,7 @@ const displayHighlights = computed(() => {
 const displayAiMessage = computed(() => {
   return currentLocationDetail.value?.aiMessage || inspirationResult.value?.aiMessage || ''
 })
+
 
 // 判断是否有明确目的地（不显示推荐目的地列表）
 const hasSpecificDestination = computed(() => {

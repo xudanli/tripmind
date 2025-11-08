@@ -28,6 +28,11 @@
       :participants="travel?.participants || 1"
     />
 
+    <InspirationHero
+      v-else-if="travel?.mode === 'inspiration'"
+      :travel="travel"
+    />
+
     <SeekerHero
       v-else-if="travel?.mode === 'seeker'"
       :title="travel?.title || ''"
@@ -35,16 +40,21 @@
       :show-mood-tracker="true"
     />
 
-    <!-- Inspiration 模式的 Hero 展示已集成在 ExperienceDay 组件中 -->
-
     <!-- 主要内容区域 -->
     <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' }">
-      <a-row :gutter="[24, 24]">
-        <!-- 左侧面板 - 根据模式切换 -->
-        <!-- 灵感模式：16列，右侧8列显示公共组件 -->
-        <a-col :xs="24" :lg="travel?.mode === 'inspiration' ? 16 : 16" :class="{ 'inspiration-full-width': travel?.mode === 'inspiration' }">
-          <!-- Planner 模式：详细时间表 -->
-          <PlannerTimeline v-if="travel?.mode === 'planner'" :itinerary="(travel?.data as any)?.plannerItinerary || null" />
+      <div
+        class="content-layout"
+        :class="{
+          'with-sidebar': shouldShowSidebar,
+          'inspiration-layout': travel?.mode === 'inspiration'
+        }"
+      >
+        <section class="primary-panel">
+          <!-- Planner 模式：行程概览 + 详细时间表 -->
+          <template v-if="travel?.mode === 'planner'">
+            <PlannerOverview :itinerary="plannerItineraryData" />
+            <PlannerTimeline :itinerary="plannerItineraryData" />
+          </template>
 
           <!-- Seeker 模式：心情笔记 -->
           <SeekerMoodNotes v-else-if="travel?.mode === 'seeker'" />
@@ -90,33 +100,31 @@
               </a-button>
             </div>
           </a-card>
-        </a-col>
+        </section>
 
-        <!-- 右侧面板 - 所有模式都显示 -->
-        <a-col 
-          :xs="24" 
-          :lg="8" 
+        <!-- 右侧面板 -->
+        <aside
+          v-if="shouldShowSidebar"
+          class="sidebar-panel"
           :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
         >
-          <!-- 签证指引（显示在右侧边栏顶部，如果有目的地信息） -->
-          <VisaGuide 
+          <VisaGuide
             v-if="visaInfo && destinationCountry"
+            class="sidebar-block"
             :visa-info="visaInfo"
             :destination-country="destinationCountry"
             :destination-name="destinationName"
-            style="margin-bottom: 24px;"
           />
 
-          <!-- 统一侧边栏（使用 Tab 切换） -->
-          <TravelSidebar 
+          <TravelSidebar
+            class="sidebar-block"
             :travel-id="travel?.id"
             :mode="travel?.mode || 'default'"
             :initial-spent="travel?.spent || 0"
             :initial-total="travel?.budget || 0"
           />
-        </a-col>
-        
-      </a-row>
+        </aside>
+      </div>
     </div>
 
     </template>
@@ -129,6 +137,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
 import { useI18n } from 'vue-i18n'
+import { storeToRefs } from 'pinia'
 import PlannerHero from '@/components/TravelDetail/PlannerHero.vue'
 import SeekerHero from '@/components/TravelDetail/SeekerHero.vue'
 // InspirationHero 组件已移除，功能已集成到 ExperienceDay 组件中
@@ -137,6 +146,8 @@ import SeekerMoodNotes from '@/components/TravelDetail/SeekerMoodNotes.vue'
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
 import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
+import PlannerOverview from '@/components/TravelDetail/PlannerOverview.vue'
+import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
 import { getVisaInfo } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
@@ -144,26 +155,27 @@ import { PRESET_COUNTRIES } from '@/constants/countries'
 const { t } = useI18n()
 import {
   ArrowLeftOutlined,
-  EnvironmentOutlined,
   CalendarOutlined,
-  UserOutlined,
   EditOutlined,
-  ShareAltOutlined,
-  MessageOutlined,
-  UserAddOutlined,
-  ThunderboltOutlined,
-  GlobalOutlined,
-  PlusOutlined,
-  FileOutlined,
-  TeamOutlined
+  PlusOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const travelListStore = useTravelListStore()
 const travelStore = useTravelStore()
+const { plannerItinerary: plannerItineraryRef } = storeToRefs(travelStore)
 
 const travel = ref<Travel | null>(null)
+const shouldShowSidebar = computed(() => Boolean(travel.value))
+
+const plannerItineraryData = computed(() => {
+  if (plannerItineraryRef.value?.days?.length) {
+    return plannerItineraryRef.value
+  }
+  const dataObj = travel.value?.data as any
+  return dataObj?.plannerItinerary || null
+})
 
 // 从目的地字符串提取国家代码（统一的提取函数）
 const extractCountryCodeFromDestination = (destStr: string): string | null => {
@@ -441,7 +453,7 @@ onMounted(() => {
     const dataObj: any = travel.value.data || {}
     if (dataObj.plannerItinerary) {
       travelStore.setItineraryData(travelStore.itineraryData) // 保持现有接口
-      ;(travelStore as any).plannerItinerary = dataObj.plannerItinerary
+      plannerItineraryRef.value = dataObj.plannerItinerary
     } else if (dataObj.itineraryData) {
       // 尝试从通用结构生成一个最小 PlannerItineraryResponse，供 Timeline 使用
       try {
@@ -463,7 +475,7 @@ onMounted(() => {
             estimatedCost: 0
           }))
         }))
-        ;(travelStore as any).plannerItinerary = {
+        plannerItineraryRef.value = {
           title: travel.value.title || '智能行程规划',
           destination: travel.value.location || '目的地',
           duration: mappedDays.length,
@@ -786,149 +798,66 @@ const getBudgetColor = () => {
   transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* 灵感模式布局调整 */
-.main-content.inspiration-mode {
-  max-width: 1600px;
-  padding: 0 clamp(1.5rem, 4vw, 3rem);
-  margin-top: 0 !important;
-  overflow: visible !important;
-  overflow-y: visible !important;
-  overflow-x: hidden !important;
-  height: auto !important;
-  /* 移除固定的min-height，让内容自然决定高度 */
-  position: relative;
-}
-
-/* 灵感模式：与其他模式保持一致，不需要特殊宽度处理 */
-
-/* 桌面端：灵感模式封面样式 - 与其他模式保持一致 */
-@media (min-width: 992px) {
-  .main-content.inspiration-mode :deep(.inspiration-hero) {
-    /* 与其他模式保持一致，使用标准布局，不需要特殊宽度处理 */
-  }
-}
-
-/* 移动端：与其他模式保持一致 */
-@media (max-width: 991px) {
-  .main-content.inspiration-mode :deep(.inspiration-hero) {
-    /* 与其他模式保持一致 */
-    min-height: 100vh;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-  }
-}
-
-.main-content.inspiration-mode :deep(.hero-layer *) {
-  pointer-events: auto; /* 恢复内部元素的交互 */
-}
-
-/* 确保滚动容器正确 */
-.main-content.inspiration-mode {
-  overflow: visible !important;
-  height: auto !important;
-}
-
-.main-content :deep(.ant-col) {
-  min-height: 200px;
-}
-
-/* 灵感模式专用优化 */
-.main-content :deep(.ant-row) {
-  --ant-col-lg-offset: 0;
-}
-
-.main-content.inspiration-mode :deep(.ant-col.inspiration-full-width) {
-  /* Inspiration模式现在使用16:8布局，不再需要全宽 */
-}
-
-/* 隐藏空白的右侧面板 */
-.main-content :deep(.ant-col[class*="lg-8"]:empty) {
-  display: none;
-}
-
-/* Inspiration模式：右侧边栏正常显示，使用sticky定位 */
-@media (min-width: 992px) {
-  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
-    display: block !important; /* 确保显示 */
-    position: sticky;
-    align-self: flex-start;
-    z-index: 10;
-    max-height: none !important; /* 移除高度限制，允许完整显示内容 */
-    overflow-y: visible !important; /* 允许内容自然显示 */
-    height: auto !important;
-  }
-}
-
-/* 移动端：使用相对定位 */
-@media (max-width: 991px) {
-  .main-content.inspiration-mode :deep(.hero-layer) {
-    position: relative !important;
-    width: 100% !important;
-    height: auto !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-  }
-  
-  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
-    position: relative !important;
-    top: auto !important;
-  }
-}
-
-/* 确保Inspiration模式的左侧内容正常显示（不再需要margin-top，因为封面现在是sticky） */
-@media (min-width: 992px) {
-  .main-content.inspiration-mode :deep(.ant-col[class*="lg-16"]) {
-    margin-top: 0; /* sticky定位不需要margin-top */
-    position: relative;
-    z-index: 2;
-    /* 移除固定的min-height和padding-bottom，让内容自然决定高度 */
-  }
-}
-
-/* 确保experience-journey自然显示，不强制最小高度 */
-.main-content.inspiration-mode :deep(.experience-journey) {
-  /* 移除固定的min-height，让内容自然决定高度 */
-}
-
-/* 确保itinerary-timeline部分正常显示和滚动 */
-.main-content.inspiration-mode :deep(.itinerary-timeline) {
-  position: relative;
-  z-index: 2;
-  background: #f5f5f7;
-}
-
-/* 确保main-content不会覆盖封面 */
 .main-content.inspiration-mode {
   margin-top: 0;
-  position: relative;
 }
 
-@media (max-width: 991px) {
-  .main-content.inspiration-mode :deep(.sidebar-after-hero) {
-    position: relative !important;
-    top: auto !important;
-    right: auto !important;
-    width: 100% !important;
-    margin-top: 24px !important;
+.content-layout {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+}
+
+.content-layout.with-sidebar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.content-layout.inspiration-layout {
+  gap: 32px;
+}
+
+.primary-panel,
+.sidebar-panel {
+  min-width: 0;
+}
+
+.primary-panel > * + * {
+  margin-top: 24px;
+}
+
+.sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-self: start;
+}
+
+.sidebar-block {
+  width: 100%;
+}
+
+.sidebar-block:not(:last-child) {
+  margin-bottom: 24px;
+}
+
+@media (min-width: 992px) {
+  .content-layout.with-sidebar {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  }
+
+  .sidebar-panel {
+    position: sticky;
+    top: 24px;
   }
 }
 
-/* 响应式断点 */
 @media (min-width: 1400px) {
-  .main-content.inspiration-mode {
-    max-width: 2000px;
+  .main-content {
+    max-width: 1800px;
   }
-}
 
-@media (max-width: 1400px) {
-  .main-content.inspiration-mode {
-    max-width: 1600px;
-  }
-}
-
-@media (max-width: 1200px) {
-  .main-content.inspiration-mode {
-    max-width: 1400px;
+  .content-layout.with-sidebar {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
   }
 }
 
@@ -937,17 +866,13 @@ const getBudgetColor = () => {
     padding: 0 clamp(1rem, 3vw, 2rem);
     max-width: 100%;
   }
-  
-  .main-content :deep(.ant-col[class*="lg-8"]) {
-    display: none;
-  }
-  
-  .main-content :deep(.ant-col[class*="lg-16"]),
-  .main-content :deep(.ant-col[class*="lg-24"]) {
-    max-width: 100%;
-    flex: 0 0 100%;
+
+  .sidebar-panel {
+    position: static;
   }
 }
+
+/* Layout overrides handled above */
 
 .timeline-card,
 .sidebar-card {

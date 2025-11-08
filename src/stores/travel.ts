@@ -1,13 +1,17 @@
+// path: src/stores/travel.ts
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import i18n from '@/i18n'
-import emotionalTravelAPI, { 
-  type EmotionDetectionRequest,
-  type TravelPlanRequest,
-  type FeedbackRequest 
-} from '@/services/emotionalTravelAPI'
+import emotionalTravelAPI from '@/services/emotionalTravelAPI'
+import type { EmotionDetectionRequest, TravelPlanRequest, FeedbackRequest } from '@/services/emotionalTravelAPI'
 import { plannerAPI, type PlannerItineraryResponse } from '@/services/plannerAPI'
 import { subscribeLogEvents, LogLevel } from '@/utils/inspiration/core/logger'
+import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
+import { getCachedMedia, setCachedMedia } from '@/utils/mediaCache'
+import { createHighlightMediaKey, buildSearchQuery } from '@/utils/mediaHelpers'
+
+// -------------------- Types --------------------
+type Mode = 'planner' | 'seeker' | 'inspiration' | null
 
 interface GenerationLogEntry {
   id: number
@@ -15,8 +19,6 @@ interface GenerationLogEntry {
   level: 'info' | 'warn' | 'error'
   timestamp: number
 }
-
-let unsubscribeLogEvents: (() => void) | null = null
 
 export interface PlannerFormData {
   destination: string
@@ -40,6 +42,29 @@ export interface HighlightDetail {
   feeling: string
 }
 
+export interface PlannerNotification {
+  id: string
+  type: 'rhythm'
+  level: 'info' | 'warn'
+  message: string
+  createdAt: number
+  dayIndex?: number
+}
+
+export interface PlannerDailyRhythm {
+  dayIndex: number
+  title: string
+  score: number
+  warnings: string[]
+}
+
+export interface PlannerRhythmInsights {
+  score: number
+  level: 'balanced' | 'tight' | 'loose'
+  summary: string
+  daily: PlannerDailyRhythm[]
+}
+
 export interface LocationDetail {
   name: string
   country?: string
@@ -48,17 +73,17 @@ export interface LocationDetail {
   highlights?: string[] | HighlightDetail[]
   aiMessage?: string
   description?: string
-  reason?: string // AI推荐理由
-  reasoning?: string // AI判断思路
+  reason?: string
+  reasoning?: string
 }
 
 export interface InspirationData {
   title: string
   subtitle: string
   location: string
+  destination?: string
   locations?: string[]
   locationDetails?: { [key: string]: LocationDetail }
-  // 新增：当前国家与地点到国家映射
   currentCountry?: string
   locationCountries?: Record<string, string>
   duration: string
@@ -122,8 +147,6 @@ export interface InspirationData {
   keywords?: string[]
   story?: string
   concept?: string
-  
-  // 双轨 JSON 输出结构（新格式 - Inspirit Designer）
   personaProfile?: {
     type: string
     motivation: string
@@ -162,8 +185,6 @@ export interface InspirationData {
       }>
     }
   }
-  
-  // 行程计划格式（兼容格式）
   days?: Array<{
     day: number
     date: string
@@ -188,90 +209,15 @@ export interface InspirationData {
         ritual?: string
         reflection?: string
       }
-      // 详细信息（新增）
-      details?: {
-        // 名称信息
-        name?: {
-          chinese?: string
-          english?: string
-          local?: string // 当地语言名称
-        }
-        // 地址信息
-        address?: {
-          chinese?: string
-          english?: string
-          local?: string
-          landmark?: string // 附近地标（如"靠近历史广场"）
-        }
-        // 交通信息
-        transportation?: {
-          fromStation?: {
-            distance?: string // 如"12分钟步行"
-            walkTime?: string
-            busTime?: string
-          }
-          busLines?: string[] // 公交路线，如["1", "2", "8", "19"]
-          busStop?: string // 公交站名（当地语言）
-          subway?: {
-            available: boolean
-            lines?: string[]
-            station?: string
-          }
-          parking?: string // 停车信息
-        }
-        // 营业/开放时间
-        openingHours?: {
-          days?: string // 如"周一至周日"
-          hours?: string // 如"11:30-14:30, 17:30-22:00"
-          holidays?: string // 节假日安排
-          closedDays?: string[] // 关闭日期
-        }
-        // 费用明细
-        pricing?: {
-          general?: number // 一般估计费用
-          detail?: {
-            setMeal?: { min: number; max: number; unit: string } // 套餐价格
-            aLaCarte?: { min: number; max: number; unit: string } // 单点价格
-            children?: { price: number; ageLimit?: number; unit: string } // 儿童价格
-            groupDiscount?: { percentage?: number; minPeople?: number } // 团体折扣
-          }
-        }
-        // 评分
-        rating?: {
-          score?: number // 0-5
-          platform?: string // 评分平台（如"Google", "TripAdvisor"）
-          reviewCount?: number
-        }
-        // 推荐和建议
-        recommendations?: {
-          bestTime?: string // 最佳时间，如"晚餐时间(18:00-20:00)"
-          bookingRequired?: boolean
-          bookingAdvance?: string // 预订提前时间，如"2-3天"
-          suggestedDuration?: string // 建议停留时间，如"90-120分钟"
-          dressCode?: string // 着装要求
-          seasonal?: string // 季节特色/注意事项
-          specialNotes?: string[] // 特殊注意事项
-        }
-        // 描述和特色
-        description?: {
-          cuisine?: string // 菜系/类型
-          specialty?: string // 特色
-          atmosphere?: string // 氛围
-          highlights?: string[] // 亮点
-        }
-      }
+      details?: any
     }>
   }>
-  
-  // 心理旅程相关字段
   psychologicalFlow?: string[]
   symbolicElements?: string[]
   templateName?: string
   matchScore?: number
   matchDetails?: any
   psychologicalJourney?: any
-  
-  // 行程推荐
   recommendations?: {
     bestTimeToVisit?: string
     weatherAdvice?: string
@@ -281,6 +227,7 @@ export interface InspirationData {
   }
   totalCost?: number
   summary?: string
+  videos?: Record<string, InspirationVideo>
 }
 
 export interface ExperienceDay {
@@ -302,10 +249,16 @@ export interface ExperienceDay {
   }
 }
 
+// ——扩展 Activity，匹配当前写入字段（否则 TS 隐性失配）——
 export interface Activity {
   time: string
   activity: string
   type: string
+  duration?: number
+  notes?: string
+  location?: string
+  transport?: any
+  cost?: number
 }
 
 export interface DayPlan {
@@ -338,8 +291,225 @@ export interface ItineraryData {
   experienceDay?: ExperienceDay
 }
 
+// -------------------- Helpers --------------------
+let unsubscribeLogEvents: (() => void) | null = null
+
+function safeStr(v: unknown, fallback = ''): string {
+  const s = (v ?? '').toString().trim()
+  return s.length ? s : fallback
+}
+
+function arr<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : []
+}
+
+function firstOr<T>(a: T[] | undefined, i: number, fallback: T): T {
+  if (!a || !a.length) return fallback
+  return a[i] ?? fallback
+}
+
+interface HighlightSource {
+  scope: string
+  scopeLabel?: string
+  highlight: string | HighlightDetail
+}
+
+const MAX_VIDEOS_PER_INSPIRATION = 6
+
+function collectHighlightSources(data: InspirationData): HighlightSource[] {
+  const sources: HighlightSource[] = []
+  if (Array.isArray(data.highlights) && data.highlights.length) {
+    data.highlights.forEach((highlight) => {
+      sources.push({ scope: 'global', highlight })
+    })
+  }
+  if (data.locationDetails) {
+    Object.entries(data.locationDetails).forEach(([loc, detail]) => {
+      if (Array.isArray(detail?.highlights)) {
+        detail.highlights.forEach((highlight) => {
+          sources.push({ scope: `location:${loc}`, scopeLabel: loc, highlight })
+        })
+      }
+    })
+  }
+  return sources
+}
+
+async function enrichInspirationMedia(data: InspirationData, locale: string): Promise<InspirationData> {
+  const sources = collectHighlightSources(data)
+  if (!sources.length) return data
+
+  const videos: Record<string, InspirationVideo> = { ...(data.videos || {}) }
+  const destinationLabel = data.destination || data.location
+  const canUseCache = typeof window !== 'undefined'
+  let fetchedCount = 0
+
+  for (const source of sources) {
+    if (fetchedCount >= MAX_VIDEOS_PER_INSPIRATION) break
+    const key = createHighlightMediaKey(source.scope, source.highlight)
+    if (videos[key]) continue
+
+    const cacheKey = `pexels:${locale}:${key}`
+    let video: InspirationVideo | null = null
+
+    if (canUseCache) {
+      video = getCachedMedia<InspirationVideo>(cacheKey)
+    }
+
+    if (!video) {
+      const query = buildSearchQuery(destinationLabel, source.scopeLabel, source.highlight)
+      if (!query) continue
+      const results = await searchPexelsVideos(query, { perPage: 1, orientation: 'landscape' })
+      video = results?.[0] ?? null
+      if (video && canUseCache) {
+        setCachedMedia(cacheKey, video)
+      }
+    }
+
+    if (video) {
+      videos[key] = video
+      fetchedCount++
+    }
+  }
+
+  if (!fetchedCount && !Object.keys(videos).length) return data
+  return { ...data, videos }
+}
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+function evaluateDayRhythm(day: PlannerItineraryResponse['days'][number], index: number): { score: number; warnings: string[]; title: string } {
+  const title = safeStr((day as any)?.title, `第${index + 1}天`)
+  const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : []
+  const activityCount = slots.length
+  const durationHours = (() => {
+    const statDuration = Number((day as any)?.stats?.duration)
+    if (Number.isFinite(statDuration) && statDuration > 0) return statDuration
+    const slotSum = slots.reduce((sum, slot: any) => {
+      if (typeof slot?.estimatedDuration === 'number' && slot.estimatedDuration > 0) return sum + slot.estimatedDuration
+      if (typeof slot?.duration === 'number' && slot.duration > 0) return sum + slot.duration / 60
+      return sum + 1.5
+    }, 0)
+    return slotSum
+  })()
+
+  const transportSlots = slots.filter((slot: any) => {
+    const category = safeStr(slot?.category).toLowerCase()
+    const type = safeStr(slot?.type).toLowerCase()
+    return category.includes('transport') || type.includes('transport') || category.includes('交通')
+  })
+
+  let score = 92
+  const warnings: string[] = []
+
+  if (durationHours < 4.5) {
+    score -= 18
+    warnings.push('节奏偏松，可以再安排一个轻量体验或留白仪式。')
+  } else if (durationHours < 6) {
+    score -= 6
+    warnings.push('当日安排较为宽松，如想更充实，可补充一段探索时光。')
+  } else if (durationHours > 10) {
+    score -= 20
+    warnings.push('行程偏紧，建议删减一项或提前预留休息。')
+  } else if (durationHours > 9) {
+    score -= 10
+    warnings.push('今日活动较密集，试着加一段缓冲时间。')
+  }
+
+  if (activityCount <= 2) {
+    score -= 10
+    warnings.push('活动数量偏少，或许可以拓展一个灵光瞬间。')
+  } else if (activityCount >= 6) {
+    score -= 10
+    warnings.push('活动较多，挑选重点体验可以让节奏更顺。')
+  }
+
+  const transportRatio = activityCount > 0 ? transportSlots.length / activityCount : 0
+  if (transportRatio >= 0.4) {
+    score -= 8
+    warnings.push('交通占比较高，尝试将景点集中在同一区域，节奏会更轻盈。')
+  }
+
+  score = clamp(score, 45, 96)
+  if (!warnings.length && score >= 82) {
+    warnings.push('节奏恰到好处，保持这种自在的律动。')
+  }
+
+  return { score, warnings, title }
+}
+
+function composeRhythmSummary(level: PlannerRhythmInsights['level']): string {
+  switch (level) {
+    case 'balanced':
+      return '整体节奏均衡，Aris 会继续帮你守护这份从容。'
+    case 'tight':
+      return '有些时段稍显紧凑，适当删减或调整顺序会让节奏更顺滑。'
+    case 'loose':
+      return '行程略显松散，可以酌情补充体验，或保留更多留白仪式感。'
+    default:
+      return 'Aris 正在为你观察旅程节奏。'
+  }
+}
+
+function generatePlannerInsights(itinerary: PlannerItineraryResponse): { insights: PlannerRhythmInsights; notifications: PlannerNotification[] } {
+  const days = Array.isArray(itinerary.days) ? itinerary.days : []
+  if (!days.length) {
+    return {
+      insights: {
+        score: 0,
+        level: 'balanced',
+        summary: 'Aris 正在等待完整的行程内容。',
+        daily: []
+      },
+      notifications: []
+    }
+  }
+
+  const daily = days.map((day, index) => evaluateDayRhythm(day, index))
+  const totalScore = daily.reduce((sum, d) => sum + d.score, 0)
+  const averageScore = Math.round(totalScore / daily.length)
+  let level: PlannerRhythmInsights['level']
+  if (averageScore >= 80) level = 'balanced'
+  else if (averageScore >= 65) level = 'tight'
+  else level = 'loose'
+
+  const insights: PlannerRhythmInsights = {
+    score: averageScore,
+    level,
+    summary: composeRhythmSummary(level),
+    daily: daily.map((d, index) => ({
+      dayIndex: index,
+      title: d.title,
+      score: Math.round(d.score),
+      warnings: d.warnings
+    }))
+  }
+
+  const notifications: PlannerNotification[] = []
+  daily.forEach((dayInfo, index) => {
+    dayInfo.warnings.forEach((warning, warningIndex) => {
+      const isPositive = warning.includes('恰到好处') || warning.includes('自在')
+      notifications.push({
+        id: `rhythm-${index}-${warningIndex}-${Date.now()}`,
+        type: 'rhythm',
+        level: isPositive ? 'info' : 'warn',
+        message: `${dayInfo.title}：${warning}`,
+        createdAt: Date.now(),
+        dayIndex: index
+      })
+    })
+  })
+
+  return {
+    insights,
+    notifications: notifications.slice(0, 6)
+  }
+}
+
+
+// -------------------- Store --------------------
 export const useTravelStore = defineStore('travel', () => {
-  // Planner 表单数据
+  // State
   const plannerData = ref<PlannerFormData>({
     destination: '',
     duration: 5,
@@ -349,7 +519,6 @@ export const useTravelStore = defineStore('travel', () => {
     customRequirements: ''
   })
 
-  // Seeker 心情数据
   const moodData = ref<MoodData>({
     currentMood: '',
     desiredExperience: '',
@@ -358,21 +527,20 @@ export const useTravelStore = defineStore('travel', () => {
   })
 
   const inspirationData = ref<InspirationData | null>(null)
-
-  // AI 生成的行程数据
   const itineraryData = ref<ItineraryData | null>(null)
-
-  // Planner 行程数据
   const plannerItinerary = ref<PlannerItineraryResponse | null>(null)
+  const plannerRhythmInsights = ref<PlannerRhythmInsights | null>(null)
+  const plannerNotifications = ref<PlannerNotification[]>([])
   
-  // 加载状态
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const currentMode = ref<'planner' | 'seeker' | 'inspiration' | null>(null)
+  const currentMode = ref<Mode>(null)
   const generationLogs = ref<GenerationLogEntry[]>([])
+  const isRunning = ref(false) // 并发锁
 
+  // Logs
   const pushGenerationLog = (message: string, level: 'info' | 'warn' | 'error' = 'info', timestamp?: number) => {
-    const text = (message ?? '').toString().trim()
+    const text = safeStr(message)
     if (!text) return
     const entry: GenerationLogEntry = {
       id: Date.now() + Math.floor(Math.random() * 1000),
@@ -380,6 +548,10 @@ export const useTravelStore = defineStore('travel', () => {
       level,
       timestamp: timestamp ?? Date.now()
     }
+    const prefix = '[AI Generation]'
+    if (level === 'error') console.error(prefix, text)
+    else if (level === 'warn') console.warn(prefix, text)
+    else console.info(prefix, text)
     generationLogs.value = [...generationLogs.value, entry].slice(-150)
   }
 
@@ -387,49 +559,49 @@ export const useTravelStore = defineStore('travel', () => {
     generationLogs.value = []
   }
 
+  // Subscribe once, provide disposer
   if (!unsubscribeLogEvents) {
     unsubscribeLogEvents = subscribeLogEvents(event => {
-      // 仅在灵感生成场景捕获日志（adapter 命名空间）
       if (event.namespace && !event.namespace.includes('adapter')) return
-      const level: 'info' | 'warn' | 'error' = event.level === LogLevel.ERROR
-        ? 'error'
-        : event.level === LogLevel.WARN
-          ? 'warn'
-          : 'info'
+      const level: 'info' | 'warn' | 'error' =
+        event.level === LogLevel.ERROR ? 'error' :
+        event.level === LogLevel.WARN ? 'warn' : 'info'
       pushGenerationLog(event.message, level, event.timestamp)
     })
   }
 
-  // Actions
-  const setPlannerData = (data: Partial<PlannerFormData>) => {
-    Object.assign(plannerData.value, data)
+  // Expose disposer & ensure GC on unmount
+  function dispose() {
+    if (unsubscribeLogEvents) {
+      unsubscribeLogEvents()
+      unsubscribeLogEvents = null
+    }
+  }
+  onUnmounted(dispose)
+
+  // -------------------- Actions --------------------
+  const setPlannerData = (data: Partial<PlannerFormData>) => Object.assign(plannerData.value, data)
+  const setMoodData = (data: Partial<MoodData>) => Object.assign(moodData.value, data)
+  const setInspirationData = (data: InspirationData | null) => { inspirationData.value = data }
+  const setItineraryData = (data: ItineraryData | null) => { itineraryData.value = data }
+  const setCurrentMode = (mode: Mode) => { currentMode.value = mode }
+  const setLoading = (isLoading: boolean) => { loading.value = isLoading }
+  const setError = (message: string | null) => { error.value = message }
+  const dismissPlannerNotification = (id: string) => {
+    plannerNotifications.value = plannerNotifications.value.filter(note => note.id !== id)
+  }
+  const updatePlannerInsights = (itinerary: PlannerItineraryResponse | null) => {
+    if (!itinerary) {
+      plannerRhythmInsights.value = null
+      plannerNotifications.value = []
+      return
+    }
+    const { insights, notifications } = generatePlannerInsights(itinerary)
+    plannerRhythmInsights.value = insights
+    plannerNotifications.value = notifications
   }
 
-  const setMoodData = (data: Partial<MoodData>) => {
-    Object.assign(moodData.value, data)
-  }
-
-  const setInspirationData = (data: InspirationData | null) => {
-    inspirationData.value = data
-  }
-
-  const setItineraryData = (data: ItineraryData | null) => {
-    itineraryData.value = data
-  }
-
-  const setCurrentMode = (mode: 'planner' | 'seeker' | 'inspiration' | null) => {
-    currentMode.value = mode
-  }
-
-  const setLoading = (isLoading: boolean) => {
-    loading.value = isLoading
-  }
-
-  const setError = (message: string | null) => {
-    error.value = message
-  }
-
-  // -------- Inspiration 本地数据库支持 --------
+  // Local inspiration DB
   async function getLocalInspirationDestinations(params?: { country?: string; stage?: any; keyword?: string }): Promise<Array<{ name: string; country: string }>> {
     const { listDestinations } = await import('@/utils/inspirationDb')
     const list = listDestinations(params as any)
@@ -458,8 +630,101 @@ export const useTravelStore = defineStore('travel', () => {
     }
   }
 
+  // ---------- Mapping helpers ----------
+  function toItineraryFromPlanner(resp: PlannerItineraryResponse, form: PlannerFormData): ItineraryData {
+    const days = Array.isArray(resp.days) ? resp.days : []
+    const mapped = days.map((day: any, index: number) => {
+      const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : Array.isArray(day?.activities) ? day.activities : []
+      const activities = slots.map((slot: any) => ({
+          time: safeStr(slot?.time),
+          activity: safeStr(slot?.activity || slot?.title),
+          type: safeStr(slot?.category || slot?.type || 'activity'),
+          duration: typeof slot?.estimatedDuration === 'number' ? slot.estimatedDuration : (typeof slot?.duration === 'number' ? slot.duration : undefined),
+          notes: safeStr(slot?.notes),
+          location: safeStr(slot?.location || slot?.transport?.to),
+          transport: slot?.transport ?? null,
+          cost: typeof slot?.estimatedCost === 'number' ? slot.estimatedCost : (typeof slot?.cost === 'number' ? slot.cost : undefined)
+        }))
+      if (!activities.length) {
+        activities.push({
+          time: '09:00',
+          activity: '自由探索时间',
+          type: 'activity',
+          duration: 60,
+          notes: 'AI 未返回详细活动，请自行安排。',
+          location: safeStr(day?.title),
+          transport: null,
+          cost: 0
+        })
+      }
+      return {
+        day: typeof day?.day === 'number' ? day.day : index + 1,
+        title: safeStr(day?.title, `第${index + 1}天`),
+        activities
+      }
+    })
+
+    const localTips = resp?.recommendations?.localTips || []
+    return {
+      destination: safeStr(resp.destination, form.destination),
+      duration: Number.isFinite(resp.duration as number) ? (resp.duration as number) : form.duration,
+      budget: form.budget,
+      preferences: form.preferences,
+      travelStyle: form.travelStyle,
+      itinerary: mapped,
+      recommendations: {
+        accommodation: firstOr(localTips, 0, '建议提前预订住宿'),
+        transportation: firstOr(localTips, 1, '建议使用公共交通'),
+        food: firstOr(localTips, 2, '尝试当地特色美食'),
+        tips: safeStr(resp.summary, '旅途中请关注当地礼仪与天气变化')
+      },
+      detectedIntent: {
+        intentType: 'planner',
+        keywords: form.preferences,
+        emotionTone: 'practical',
+        description: '实用型旅行规划'
+      }
+    }
+  }
+
+  function toItineraryFromSeeker(aiData: any, mood: MoodData, intent: any): ItineraryData {
+    const days = arr<any>(aiData?.data?.itinerary)
+    const itinerary = days.map((day, index) => ({
+      day: day?.day || index + 1,
+      title: safeStr(day?.title, `第${day?.day || index + 1}天`),
+      activities: arr<any>(day?.activities).map((a) => ({
+        time: safeStr(a?.time, '待定'),
+        activity: safeStr(a?.activity || a?.name),
+        type: safeStr(a?.type, '观光')
+      }))
+    }))
+
+    return {
+      destination: safeStr(aiData?.data?.destination, '未知目的地'),
+      duration: Number.isFinite(aiData?.data?.duration) ? aiData.data.duration : 5,
+      budget: mood.budget,
+      preferences: getPreferencesByMood(mood.currentMood),
+      travelStyle: 'slow',
+      itinerary,
+      recommendations: {
+        accommodation: safeStr(aiData?.data?.recommendations?.accommodation, '推荐当地特色住宿'),
+        transportation: safeStr(aiData?.data?.recommendations?.transportation, '建议使用当地交通工具'),
+        food: safeStr(aiData?.data?.recommendations?.food, '品尝当地特色美食'),
+        tips: safeStr(aiData?.data?.recommendations?.tips, '注意当地文化和习俗')
+      },
+      detectedIntent: {
+        intentType: safeStr(intent?.intentType, 'seeker'),
+        keywords: arr<string>(intent?.keywords),
+        emotionTone: safeStr(intent?.emotionTone, 'healing'),
+        description: safeStr(intent?.description, '疗愈型旅行体验')
+      }
+    }
+  }
+
   // 使用 Planner API 生成行程
   const generateItinerary = async (mode: 'planner' | 'seeker') => {
+    if (isRunning.value) return // 避免并发重复点击
+    isRunning.value = true
     clearGenerationLogs()
     pushGenerationLog(mode === 'planner' ? '🚀 开始生成 Planner 智能行程...' : '🚀 开始生成 Seeker 心情行程...')
     setLoading(true)
@@ -469,58 +734,22 @@ export const useTravelStore = defineStore('travel', () => {
       let generatedData: ItineraryData
 
       if (mode === 'planner') {
-        // 使用新的 Planner API 生成智能行程
-        console.log('Planner 模式：开始生成智能行程...', plannerData.value)
         pushGenerationLog('📡 Planner：已发送行程生成请求，正在等待 AI 响应...')
-        const plannerResponse = await plannerAPI.generateItinerary(plannerData.value)
-        console.log('Planner 模式：AI 生成的行程', plannerResponse)
-        pushGenerationLog('✅ Planner：行程生成完成，正在整理数据...')
-        
-        // 保存 Planner 行程数据
+        const plannerResponse = await plannerAPI.generateItinerary({
+          ...plannerData.value,
+          language: i18n?.global?.locale?.value ?? 'zh-CN'
+        })
+        pushGenerationLog(`✅ Planner：行程生成完成，AI 返回 ${Array.isArray(plannerResponse.days) ? plannerResponse.days.length : 0} 天数据`)
         plannerItinerary.value = plannerResponse
-        
-        // 转换为兼容的 ItineraryData 格式
-        generatedData = {
-          destination: plannerResponse.destination,
-          duration: plannerResponse.duration,
-          budget: plannerData.value.budget,
-          preferences: plannerData.value.preferences,
-          travelStyle: plannerData.value.travelStyle,
-          itinerary: plannerResponse.days.map(day => ({
-            day: parseInt(day.date.replace('Day ', '')),
-            title: day.title,
-            activities: day.timeSlots.map(slot => ({
-              time: slot.time,
-              activity: slot.activity,
-              type: slot.category
-            }))
-          })),
-          recommendations: {
-            accommodation: plannerResponse.recommendations.localTips[0] || '建议提前预订住宿',
-            transportation: plannerResponse.recommendations.localTips[1] || '建议使用公共交通',
-            food: plannerResponse.recommendations.localTips[2] || '尝试当地特色美食',
-            tips: plannerResponse.summary
-          },
-          detectedIntent: {
-            intentType: 'planner',
-            keywords: plannerData.value.preferences,
-            emotionTone: 'practical',
-            description: '实用型旅行规划'
-          }
-        }
-      } else if (mode === 'seeker') {
-        // Seeker 模式使用情感旅行 API
+        updatePlannerInsights(plannerResponse)
+        generatedData = toItineraryFromPlanner(plannerResponse, plannerData.value)
+      } else {
         const { detectInspirationIntent } = await import('@/services/deepseekAPI')
-        const currentLanguage = i18n.global.locale.value || 'zh-CN'
-        
-        // 合并用户输入进行意图识别
-        const userContext = `${moodData.value.currentMood} ${moodData.value.desiredExperience}`
-        console.log('Seeker 模式：开始意图识别...', userContext)
+        const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
+        const userContext = `${safeStr(moodData.value.currentMood)} ${safeStr(moodData.value.desiredExperience)}`
+        pushGenerationLog('🧭 正在识别旅行意图...')
         const intent = await detectInspirationIntent(userContext, currentLanguage)
-        console.log('Seeker 模式：识别到的意图', intent)
-        pushGenerationLog(`🧭 检测到旅行意图：${intent.intentType || '未知'}`)
         
-        // 调用情感旅行 API 生成 Seeker 行程
         pushGenerationLog('📡 Seeker：正在生成情绪化旅程草稿...')
         const aiData: any = await emotionalTravelAPI.generateTravelPlan({
           mood: moodData.value.currentMood,
@@ -529,131 +758,76 @@ export const useTravelStore = defineStore('travel', () => {
           duration: moodData.value.duration
         } as any)
         
-        // 转换 AI 响应为我们的数据格式
-        let itinerary = aiData.data?.itinerary?.map((day: any, index: number) => ({
-          day: day.day || index + 1,
-          title: day.title || `第${day.day || index + 1}天`,
-          activities: day.activities?.map((a: any) => ({
-            time: a.time || '待定',
-            activity: a.activity || a.name || '',
-            type: a.type || '观光'
-          })) || []
-        })) || []
-        
-        // 不再插入“体验日”
-        
-        pushGenerationLog('✅ Seeker：行程草稿已生成，正在整理结构...')
-        generatedData = {
-          destination: (aiData as any).data?.destination || '未知目的地',
-          duration: (aiData as any).data?.duration || 5,
-          budget: moodData.value.budget,
-          preferences: getPreferencesByMood(moodData.value.currentMood),
-          travelStyle: 'slow', // Seeker 模式默认慢节奏
-          itinerary: itinerary,
-          recommendations: {
-            accommodation: (aiData as any).data?.recommendations?.accommodation || '推荐当地特色住宿',
-            transportation: (aiData as any).data?.recommendations?.transportation || '建议使用当地交通工具',
-            food: (aiData as any).data?.recommendations?.food || '品尝当地特色美食',
-            tips: (aiData as any).data?.recommendations?.tips || '注意当地文化和习俗'
-          },
-          detectedIntent: {
-            intentType: intent.intentType || 'seeker',
-            keywords: intent.keywords || [],
-            emotionTone: intent.emotionTone || 'healing',
-            description: intent.description || '疗愈型旅行体验'
-          }
-        }
-      } else {
-        // 其他模式使用默认逻辑
-        generatedData = convertAPIResponseToItineraryData({}, mode)
+        pushGenerationLog(`✅ Seeker：行程草稿已生成，AI 返回 ${Array.isArray(aiData?.data?.itinerary) ? aiData.data.itinerary.length : 0} 天数据`)
+        generatedData = toItineraryFromSeeker(aiData, moodData.value, intent)
       }
       
-      // 保存生成的行程数据
       setItineraryData(generatedData)
       setCurrentMode(mode)
-      
-      console.log(`${mode} 模式行程生成完成:`, generatedData)
-      
+      pushGenerationLog('🎉 行程已准备完成')
     } catch (err) {
       console.error('生成行程失败:', err)
       setError('生成行程失败，请重试')
+      pushGenerationLog('❌ 生成行程失败', 'error')
     } finally {
       setLoading(false)
+      isRunning.value = false
     }
   }
 
   // 生成心理旅程（基于问卷）
   const generatePsychologicalJourney = async (personalityProfile: any, selectedDestination?: string) => {
+    if (isRunning.value) return
+    isRunning.value = true
     clearGenerationLogs()
     pushGenerationLog('🚀 开始生成心理旅程推荐...')
     setLoading(true)
     setError(null)
     
     try {
-      // 导入心理旅程生成函数（使用别名避免冲突）
       const { generatePsychologicalJourney: generateJourneyAPI } = await import('@/services/deepseekAPI')
-      const currentLanguage = i18n.global.locale.value || 'zh-CN'
+      const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
       
-      // 获取用户所在国家（用于推荐目的地）
+      // 用户国家
       let userCountry: string | undefined = undefined
       try {
         const { getUserLocationCode } = await import('@/config/userProfile')
-        const locationCode = getUserLocationCode()
-        if (locationCode) {
-          userCountry = locationCode
-          console.log('📍 用户所在国家（用于推荐目的地）:', userCountry)
-        }
-      } catch (err) {
-        console.warn('⚠️ 获取用户所在国家失败', err)
-      }
+        const code = getUserLocationCode()
+        userCountry = code || undefined
+      } catch {}
       
-      // 获取用户国籍（用于显示格式，如货币、日期格式等）
+      // 国籍（用于显示格式）
       let userNationality: string | undefined = undefined
       try {
         const { getUserNationalityCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const nationalityCode = getUserNationalityCode()
+        const nationalityCode = getUserNationalityCode() || undefined
         if (nationalityCode) {
-          const countryInfo = PRESET_COUNTRIES[nationalityCode as keyof typeof PRESET_COUNTRIES]
-          if (countryInfo) {
-            userNationality = countryInfo.name
-            console.log('🌍 用户国籍（用于显示格式）:', userNationality)
-          }
+          const countryInfo = (PRESET_COUNTRIES as any)[nationalityCode]
+          if (countryInfo) userNationality = countryInfo.name
         }
-      } catch (err) {
-        console.warn('⚠️ 获取用户国籍失败', err)
-      }
+      } catch {}
       
-      // 获取用户永久居民身份（如绿卡，用于签证判断）
+      // 永久居民身份
       let userPermanentResidency: string | undefined = undefined
       try {
         const { getUserPermanentResidencyCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const residencyCode = getUserPermanentResidencyCode()
+        const residencyCode = getUserPermanentResidencyCode() || undefined
         if (residencyCode) {
-          const countryInfo = PRESET_COUNTRIES[residencyCode as keyof typeof PRESET_COUNTRIES]
-          if (countryInfo) {
-            userPermanentResidency = countryInfo.name
-            console.log('🪪 用户永久居民身份（用于签证判断）:', userPermanentResidency)
-          }
+          const info = (PRESET_COUNTRIES as any)[residencyCode]
+          if (info) userPermanentResidency = info.name
         }
-      } catch (err) {
-        console.warn('⚠️ 获取用户永久居民身份失败', err)
-      }
+      } catch {}
       
-      // 获取用户已持有的签证
+      // 已持有签证
       let heldVisas: string[] = []
       try {
         const { getHeldVisas } = await import('@/config/userProfile')
-        heldVisas = getHeldVisas()
-        if (heldVisas.length > 0) {
-          console.log('🎫 用户已持有签证（国家代码）:', heldVisas.join('、'))
-        }
-      } catch (err) {
-        console.warn('⚠️ 获取已持有签证失败', err)
-      }
+        heldVisas = getHeldVisas() || []
+      } catch {}
       
-      // 获取签证信息（用于AI提示词）
+      // 签证信息
       let visaFreeDestinations: string[] = []
       let visaInfoSummary: string | null = null
       try {
@@ -661,93 +835,78 @@ export const useTravelStore = defineStore('travel', () => {
         const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
         
-        const nationalityCode = getUserNationalityCode()
-        const residencyCode = getUserPermanentResidencyCode()
+        const nationalityCode = getUserNationalityCode() || undefined
+        const residencyCode = getUserPermanentResidencyCode() || undefined
         
-        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode)
+        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode) || []
         
-        // 如果有选定的目的地，获取该目的地的签证信息
         if (selectedDestination) {
-          // 尝试从目的地字符串中提取国家代码
-          const destCountryInfo = Object.values(PRESET_COUNTRIES).find(country => 
-            selectedDestination.includes(country.name) || 
-            selectedDestination.includes(country.code)
-          )
+          const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) =>
+            selectedDestination.includes(country.name) || selectedDestination.includes(country.code)
+          ) as any
           if (destCountryInfo) {
-            visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode)
-          }
+            visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode) || null
         }
-        
-        console.log('🪪 免签/落地签目的地数量:', visaFreeDestinations.length)
-        if (visaInfoSummary) {
-          console.log('🪪 目的地签证信息:', visaInfoSummary)
         }
-      } catch (err) {
-        console.warn('⚠️ 获取签证信息失败', err)
-      }
-      
-      console.log('心理旅程模式：开始生成...', personalityProfile)
-      pushGenerationLog('🧠 正在分析人格问卷与心理画像...')
-      console.log('📍 用户选择的目的地:', selectedDestination || '未选择')
-      console.log('📍 推荐范围：', userCountry ? `优先${userCountry}国内或附近地区` : '全球（未检测到地理位置）')
-      console.log('🌍 显示格式：', userNationality ? `基于${userNationality}国籍的文化偏好` : '使用默认格式')
-      console.log('🪪 签证考虑：', heldVisas.length > 0 ? `已持有签证：${heldVisas.join('、')}（最高优先级）` : userPermanentResidency ? `考虑${userPermanentResidency}永久居民身份的签证便利` : userNationality ? `基于${userNationality}国籍的签证要求` : '未设置')
-      
-      // 传递用户选择的目的地、国籍、永久居民身份、已持有签证和签证信息
-      const inspirationData = await generateJourneyAPI(personalityProfile, currentLanguage, userCountry, selectedDestination, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
-      console.log('心理旅程模式：生成完成', inspirationData)
-      pushGenerationLog('✅ 已获取 AI 生成的旅程数据，正在整理...')
-      console.log('📦 返回的数据包含:', {
-        locations: inspirationData.locations?.length || 0,
-        recommendedDestinations: inspirationData.recommendedDestinations?.length || 0,
-        hasTitle: !!inspirationData.title,
-        hasAiMessage: !!inspirationData.aiMessage
-      })
-      
-      // 补充国家信息（如果需要）
-      if (inspirationData.locations) {
-        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
-        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
-        const currentCountry = detectCountryFromLocale(locale)
-        const locationCountries = buildLocationCountries(inspirationData.locations)
+      } catch {}
 
-        if (inspirationData.locationDetails && locationCountries) {
-          Object.keys(inspirationData.locationDetails).forEach((loc) => {
-            const detail = (inspirationData.locationDetails as any)[loc]
+      // 调用生成
+      const inspirationResp = await generateJourneyAPI(
+        personalityProfile,
+        currentLanguage,
+        userCountry,
+        selectedDestination,
+        userNationality,
+        userPermanentResidency,
+        heldVisas,
+        visaFreeDestinations,
+        visaInfoSummary
+      )
+      pushGenerationLog(`✅ 心理旅程数据返回：候选地点 ${Array.isArray(inspirationResp?.locations) ? inspirationResp.locations.length : 0} 个`)
+      
+      // 注入国家信息（SSR 兼容 navigator）
+      if (inspirationResp?.locations) {
+        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
+        const lang = i18n?.global?.locale?.value || (typeof navigator !== 'undefined' ? (navigator.language as string) : 'zh-CN')
+        const currentCountry = detectCountryFromLocale(lang)
+        const locationCountries = buildLocationCountries(inspirationResp.locations)
+
+        if (inspirationResp.locationDetails && locationCountries) {
+          Object.keys(inspirationResp.locationDetails).forEach((loc) => {
+            const detail = (inspirationResp.locationDetails as any)[loc]
             const country = locationCountries[loc]
-            if (detail && country && !detail.country) {
-              detail.country = country
-            }
+            if (detail && country && !detail.country) detail.country = country
           })
         }
-
-        inspirationData.currentCountry = inspirationData.currentCountry || currentCountry
-        inspirationData.locationCountries = inspirationData.locationCountries || locationCountries
+        inspirationResp.currentCountry = inspirationResp.currentCountry || currentCountry
+        inspirationResp.locationCountries = inspirationResp.locationCountries || locationCountries
       }
       
-      // 确保数据正确设置
-      console.log('📝 准备设置 inspirationData，locations数量:', inspirationData.locations?.length || 0)
-      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
-      setInspirationData(inspirationData)
+      const enrichedResp = await enrichInspirationMedia(inspirationResp, currentLanguage)
+      setInspirationData(enrichedResp)
       setCurrentMode('inspiration')
       
-      // 验证数据是否设置成功
+      // ✅ 修复：此前这里变量名遮蔽导致 `.value` 读取错误
       const currentData = inspirationData.value
       console.log('✅ 数据已设置到 store')
       console.log('✅ 验证：当前 inspirationData.locations:', currentData?.locations?.length || 0)
       console.log('✅ 验证：当前 inspirationData.title:', currentData?.title)
+      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
     } catch (err) {
       console.error('生成心理旅程失败:', err)
       pushGenerationLog('❌ 生成心理旅程失败', 'error')
       setError('生成心理旅程失败，请重试')
     } finally {
       setLoading(false)
+      isRunning.value = false
       pushGenerationLog('🏁 生成流程结束')
     }
   }
 
   // 生成灵感内容
   const generateInspiration = async (input: string) => {
+    if (isRunning.value) return
+    isRunning.value = true
     clearGenerationLogs()
     pushGenerationLog('🚀 开始生成灵感旅程...')
     setLoading(true)
@@ -755,68 +914,47 @@ export const useTravelStore = defineStore('travel', () => {
     
     try {
         const { detectInspirationIntent, generateInspirationJourney } = await import('@/services/deepseekAPI')
-      const currentLanguage = i18n.global.locale.value || 'zh-CN'
+      const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
       
-      // 获取用户所在国家（用于推荐目的地）
+      // 用户国家
       let userCountry: string | undefined = undefined
       try {
         const { getUserLocationCode } = await import('@/config/userProfile')
-        const locationCode = getUserLocationCode()
-        if (locationCode) {
-          userCountry = locationCode
-          console.log('📍 用户所在国家（用于推荐目的地）:', userCountry)
-        }
-      } catch (err) {
-        console.warn('⚠️ 获取用户所在国家失败', err)
-      }
+        userCountry = getUserLocationCode() || undefined
+      } catch {}
       
-      // 获取用户国籍（用于显示格式）
+      // 国籍（显示格式）
       let userNationality: string | undefined = undefined
       try {
         const { getUserNationalityCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const nationalityCode = getUserNationalityCode()
+        const nationalityCode = getUserNationalityCode() || undefined
         if (nationalityCode) {
-          const countryInfo = PRESET_COUNTRIES[nationalityCode as keyof typeof PRESET_COUNTRIES]
-          if (countryInfo) {
-            userNationality = countryInfo.name
-            console.log('🌍 用户国籍（用于显示格式）:', userNationality)
-          }
+          const info = (PRESET_COUNTRIES as any)[nationalityCode]
+          if (info) userNationality = info.name
         }
-      } catch (err) {
-        console.warn('⚠️ 获取用户国籍失败', err)
-      }
+      } catch {}
       
-      // 获取用户永久居民身份（用于签证判断）
+      // 永久居民
       let userPermanentResidency: string | undefined = undefined
       try {
         const { getUserPermanentResidencyCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const residencyCode = getUserPermanentResidencyCode()
-        if (residencyCode) {
-          const countryInfo = PRESET_COUNTRIES[residencyCode as keyof typeof PRESET_COUNTRIES]
-          if (countryInfo) {
-            userPermanentResidency = countryInfo.name
-            console.log('🪪 用户永久居民身份（用于签证判断）:', userPermanentResidency)
-          }
+        const code = getUserPermanentResidencyCode() || undefined
+        if (code) {
+          const info = (PRESET_COUNTRIES as any)[code]
+          if (info) userPermanentResidency = info.name
         }
-      } catch (err) {
-        console.warn('⚠️ 获取用户永久居民身份失败', err)
-      }
+      } catch {}
       
-      // 获取用户已持有的签证
+      // 已持签证
       let heldVisas: string[] = []
       try {
         const { getHeldVisas } = await import('@/config/userProfile')
-        heldVisas = getHeldVisas()
-        if (heldVisas.length > 0) {
-          console.log('🎫 用户已持有签证（国家代码）:', heldVisas.join('、'))
-        }
-      } catch (err) {
-        console.warn('⚠️ 获取已持有签证失败', err)
-      }
+        heldVisas = getHeldVisas() || []
+      } catch {}
       
-      // 获取签证信息（用于AI提示词）
+      // 签证信息
       let visaFreeDestinations: string[] = []
       let visaInfoSummary: string | null = null
       try {
@@ -824,124 +962,112 @@ export const useTravelStore = defineStore('travel', () => {
         const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
         const { PRESET_COUNTRIES } = await import('@/constants/countries')
         
-        const nationalityCode = getUserNationalityCode()
-        const residencyCode = getUserPermanentResidencyCode()
+        const nationalityCode = getUserNationalityCode() || undefined
+        const residencyCode = getUserPermanentResidencyCode() || undefined
         
-        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode)
-        
-        // 尝试从输入中提取目的地国家
-        const destCountryInfo = Object.values(PRESET_COUNTRIES).find(country => 
-          input.includes(country.name)
-        )
-        if (destCountryInfo) {
-          visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode)
-        }
-        
-        console.log('🪪 免签/落地签目的地数量:', visaFreeDestinations.length)
-        if (visaInfoSummary) {
-          console.log('🪪 目的地签证信息:', visaInfoSummary)
-        }
-      } catch (err) {
-        console.warn('⚠️ 获取签证信息失败', err)
-      }
-      
-      // 第一步：意图识别
-      console.log('灵感模式：开始意图识别...', input)
-      const intent = await detectInspirationIntent(input, currentLanguage)
-      console.log('灵感模式：识别到的意图', intent)
-      pushGenerationLog(`🧭 检测到旅行意图：${intent.intentType || '未知'}`)
-      
-      // 第二步：生成行程计划（调用 AI）
-      console.log('⏳ 开始调用 generateInspirationJourney，这可能需要 1-3 分钟...')
-      console.log('📝 用户输入:', input)
-      pushGenerationLog('📡 正在生成灵感旅程细节（可能需要 1-3 分钟）...')
-      const inspirationData = await generateInspirationJourney(input, currentLanguage, userCountry, undefined, userNationality, userPermanentResidency, heldVisas, visaFreeDestinations, visaInfoSummary)
-      console.log('✅ 灵感模式：生成的行程计划', inspirationData)
-      pushGenerationLog('✅ 灵感旅程生成完成，正在整理体验亮点...')
-      
-      // 新的数据结构是行程计划格式（包含days数组）
-      // 如果包含locations字段，则补齐国家信息（向后兼容）
-      if (inspirationData.locations) {
-        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
-        const locale = i18n.global.locale.value || (navigator?.language as string) || 'zh-CN'
-        const currentCountry = detectCountryFromLocale(locale)
-        const locationCountries = buildLocationCountries(inspirationData.locations)
+        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode) || []
 
-        // 为 locationDetails 注入 country 字段（如果可推断）
-        if (inspirationData.locationDetails && locationCountries) {
-          Object.keys(inspirationData.locationDetails).forEach((loc) => {
-            const detail = (inspirationData.locationDetails as any)[loc]
+        const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) =>
+          safeStr(input).includes(country.name)
+        ) as any
+        if (destCountryInfo) {
+          visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode) || null
+        }
+      } catch {}
+      
+      // Intent
+      pushGenerationLog('🧭 正在识别旅行意图...')
+      const intent = await detectInspirationIntent(input, currentLanguage)
+
+      // Gen
+      pushGenerationLog('📡 正在生成灵感旅程细节...')
+      const inspResp = await generateInspirationJourney(
+        input,
+        currentLanguage,
+        userCountry,
+        undefined,
+        userNationality,
+        userPermanentResidency,
+        heldVisas,
+        visaFreeDestinations,
+        visaInfoSummary
+      )
+      pushGenerationLog(`✅ 灵感旅程生成完成：候选地点 ${Array.isArray(inspResp?.locations) ? inspResp.locations.length : 0} 个`)
+
+      // 注入国家
+      if (inspResp?.locations) {
+        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
+        const lang = i18n?.global?.locale?.value || (typeof navigator !== 'undefined' ? (navigator.language as string) : 'zh-CN')
+        const currentCountry = detectCountryFromLocale(lang)
+        const locationCountries = buildLocationCountries(inspResp.locations)
+
+        if (inspResp.locationDetails && locationCountries) {
+          Object.keys(inspResp.locationDetails).forEach((loc) => {
+            const detail = (inspResp.locationDetails as any)[loc]
             const country = locationCountries[loc]
-            if (detail && country && !detail.country) {
-              detail.country = country
-            }
+            if (detail && country && !detail.country) detail.country = country
           })
         }
-
-        inspirationData.currentCountry = inspirationData.currentCountry || currentCountry
-        inspirationData.locationCountries = inspirationData.locationCountries || locationCountries
+        inspResp.currentCountry = inspResp.currentCountry || currentCountry
+        inspResp.locationCountries = inspResp.locationCountries || locationCountries
       }
       
-      setInspirationData(inspirationData)
-      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
+      const enrichedInspiration = await enrichInspirationMedia(inspResp, currentLanguage)
+      setInspirationData(enrichedInspiration)
       setCurrentMode('inspiration')
-      
+      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
     } catch (err) {
       console.error('生成灵感内容失败，尝试使用本地灵感库回退:', err)
       pushGenerationLog('⚠️ 生成失败，尝试使用本地灵感库回退', 'warn')
       try {
-        // 使用本地灵感库作为回退方案
         const suggestions = await getLocalInspirationDestinations()
         const fallback = suggestions[0]?.name
         if (fallback) {
           const localData = buildInspirationFromLocal(fallback)
-          setInspirationData(localData)
+          const enrichedLocal = await enrichInspirationMedia(localData, currentLanguage)
+          setInspirationData(enrichedLocal)
           setCurrentMode('inspiration')
           pushGenerationLog('✅ 已加载本地灵感库的备用推荐')
         } else {
           setError('生成灵感内容失败，请重试')
         }
-      } catch (e) {
+      } catch {
         setError('生成灵感内容失败，请重试')
       }
     } finally {
       setLoading(false)
+      isRunning.value = false
       pushGenerationLog('🏁 生成流程结束')
     }
   }
 
-  // 提交反馈
+  // 提交反馈（静默失败）
   const submitFeedback = async (feedback: string, rating: number) => {
     try {
-      const feedbackData: any = {
+      const feedbackData = {
         feedback,
         mode: currentMode.value || 'planner',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        rating
       }
-      
       await emotionalTravelAPI.submitFeedback(feedbackData as any)
-      console.log('反馈提交成功')
     } catch (err) {
       console.error('反馈提交失败:', err)
-      // 反馈失败不影响用户体验，只记录错误
     }
   }
 
   // 优化 Planner 行程
   const optimizePlannerItinerary = async (optimizationType: 'time' | 'cost' | 'route') => {
-    if (!plannerItinerary.value) {
-      throw new Error('没有可优化的行程')
-    }
-    
+    if (!plannerItinerary.value) throw new Error('没有可优化的行程')
     setLoading(true)
     setError(null)
-    
     try {
       const optimizedItinerary = await plannerAPI.optimizeItinerary(plannerItinerary.value, optimizationType)
       plannerItinerary.value = optimizedItinerary
-      console.log('行程优化完成:', optimizedItinerary)
-    } catch (error) {
-      console.error('优化行程失败:', error)
+      updatePlannerInsights(optimizedItinerary)
+      pushGenerationLog('✨ 行程优化完成')
+    } catch (err) {
+      console.error('优化行程失败:', err)
       setError('行程优化失败，请重试')
     } finally {
       setLoading(false)
@@ -952,13 +1078,13 @@ export const useTravelStore = defineStore('travel', () => {
   const getDestinationInfo = async (destination: string) => {
     try {
       return await plannerAPI.getDestinationInfo(destination)
-    } catch (error) {
-      console.error('获取目的地信息失败:', error)
+    } catch (err) {
+      console.error('获取目的地信息失败:', err)
       return null
     }
   }
 
-  // 重置数据
+  // 重置
   const resetData = () => {
     plannerData.value = {
       destination: '',
@@ -976,6 +1102,7 @@ export const useTravelStore = defineStore('travel', () => {
     inspirationData.value = null
     itineraryData.value = null
     plannerItinerary.value = null
+    updatePlannerInsights(null)
     loading.value = false
     error.value = null
     currentMode.value = null
@@ -989,9 +1116,12 @@ export const useTravelStore = defineStore('travel', () => {
     inspirationData,
     itineraryData,
     plannerItinerary,
+    plannerRhythmInsights,
+    plannerNotifications,
     loading,
     error,
     currentMode,
+    generationLogs,
     
     // Actions
     setPlannerData,
@@ -1001,7 +1131,6 @@ export const useTravelStore = defineStore('travel', () => {
     setCurrentMode,
     setLoading,
     setError,
-    generationLogs,
     clearGenerationLogs,
     generateItinerary,
     generateInspiration,
@@ -1010,13 +1139,15 @@ export const useTravelStore = defineStore('travel', () => {
     submitFeedback,
     resetData,
     optimizePlannerItinerary,
-    getDestinationInfo
+    getDestinationInfo,
+    dismissPlannerNotification,
+    dispose // 手动释放订阅（路由切换/注销场景）
   }
 })
 
-// 辅助函数：根据心情获取偏好
+// -------------------- Utils --------------------
 function getPreferencesByMood(mood: string): string[] {
-  const moodPreferences: { [key: string]: string[] } = {
+  const moodPreferences: Record<string, string[]> = {
     tired: ['relaxation', 'nature'],
     stressed: ['relaxation', 'nature', 'food'],
     sad: ['culture', 'food', 'shopping'],
@@ -1028,15 +1159,14 @@ function getPreferencesByMood(mood: string): string[] {
   return moodPreferences[mood] || ['culture', 'food']
 }
 
-// 辅助函数：将API响应转换为行程数据
 function convertAPIResponseToItineraryData(apiData: any, mode: 'planner' | 'seeker'): ItineraryData {
   return {
-    destination: apiData.recommendations?.[0]?.destination || '未知目的地',
-    duration: apiData.preferences?.duration || 5,
-    budget: apiData.preferences?.budget || 'comfort',
+    destination: apiData?.recommendations?.[0]?.destination || '未知目的地',
+    duration: apiData?.preferences?.duration || 5,
+    budget: apiData?.preferences?.budget || 'comfort',
     preferences: [],
-    travelStyle: apiData.rhythmAdjustment?.pattern_name || 'moderate',
-    itinerary: generateMockItinerary(apiData.recommendations?.[0]?.destination || '未知目的地'),
+    travelStyle: apiData?.rhythmAdjustment?.pattern_name || 'moderate',
+    itinerary: generateMockItinerary(apiData?.recommendations?.[0]?.destination || '未知目的地'),
     recommendations: {
       accommodation: '推荐当地特色住宿',
       transportation: '建议使用当地交通工具',
@@ -1046,8 +1176,7 @@ function convertAPIResponseToItineraryData(apiData: any, mode: 'planner' | 'seek
   }
 }
 
-// 辅助函数：生成模拟行程
-function generateMockItinerary(destination: string) {
+function generateMockItinerary(destination: string): DayPlan[] {
   return [
     {
       day: 1,
@@ -1072,11 +1201,8 @@ function generateMockItinerary(destination: string) {
   ]
 }
 
-// 生成灵感卡片
 function generateInspirationCard(input: string): InspirationData {
-  // 简单的关键词匹配逻辑
-  const lowerInput = input.toLowerCase()
-  
+  const lowerInput = (input || '').toLowerCase()
   if (lowerInput.includes('海洋') || lowerInput.includes('潜水') || lowerInput.includes('摄影')) {
     return {
       title: '🌊 海底光影之旅',
@@ -1098,8 +1224,6 @@ function generateInspirationCard(input: string): InspirationData {
       aiMessage: '光线在水下的那一刻，会让你忘记时间。记得在日落时拍摄，光会变成金色。'
     }
   }
-  
-  // 默认推荐
   return {
     title: '🌟 发现之旅',
     subtitle: '跟随内心的声音，探索未知的美好',

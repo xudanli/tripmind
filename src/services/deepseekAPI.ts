@@ -1,5 +1,7 @@
 import { API_CONFIG } from '@/config/api'
 import { extractJSONObject, cleanMarkdownCodeBlocks, safeParseJSON } from '@/utils/jsonParser'
+import { chatWithOpenAI } from './openaiAPI'
+import { getUserPreferredLLMProvider, getUserPreferredLLMModel } from '@/config/userProfile'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -31,16 +33,16 @@ interface ChatCompletionResponse {
   }
 }
 
-/**
- * 调用 DeepSeek API 进行聊天
- */
-export async function chatWithDeepSeek(
-  messages: ChatMessage[],
-  options: {
+export interface LLMChatOptions {
     model?: string
     temperature?: number
     max_tokens?: number
-  } = {}
+  enforceJson?: boolean
+}
+
+async function callDeepSeek(
+  messages: ChatMessage[],
+  options: LLMChatOptions = {}
 ): Promise<string> {
   try {
     const requestBody: ChatCompletionRequest = {
@@ -76,6 +78,48 @@ export async function chatWithDeepSeek(
     console.error('DeepSeek API call failed:', error)
     return ''
   }
+}
+
+/**
+ * 调用 DeepSeek API 进行聊天（保留旧导出）
+ */
+export async function chatWithDeepSeek(
+  messages: ChatMessage[],
+  options: LLMChatOptions = {}
+): Promise<string> {
+  return callDeepSeek(messages, options)
+}
+
+/**
+ * 根据用户偏好选择 LLM 调用
+ */
+export async function chatWithLLM(
+  messages: ChatMessage[],
+  options: LLMChatOptions = {}
+): Promise<string> {
+  let provider: ReturnType<typeof getUserPreferredLLMProvider> = 'deepseek'
+  try {
+    provider = getUserPreferredLLMProvider()
+  } catch (error) {
+    console.warn('[LLM] 获取用户首选模型提供商失败，使用默认 DeepSeek。', error)
+  }
+  if (provider === 'openai') {
+    let modelFromProfile = ''
+    try {
+      modelFromProfile = getUserPreferredLLMModel()
+    } catch (error) {
+      console.warn('[LLM] 获取 OpenAI 模型配置失败，使用默认值。', error)
+    }
+    const response = await chatWithOpenAI(messages, {
+      ...options,
+      model: options.model || modelFromProfile || API_CONFIG.OPENAI_DEFAULT_MODEL
+    })
+    if (response) {
+      return response
+    }
+    console.warn('[LLM] OpenAI 响应为空或调用失败，回退使用 DeepSeek。')
+  }
+  return callDeepSeek(messages, options)
 }
 
 /**
@@ -122,7 +166,7 @@ export async function getTravelSuggestion(
   ]
 
   try {
-    const response = await chatWithDeepSeek(messages, {
+    const response = await chatWithLLM(messages, {
       temperature: mode === 'seeker' ? 0.8 : 0.7,
       max_tokens: 300
     })
@@ -164,7 +208,7 @@ export async function generateTravelSummary(
   ]
 
   try {
-    const response = await chatWithDeepSeek(messages, {
+    const response = await chatWithLLM(messages, {
       temperature: 0.7,
       max_tokens: 150
     })
@@ -280,7 +324,7 @@ Please generate a detailed travel itinerary in English.`
   ]
 
   try {
-    const response = await chatWithDeepSeek(messages, {
+    const response = await chatWithLLM(messages, {
       temperature: 0.7,
       max_tokens: 4000
     })
@@ -389,7 +433,7 @@ Please recommend a suitable trip in English.`
   ]
 
   try {
-    const response = await chatWithDeepSeek(messages, {
+    const response = await chatWithLLM(messages, {
       temperature: 0.8,
       max_tokens: 1500
     })

@@ -198,8 +198,10 @@ export class JourneyService {
 
       logger.log(`  ✅ 框架生成成功: ${parsed.days?.length || 0} 天`)
     } catch (error: any) {
-      logger.error('❌ 生成框架失败:', error)
-      logger.error(`   错误详情: ${error?.message || '未知错误'}`)
+      const isJsonParseIssue = error instanceof Error && error.message.includes('无法解析 LLM 返回的 JSON')
+      const log = isJsonParseIssue ? logger.warn.bind(logger) : logger.error.bind(logger)
+      log(isJsonParseIssue ? '⚠️ AI 框架输出不完整，改用安全回退' : '❌ 生成框架失败:', error)
+      log(`   错误详情: ${error?.message || '未知错误'}`)
       
       // 如果解析失败，提供最小框架
       logger.warn('⚠️ 使用最小框架作为回退')
@@ -278,44 +280,73 @@ export class JourneyService {
       try {
         // 优化：减少 max_tokens 以加快响应速度
         // 对于多天行程，进一步减少 token 限制
-        const maxTokens = totalDays > 3 
+        const baseMaxTokens = totalDays > 3
           ? Math.min(calcDayDetailsMaxTokens(), 2500) 
           : Math.min(calcDayDetailsMaxTokens(), 3000)
         
-        const response = await llm.jsonFromLLM(system, user, {
+        let attempt = 0
+        let effectiveSystem = system
+        let options: Record<string, any> = {
           temperature: 0.8,
-          max_tokens: maxTokens,
-          fallbackArrays: ['timeSlots'] // 只尝试提取 timeSlots，不尝试 days
-        })
+          max_tokens: baseMaxTokens,
+          fallbackArrays: ['timeSlots']
+        }
+        let extractedSlots: any[] = []
+        let lastError: unknown = null
 
-        // jsonFromLLM 已经返回解析后的对象
+        while (attempt < 2 && extractedSlots.length === 0) {
+          try {
+            const response = await llm.jsonFromLLM(effectiveSystem, user, options)
+
         if (!response || typeof response !== 'object') {
           logger.warn(`     ⚠️ 第 ${i + 1} 天返回格式不正确，跳过`)
-          continue
+              break
         }
 
-        // 处理不同的响应格式：
-        // 1. { day: 1, timeSlots: [...] } - 标准格式
-        // 2. { timeSlots: [...] } - 提取后的格式
-        // 3. timeSlots 数组直接作为响应（不应该发生，但处理一下）
-        let timeSlots: any[] = []
-        
+            // 处理不同的响应格式
         if (Array.isArray(response)) {
-          // 如果响应直接是数组，假设是 timeSlots
-          timeSlots = response
+              extractedSlots = response
         } else if ('timeSlots' in response && Array.isArray((response as any).timeSlots)) {
-          timeSlots = (response as any).timeSlots
+              extractedSlots = (response as any).timeSlots
         } else if (Array.isArray((response as any).days) && (response as any).days.length > 0) {
-          // 如果返回的是 days 数组，尝试提取第一个 day 的 timeSlots
           const firstDay = (response as any).days[0]
           if (firstDay && Array.isArray(firstDay.timeSlots)) {
-            timeSlots = firstDay.timeSlots
+                extractedSlots = firstDay.timeSlots
           }
         }
 
-        if (timeSlots.length > 0) {
-          // 过滤并创建安全副本
-          const safeTimeSlots = timeSlots
+            if (extractedSlots.length === 0 && attempt === 0) {
+              logger.warn(`     ⚠️ 第 ${i + 1} 天未获得有效的 timeSlots，尝试以精简模式重试`)
+            }
+          } catch (err) {
+            lastError = err
+            if (attempt === 0) {
+              logger.warn(`     ⚠️ 第 ${i + 1} 天 JSON 解析失败，将尝试使用严格精简模式重试`)
+            }
+          }
+
+          if (extractedSlots.length === 0 && attempt === 0) {
+            effectiveSystem += `
+
+CRITICAL REMINDER:
+- Return NO MORE THAN 3 timeSlots.
+- Keep every string short (≤ 30 words / 2 sentences).
+- Prefer omitting optional sub-fields over lengthy descriptions.
+- Ensure the JSON object is fully closed.`
+            options = {
+              ...options,
+              strict: true,
+              temperature: Math.max(0.6, (options.temperature ?? 0.8) - 0.1),
+              max_tokens: Math.max(1800, Math.min((options.max_tokens ?? baseMaxTokens) - 200, 2200))
+            }
+            attempt += 1
+          } else {
+            break
+          }
+        }
+
+        if (extractedSlots.length > 0) {
+          const safeTimeSlots = extractedSlots
             .filter((slot: any) => slot && typeof slot === 'object' && !Array.isArray(slot))
             .map((slot: any) => ({ ...slot }))
 
@@ -326,11 +357,22 @@ export class JourneyService {
 
           logger.log(`     ✅ 生成完成，${safeTimeSlots.length}个时间段`)
         } else {
-          logger.warn(`     ⚠️ 第 ${i + 1} 天未找到有效的 timeSlots，保留基础框架`)
+          if (lastError) {
+            const err = lastError instanceof Error ? lastError : new Error(String(lastError))
+            logger.warn(`     ⚠️ 精简重试后仍未获得有效 JSON：${err.message}`)
+          }
+          logger.warn(`     ⚠️ 第 ${i + 1} 天未找到有效的 timeSlots，使用模板填充`)
+          const fallbackSlots = this.buildFallbackTimeSlots(baseDay, destination, ctx.language, i)
+          result.days[i] = {
+            ...baseDay,
+            timeSlots: fallbackSlots
+          }
         }
       } catch (error: unknown) {
         const err = error instanceof Error ? error : new Error(String(error))
-        logger.error(`     ❌ 生成失败:`, err)
+        const isJsonParseIssue = err.message?.includes('无法解析 LLM 返回的 JSON')
+        const log = isJsonParseIssue ? logger.warn.bind(logger) : logger.error.bind(logger)
+        log(isJsonParseIssue ? `     ⚠️ JSON 输出不完整，已使用模板填充` : `     ❌ 生成失败:`, err)
         // 保留基础框架，不抛出错误，继续处理下一天
       }
 
@@ -341,6 +383,65 @@ export class JourneyService {
     }
 
     return result
+  }
+
+  private buildFallbackTimeSlots(baseDay: any, destination: string, language: string, index: number): any[] {
+    const isEnglish = language.startsWith('en')
+    const toText = (value: any) => (typeof value === 'string' ? value.trim() : '')
+    const theme = toText(baseDay?.theme || baseDay?.summary)
+    const focusLocation = toText(
+      baseDay?.details?.address?.chinese ||
+      baseDay?.details?.address?.english ||
+      baseDay?.location ||
+      destination
+    )
+    const dayLabel = isEnglish ? `Day ${index + 1}` : `第${index + 1}天`
+    const baseTitle = theme || (isEnglish ? `${dayLabel} Journey` : `${dayLabel} 灵感之旅`)
+
+    const slots = [
+      {
+        time: '09:00',
+        title: isEnglish ? 'Morning Prelude' : '晨间预热',
+        icon: '🌅',
+        notes: isEnglish
+          ? 'Begin the day with a gentle warm-up walk. Allow your senses to attune to the surroundings.'
+          : '以一段轻松的晨间漫步开启旅程，让感官与城市的节奏同步。'
+      },
+      {
+        time: '12:30',
+        title: isEnglish ? 'Local Taste' : '风味午后',
+        icon: '🍽️',
+        notes: isEnglish
+          ? 'Choose a recommended local bistro or café. Slow down, taste, and recharge for the afternoon.'
+          : '挑选口碑良好的餐馆或咖啡馆，慢下来体味风味，也为下午蓄积能量。'
+      },
+      {
+        time: '15:30',
+        title: isEnglish ? 'Immersive Discovery' : '灵感探索',
+        icon: '✨',
+        notes: isEnglish
+          ? 'Dive into the key highlight of the day. No rush—immerse yourself in the experience.'
+          : '投入当日的核心亮点体验，让自己充分浸润其中，不必匆忙。'
+      },
+      {
+        time: '19:00',
+        title: isEnglish ? 'Evening Reflection' : '夜色沉思',
+        icon: '🌙',
+        notes: isEnglish
+          ? 'Hold a gentle evening ritual. Recall three moments that touched you today.'
+          : '以一段温柔的夜间仪式收官，回想今天触动你的三个瞬间。'
+      }
+    ]
+
+    return slots.map((slot) => ({
+      time: slot.time,
+      title: `${slot.title} · ${baseTitle}`,
+      activity: `${slot.title} · ${baseTitle}`,
+      location: focusLocation,
+      icon: slot.icon,
+      duration: 90,
+      notes: slot.notes
+    }))
   }
 
   /**

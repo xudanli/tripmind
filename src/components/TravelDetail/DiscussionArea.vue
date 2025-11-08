@@ -82,7 +82,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { getVisaInfo } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
-import { chatWithDeepSeek } from '@/services/deepseekAPI'
+import { chatWithLLM } from '@/services/deepseekAPI'
 import { DeepSeekClient } from '@/llm/deepseekClient'
 import { buildLanguageRequirementBlock, buildTransportPreferenceBlock } from '@/prompts/inspiration/common'
 import { getUserLocationCode } from '@/config/userProfile'
@@ -1376,7 +1376,7 @@ Please generate an appropriate response based on the command and context.`)
       chatMessages.push({ role: 'user', content: text })
       
       // 调用 DeepSeek API
-      const aiResponseContent = await chatWithDeepSeek(chatMessages, {
+      const aiResponseContent = await chatWithLLM(chatMessages, {
         temperature: 0.7,
         max_tokens: 1500
       })
@@ -2415,7 +2415,7 @@ Please answer user questions in a friendly, professional tone, providing specifi
         chatMessages.push({ role: 'user', content: userMessageContent })
         
         // 调用 DeepSeek API
-        const aiResponseContent = await chatWithDeepSeek(chatMessages, {
+        const aiResponseContent = await chatWithLLM(chatMessages, {
           temperature: mode === 'seeker' ? 0.8 : 0.7,
           max_tokens: 2000
         })

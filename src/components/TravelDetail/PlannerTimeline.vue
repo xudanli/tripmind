@@ -1,5 +1,46 @@
 <template>
   <div class="planner-timeline">
+    <div class="planner-overview">
+      <div class="rhythm-card">
+        <a-progress
+          type="dashboard"
+          :width="120"
+          :stroke-color="rhythmStrokeColor"
+          :percent="rhythmScore"
+          :format="() => rhythmScore"
+        />
+        <div class="rhythm-info">
+          <div class="rhythm-level">{{ rhythmLevelLabel }}</div>
+          <p class="rhythm-summary">
+            {{ rhythmSummary }}
+          </p>
+        </div>
+      </div>
+      <div class="notifications" v-if="hasNotifications">
+        <div
+          v-for="note in notificationsToShow"
+          :key="note.id"
+          class="notification-card"
+          :class="note.level"
+        >
+          <div class="notification-header">
+            <span class="notification-tag">
+              {{ note.level === 'warn' ? '节奏提醒' : '节奏良好' }}
+            </span>
+            <a-button type="text" size="small" @click="dismissNotification(note.id)">
+              <close-outlined />
+            </a-button>
+          </div>
+          <p class="notification-text">{{ note.message }}</p>
+        </div>
+      </div>
+      <div class="notifications empty" v-else>
+        <div class="notification-placeholder">
+          <info-circle-outlined /> Aris 正在观察整体节奏，准备好后会提醒你。
+        </div>
+      </div>
+    </div>
+
     <div class="timeline-header">
       <h2>{{ t('travelDetail.plannerTimeline.title') }}</h2>
       <a-space>
@@ -27,9 +68,9 @@
 
     <!-- 时间表列表 -->
     <a-timeline v-else>
-      <a-timeline-item 
-        v-for="(day, index) in timelineDays" 
-        :key="day.date" 
+      <a-timeline-item
+        v-for="(day, index) in daysRef"
+        :key="day.id"
         color="blue"
         class="draggable-day"
       >
@@ -61,8 +102,9 @@
               </a-tooltip>
             </a-space>
           </div>
+
           <p class="day-description">{{ day.description }}</p>
-          
+
           <!-- 行程统计 -->
           <div class="day-stats">
             <a-statistic v-if="day.stats" size="small">
@@ -71,7 +113,7 @@
                   <clock-circle-outlined /> {{ t('travelDetail.plannerTimeline.estimatedDuration') }}
                 </span>
               </template>
-              <template #value>{{ day.stats.duration }}{{ t('travelDetail.plannerTimeline.hours') }}</template>
+              <template #value>{{ (day.stats?.duration ?? 0) }}{{ t('travelDetail.plannerTimeline.hours') }}</template>
             </a-statistic>
             <a-statistic v-if="day.stats" size="small">
               <template #title>
@@ -79,20 +121,20 @@
                   <dollar-outlined /> {{ t('travelDetail.plannerTimeline.estimatedCost') }}
                 </span>
               </template>
-              <template #value>{{ formatAmount(day.stats.cost) }}</template>
+              <template #value>{{ formatAmount(day.stats?.cost ?? 0) }}</template>
             </a-statistic>
           </div>
-          
+
           <!-- 详细时间安排 -->
           <div class="time-slots">
-            <div 
-              v-for="(slot, slotIndex) in day.timeSlots" 
-              :key="slot.time" 
+            <div
+              v-for="(slot, slotIndex) in day.timeSlots"
+              :key="slot.id"
               class="time-slot"
               :class="{ 'completed': slot.completed }"
             >
-              <a-checkbox 
-                v-model:checked="slot.completed" 
+              <a-checkbox
+                v-model:checked="slot.completed"
                 @change="updateSlotStatus(index, slotIndex)"
                 class="slot-checkbox"
               />
@@ -107,7 +149,7 @@
                 </div>
                 <div class="slot-location" v-if="slot.location">
                   <environment-outlined /> {{ slot.location }}
-                  <a-button type="link" size="small" @click="viewLocation(slot.location)">
+                  <a-button type="link" size="small" @click="viewLocation(slot.location!)">
                     {{ t('travelDetail.plannerTimeline.viewMap') }}
                   </a-button>
                 </div>
@@ -115,16 +157,21 @@
                   <info-circle-outlined /> {{ slot.notes }}
                 </div>
               </div>
-              <a-button type="text" size="small" @click="editSlot(index, slotIndex)">
-                <edit-outlined />
-              </a-button>
+              <div class="slot-actions">
+                <a-button type="text" size="small" @click="editSlot(index, slotIndex)">
+                  <edit-outlined />
+                </a-button>
+                <a-button type="text" size="small" danger @click="deleteSlot(index, slotIndex)">
+                  <delete-outlined />
+                </a-button>
+              </div>
             </div>
           </div>
 
           <!-- 添加时间点按钮 -->
-          <a-button 
-            type="dashed" 
-            block 
+          <a-button
+            type="dashed"
+            block
             size="small"
             style="margin-top: 0.5rem"
             @click="addTimeSlot(index)"
@@ -134,30 +181,78 @@
         </div>
       </a-timeline-item>
     </a-timeline>
-    
+
     <a-button type="dashed" block style="margin-top: 1rem" size="large" @click="addNewDay">
-      <template #icon>
-        <plus-outlined />
-      </template>
+      <template #icon><plus-outlined /></template>
       {{ t('travelDetail.plannerTimeline.addNewDay') }}
     </a-button>
 
     <!-- 编辑行程日模态框 -->
-    <a-modal 
-      v-model:open="dayModalVisible" 
+    <a-modal
+      v-model:open="dayModalVisible"
       :title="t('travelDetail.plannerTimeline.editDayModal')"
       @ok="saveDay"
       width="600px"
     >
       <a-form :model="editingDay" layout="vertical">
-        <a-form-item label="日期">
+        <a-form-item :label="t('travelDetail.plannerTimeline.form.date')">
           <a-date-picker v-model:value="editingDay.date" style="width: 100%" />
         </a-form-item>
-        <a-form-item label="标题">
+        <a-form-item :label="t('travelDetail.plannerTimeline.form.title')">
           <a-input v-model:value="editingDay.title" />
         </a-form-item>
-        <a-form-item label="描述">
+        <a-form-item :label="t('travelDetail.plannerTimeline.form.description')">
           <a-textarea v-model:value="editingDay.description" :rows="3" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="slotModalVisible"
+      :title="slotModalTitle"
+      :ok-text="t('travelDetail.plannerTimeline.slotModalOk')"
+      :cancel-text="t('travelDetail.plannerTimeline.slotModalCancel')"
+      destroy-on-close
+      @ok="saveSlot"
+      @cancel="cancelSlotEdit"
+    >
+      <a-form layout="vertical">
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.time')" required>
+          <a-time-picker
+            v-model:value="slotForm.time"
+            format="HH:mm"
+            style="width: 100%"
+            :minute-step="15"
+          />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.activity')" required>
+          <a-input v-model:value="slotForm.activity" :placeholder="t('travelDetail.plannerTimeline.slotForm.activityPlaceholder')" />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.location')">
+          <a-input v-model:value="slotForm.location" :placeholder="t('travelDetail.plannerTimeline.slotForm.locationPlaceholder')" />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.category')">
+          <a-select
+            allow-clear
+            :options="categoryOptions"
+            v-model:value="slotForm.category"
+            @change="onCategorySelect"
+            :placeholder="t('travelDetail.plannerTimeline.slotForm.categoryPlaceholder')"
+          />
+          <div v-if="slotForm.category" class="category-preview">
+            <a-tag :color="slotForm.categoryColor">
+              {{ slotForm.category }}
+            </a-tag>
+          </div>
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.icon')">
+          <a-input v-model:value="slotForm.icon" :placeholder="t('travelDetail.plannerTimeline.slotForm.iconPlaceholder')" />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.notes')">
+          <a-textarea v-model:value="slotForm.notes" :rows="3" :placeholder="t('travelDetail.plannerTimeline.slotForm.notesPlaceholder')" />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.plannerTimeline.slotForm.completed')">
+          <a-switch v-model:checked="slotForm.completed" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -166,13 +261,15 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import dayjs, { type Dayjs } from 'dayjs'
 import { message, Modal } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 import { useTravelStore } from '@/stores/travel'
 import type { PlannerItineraryResponse } from '@/services/plannerAPI'
+import type { PlannerNotification, PlannerRhythmInsights } from '@/stores/travel'
 import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
-import { 
-  CalendarOutlined, 
+import {
+  CalendarOutlined,
   EditOutlined,
   EnvironmentOutlined,
   PlusOutlined,
@@ -183,19 +280,19 @@ import {
   SwapOutlined,
   ClockCircleOutlined,
   DollarOutlined,
-  InfoCircleOutlined
+  InfoCircleOutlined,
+  CloseOutlined
 } from '@ant-design/icons-vue'
 
 const { t } = useI18n()
 const travelStore = useTravelStore()
 
-interface Props {
-  itinerary?: PlannerItineraryResponse | null
-}
-
+interface Props { itinerary?: PlannerItineraryResponse | null }
 const props = defineProps<Props>()
 
+// ---- Types for local editable copy ----
 interface TimeSlot {
+  id: string
   time: string
   activity: string
   location?: string
@@ -207,216 +304,285 @@ interface TimeSlot {
 }
 
 interface Day {
+  id: string
   date: string
   title: string
   description: string
   status: string
-  stats?: {
-    duration: number
-    cost: number
-  }
+  stats?: { duration: number; cost: number }
   timeSlots: TimeSlot[]
 }
 
+// ---- Utils ----
+const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36)
+const getStatusText = (status: string) => ({ planned: '已规划', 'in-progress': '进行中', completed: '已完成' }[status] || '已规划')
+const getDayStatusColor = (status: string) => ({ 已规划: 'blue', 进行中: 'orange', 已完成: 'green' }[status] || 'default')
+
+// ---- Source itinerary (prop -> store fallback) ----
+const plannerItinerary = computed<PlannerItineraryResponse | null>(() => {
+  if (props.itinerary) {
+    return props.itinerary as PlannerItineraryResponse
+  }
+  const storeItinerary = (travelStore as any).plannerItinerary
+  return storeItinerary ? storeItinerary.value ?? null : null
+})
+
+const plannerForm = computed(() => travelStore.plannerData)
+
+// Unwrap: support prop object or store.ref
+const currentItinerary = computed<PlannerItineraryResponse | null>(() => {
+  const p = props.itinerary
+  const s = (travelStore as any).plannerItinerary
+  return (p ?? (s && s.value)) || null
+})
+
+const rhythmInsights = computed<PlannerRhythmInsights | null>(() => {
+  return (travelStore.plannerRhythmInsights ?? null) as PlannerRhythmInsights | null
+})
+
+const rhythmScore = computed(() => {
+  const raw = rhythmInsights.value?.score ?? 0
+  return Math.max(0, Math.min(100, Math.round(raw)))
+})
+
+const rhythmLevelLabel = computed(() => {
+  const level = rhythmInsights.value?.level
+  if (level === 'balanced') return '节奏平衡'
+  if (level === 'tight') return '稍显紧凑'
+  if (level === 'loose') return '节奏宽松'
+  return '节奏分析准备就绪'
+})
+
+const rhythmSummary = computed(() => rhythmInsights.value?.summary ?? 'Aris 正在观察行程节奏。')
+
+const rhythmStrokeColor = computed(() => {
+  if (rhythmScore.value >= 80) return '#4F8BF9'
+  if (rhythmScore.value >= 65) return '#FFB703'
+  return '#F87171'
+})
+
+const notificationsToShow = computed<PlannerNotification[]>(() => {
+  const notes = travelStore.plannerNotifications ?? []
+  return notes.slice(0, 3)
+})
+
+const hasNotifications = computed(() => notificationsToShow.value.length > 0)
+
+const dismissNotification = (id: string) => {
+  travelStore.dismissPlannerNotification(id)
+}
+
+// ---- Currency ----
+const getDestinationCurrency = computed<CurrencyInfo>(() => {
+  const dest = currentItinerary.value?.destination || ''
+  if (dest) {
+    const c = getCurrencyForDestination(dest)
+    if (c.code !== 'CNY') return c
+  }
+  return { code: 'CNY', symbol: '¥', name: '人民币' }
+})
+const formatAmount = (amount: number) => formatCurrency(amount ?? 0, getDestinationCurrency.value)
+
+// ---- Local editable days (NOT computed!) ----
+const daysRef = ref<Day[]>(getDefaultTimelineDays())
+const suppressNextItineraryToast = ref(false)
+
+const slotModalVisible = ref(false)
+const slotEditingDayIndex = ref(-1)
+const slotEditingSlotIndex = ref(-1)
+
+interface SlotFormState {
+  id?: string
+  time: Dayjs
+  activity: string
+  location?: string
+  icon?: string
+  category?: string
+  categoryColor?: string
+  notes?: string
+  completed?: boolean
+}
+
+const createDefaultSlotForm = (): SlotFormState => ({
+  time: dayjs('09:00', 'HH:mm'),
+  activity: '',
+  location: '',
+  icon: '📍',
+  category: '',
+  categoryColor: 'blue',
+  notes: '',
+  completed: false
+})
+
+const slotForm = ref<SlotFormState>(createDefaultSlotForm())
+
+const categoryPresets = computed(() => [
+  { key: 'sightseeing', label: t('travelDetail.plannerTimeline.category.sightseeing'), color: 'purple', icon: '📸' },
+  { key: 'transport', label: t('travelDetail.plannerTimeline.category.transport'), color: 'blue', icon: '🚗' },
+  { key: 'dining', label: t('travelDetail.plannerTimeline.category.dining'), color: 'orange', icon: '🍽️' },
+  { key: 'accommodation', label: t('travelDetail.plannerTimeline.category.accommodation'), color: 'green', icon: '🏨' },
+  { key: 'shopping', label: t('travelDetail.plannerTimeline.category.shopping'), color: 'cyan', icon: '🛍️' }
+])
+
+const categoryOptions = computed(() => categoryPresets.value.map(p => ({ label: p.label, value: p.label })))
+
+const slotModalTitle = computed(() =>
+  slotEditingSlotIndex.value === -1
+    ? t('travelDetail.plannerTimeline.addSlotTitle')
+    : t('travelDetail.plannerTimeline.editSlotTitle')
+)
+
+watch(currentItinerary, (it) => {
+  if (!it) {
+    daysRef.value = getDefaultTimelineDays()
+    return
+  }
+  daysRef.value = mapItineraryToDays(it)
+  if (suppressNextItineraryToast.value) {
+    suppressNextItineraryToast.value = false
+  } else {
+    message.success(t('travelDetail.plannerTimeline.generated'))
+  }
+}, { immediate: true })
+
+function mapItineraryToDays(it: PlannerItineraryResponse): Day[] {
+  const days = Array.isArray(it.days) ? it.days : []
+  return days.map((d, idx) => ({
+    id: uid(),
+    date: d.date || `Day ${idx + 1}`,
+    title: d.title || `第${idx + 1}天`,
+    description: d.description || '',
+    status: getStatusText((d as any).status),
+    stats: {
+      duration: Number((d as any)?.stats?.duration ?? 0),
+      cost: Number((d as any)?.stats?.cost ?? 0)
+    },
+    timeSlots: (d as any)?.timeSlots?.map((s: any) => ({
+      id: uid(),
+      time: typeof s?.time === 'string'
+        ? s.time
+        : (s?.time ? dayjs(s.time).format('HH:mm') : ''),
+      activity: s?.activity || s?.title || '',
+      location: s?.location,
+      icon: s?.icon,
+      category: s?.category,
+      categoryColor: s?.categoryColor,
+      notes: s?.notes,
+      completed: Boolean(s?.completed)
+    })) ?? []
+  }))
+}
+
+function serializeDaysToPlanner(days: Day[], base: PlannerItineraryResponse | null): PlannerItineraryResponse {
+  const existing = base ? JSON.parse(JSON.stringify(base)) as PlannerItineraryResponse : ({} as PlannerItineraryResponse)
+  const normalizedDays = days.map((day, index) => {
+    const sourceDay: any = existing?.days?.[index] ?? {}
+    return {
+      ...sourceDay,
+      date: day.date,
+      title: day.title,
+      description: day.description,
+      status: day.status,
+      stats: day.stats,
+      timeSlots: day.timeSlots.map(slot => ({
+        id: slot.id,
+        time: slot.time,
+        activity: slot.activity,
+        location: slot.location,
+        icon: slot.icon,
+        category: slot.category,
+        categoryColor: slot.categoryColor,
+        notes: slot.notes,
+        completed: slot.completed
+      }))
+    }
+  })
+  return {
+    ...(existing || {}),
+    title: existing?.title ?? '智能行程规划',
+    destination: existing?.destination ?? plannerForm.value.destination ?? '',
+    duration: normalizedDays.length,
+    totalCost: existing?.totalCost ?? 0,
+    summary: existing?.summary ?? '',
+    recommendations: existing?.recommendations ?? {},
+    days: normalizedDays
+  }
+}
+
+const syncPlannerItinerary = () => {
+  suppressNextItineraryToast.value = true
+  const updated = serializeDaysToPlanner(daysRef.value, currentItinerary.value)
+  travelStore.plannerItinerary = updated
+}
+
+function getDefaultTimelineDays(): Day[] {
+  return [
+    {
+      id: uid(),
+      date: 'Day 1',
+      title: '第一天 - 抵达目的地',
+      description: '上午抵达机场，下午入住酒店并休整',
+      status: '已规划',
+      stats: { duration: 8, cost: 800 },
+      timeSlots: [
+        { id: uid(), time: '09:00', activity: '机场接机', location: '机场', icon: '✈️', category: '交通', categoryColor: 'blue', notes: '预计用时45分钟', completed: true },
+        { id: uid(), time: '11:00', activity: '前往酒店', location: '酒店', icon: '🚗', category: '交通', categoryColor: 'blue', completed: true },
+        { id: uid(), time: '14:00', activity: '午餐休息', location: '当地餐厅', icon: '🍜', category: '餐饮', categoryColor: 'orange', completed: false },
+        { id: uid(), time: '17:00', activity: '入住整理', location: '酒店', icon: '🏨', category: '住宿', categoryColor: 'green', completed: false }
+      ]
+    },
+    {
+      id: uid(),
+      date: 'Day 2',
+      title: '第二天 - 探索主要景点',
+      description: '全天深度游览当地著名景点和特色体验',
+      status: '已规划',
+      stats: { duration: 10, cost: 1200 },
+      timeSlots: [
+        { id: uid(), time: '09:00', activity: '参观主要景点', location: '市中心', icon: '🏛️', category: '观光', categoryColor: 'purple', notes: '需提前订票', completed: false },
+        { id: uid(), time: '12:00', activity: '午餐', location: '特色餐厅', icon: '🍽️', category: '餐饮', categoryColor: 'orange', completed: false },
+        { id: uid(), time: '14:00', activity: '拍照打卡', location: '景点', icon: '📸', category: '观光', categoryColor: 'purple', completed: false },
+        { id: uid(), time: '18:00', activity: '购物休息', location: '商业区', icon: '🎁', category: '购物', categoryColor: 'cyan', completed: false }
+      ]
+    }
+  ]
+}
+
+// ---- UI State ----
 const showMapView = ref(false)
 const selectedDay = ref<number | null>(null)
 const dayModalVisible = ref(false)
 const editingDay = ref<Partial<Day>>({})
 const editingDayIndex = ref(-1)
 
-// 优先使用传入的 itinerary，其次回退到 store
-const plannerItinerary = computed<PlannerItineraryResponse | null>(() => {
-  return (props.itinerary as PlannerItineraryResponse | null) || (travelStore as any).plannerItinerary || null
-})
-
-// 获取目的地货币信息
-const getDestinationCurrency = computed((): CurrencyInfo => {
-  const destination = plannerItinerary.value?.destination || ''
-  if (destination) {
-    const currency = getCurrencyForDestination(destination)
-    if (currency.code !== 'CNY') {
-      return currency
-    }
-  }
-  // 默认返回人民币
-  return { code: 'CNY', symbol: '¥', name: '人民币' }
-})
-
-// 格式化金额（使用目的地货币）
-const formatAmount = (amount: number) => {
-  return formatCurrency(amount, getDestinationCurrency.value)
-}
-
-// 将 AI 生成的行程转换为时间线格式
-const timelineDays = computed(() => {
-  if (!plannerItinerary.value) {
-    return getDefaultTimelineDays()
-  }
-  
-  return plannerItinerary.value.days.map(day => ({
-    date: day.date,
-    title: day.title,
-    description: day.description,
-    status: getStatusText(day.status),
-    stats: {
-      duration: day.stats.duration,
-      cost: day.stats.cost
-    },
-    timeSlots: day.timeSlots.map(slot => ({
-      time: slot.time,
-      activity: slot.activity,
-      location: slot.location,
-      icon: slot.icon,
-      category: slot.category,
-      categoryColor: slot.categoryColor,
-      notes: slot.notes,
-      completed: false
-    }))
-  }))
-})
-
-// 默认时间线数据（当没有 AI 数据时使用）
-const getDefaultTimelineDays = (): Day[] => [
-  {
-    date: 'Day 1',
-    title: '第一天 - 抵达目的地',
-    description: '上午抵达机场，下午入住酒店并休整',
-    status: '已规划',
-    stats: { duration: 8, cost: 800 },
-    timeSlots: [
-      { 
-        time: '09:00', 
-        activity: '机场接机', 
-        location: '机场',
-        icon: '✈️',
-        category: '交通',
-        categoryColor: 'blue',
-        notes: '预计用时45分钟',
-        completed: true
-      },
-      { 
-        time: '11:00', 
-        activity: '前往酒店', 
-        location: '酒店',
-        icon: '🚗',
-        category: '交通',
-        categoryColor: 'blue',
-        completed: true
-      },
-      { 
-        time: '14:00', 
-        activity: '午餐休息', 
-        location: '当地餐厅',
-        icon: '🍜',
-        category: '餐饮',
-        categoryColor: 'orange',
-        completed: false
-      },
-      { 
-        time: '17:00', 
-        activity: '入住整理', 
-        location: '酒店',
-        icon: '🏨',
-        category: '住宿',
-        categoryColor: 'green',
-        completed: false
-      }
-    ]
-  },
-  {
-    date: 'Day 2',
-    title: '第二天 - 探索主要景点',
-    description: '全天深度游览当地著名景点和特色体验',
-    status: '已规划',
-    stats: { duration: 10, cost: 1200 },
-    timeSlots: [
-      { 
-        time: '09:00', 
-        activity: '参观主要景点', 
-        location: '市中心',
-        icon: '🏛️',
-        category: '观光',
-        categoryColor: 'purple',
-        notes: '需提前订票',
-        completed: false
-      },
-      { 
-        time: '12:00', 
-        activity: '午餐', 
-        location: '特色餐厅',
-        icon: '🍽️',
-        category: '餐饮',
-        categoryColor: 'orange',
-        completed: false
-      },
-      { 
-        time: '14:00', 
-        activity: '拍照打卡', 
-        location: '景点',
-        icon: '📸',
-        category: '观光',
-        categoryColor: 'purple',
-        completed: false
-      },
-      { 
-        time: '18:00', 
-        activity: '购物休息', 
-        location: '商业区',
-        icon: '🎁',
-        category: '购物',
-        categoryColor: 'cyan',
-        completed: false
-      }
-    ]
-  }
-]
-
-// 获取状态文本
-const getStatusText = (status: string) => {
-  const statusMap: { [key: string]: string } = {
-    'planned': '已规划',
-    'in-progress': '进行中',
-    'completed': '已完成'
-  }
-  return statusMap[status] || '已规划'
-}
-
-// 监听 AI 行程数据变化
-watch(plannerItinerary, (newItinerary) => {
-  if (newItinerary) {
-    console.log('AI 行程数据已更新:', newItinerary)
-    message.success('AI 智能行程已生成！')
-  }
-}, { immediate: true })
-
-const getDayStatusColor = (status: string) => {
-  const colors: Record<string, string> = {
-    '已规划': 'blue',
-    '进行中': 'orange',
-    '已完成': 'green'
-  }
-  return colors[status] || 'default'
-}
-
+// ---- Actions ----
 const editDay = (index: number) => {
   editingDayIndex.value = index
-  editingDay.value = { ...timelineDays.value[index] }
+  editingDay.value = { ...daysRef.value[index] }
   dayModalVisible.value = true
 }
 
 const saveDay = () => {
   if (editingDayIndex.value >= 0) {
-    timelineDays.value[editingDayIndex.value] = editingDay.value as Day
-    message.success(t('travelDetail.plannerTimeline.duplicateSuccess'))
+    const idx = editingDayIndex.value
+    daysRef.value[idx] = { ...(daysRef.value[idx]), ...(editingDay.value as Day) }
+    syncPlannerItinerary()
+    message.success(t('travelDetail.plannerTimeline.saveSuccess'))
   }
   dayModalVisible.value = false
 }
 
 const duplicateDay = (index: number) => {
-  const newDay = { ...timelineDays.value[index] }
-  newDay.date = `Day ${timelineDays.value.length + 1}`
-  newDay.title = newDay.title + ' (副本)'
-  timelineDays.value.push(newDay)
+  const src = daysRef.value[index]
+  const clone: Day = {
+    ...JSON.parse(JSON.stringify(src)),
+    id: uid(),
+    date: `Day ${daysRef.value.length + 1}`,
+    title: `${src.title} (副本)`,
+    timeSlots: src.timeSlots.map(s => ({ ...JSON.parse(JSON.stringify(s)), id: uid(), completed: false }))
+  }
+  daysRef.value.push(clone)
+  syncPlannerItinerary()
   message.success(t('travelDetail.plannerTimeline.duplicateSuccess'))
 }
 
@@ -425,7 +591,8 @@ const deleteDay = (index: number) => {
     title: t('travelDetail.plannerTimeline.confirmDelete'),
     content: t('travelDetail.plannerTimeline.confirmDeleteContent'),
     onOk: () => {
-      timelineDays.value.splice(index, 1)
+      daysRef.value.splice(index, 1)
+      syncPlannerItinerary()
       message.success(t('travelDetail.plannerTimeline.deleteSuccess'))
     }
   })
@@ -433,122 +600,217 @@ const deleteDay = (index: number) => {
 
 const addNewDay = () => {
   const newDay: Day = {
-    date: `Day ${timelineDays.value.length + 1}`,
+    id: uid(),
+    date: `Day ${daysRef.value.length + 1}`,
     title: '新行程日',
     description: '',
     status: '已规划',
     stats: { duration: 0, cost: 0 },
     timeSlots: []
   }
-  timelineDays.value.push(newDay)
+  daysRef.value.push(newDay)
+  syncPlannerItinerary()
+}
+
+const suggestNextTime = (dayIndex: number) => {
+  const slots = daysRef.value[dayIndex]?.timeSlots || []
+  if (!slots.length) return dayjs('09:00', 'HH:mm')
+  const lastTime = slots[slots.length - 1]?.time || '09:00'
+  const [hoursStr, minutesStr = '00'] = lastTime.split(':')
+  const hours = Number(hoursStr)
+  const nextHour = (Number.isFinite(hours) ? (hours + 2) % 24 : 9)
+  return dayjs(`${String(nextHour).padStart(2, '0')}:${minutesStr}`, 'HH:mm')
+}
+
+const openSlotModal = (dayIndex: number, slotIndex = -1) => {
+  slotEditingDayIndex.value = dayIndex
+  slotEditingSlotIndex.value = slotIndex
+  if (slotIndex >= 0) {
+    const slot = daysRef.value[dayIndex].timeSlots[slotIndex]
+    let parsed: Dayjs
+    if (typeof slot.time === 'string' && slot.time) {
+      parsed = dayjs(slot.time, 'HH:mm')
+    } else if (slot.time instanceof Date) {
+      parsed = dayjs(slot.time)
+    } else if ((slot.time as any)?.format) {
+      parsed = dayjs((slot.time as any))
+    } else {
+      parsed = dayjs('09:00', 'HH:mm')
+    }
+    slotForm.value = {
+      ...slot,
+      time: parsed.isValid() ? parsed : dayjs('09:00', 'HH:mm')
+    }
+    if (slot.category && !slot.categoryColor) {
+      applyCategoryPreset(slot.category)
+    }
+  } else {
+    slotForm.value = { ...createDefaultSlotForm(), time: suggestNextTime(dayIndex) }
+  }
+  slotModalVisible.value = true
 }
 
 const addTimeSlot = (dayIndex: number) => {
-  const newSlot: TimeSlot = {
-    time: '10:00',
-    activity: '新活动',
-    location: '地点',
-    icon: '📍',
-    completed: false
-  }
-  timelineDays.value[dayIndex].timeSlots.push(newSlot)
+  openSlotModal(dayIndex, -1)
 }
 
 const editSlot = (dayIndex: number, slotIndex: number) => {
-  message.info('编辑时间点')
+  openSlotModal(dayIndex, slotIndex)
+}
+
+const applyCategoryPreset = (categoryLabel: string) => {
+  if (!categoryLabel) return
+  const preset = categoryPresets.value.find(p => p.label === categoryLabel)
+  if (!preset) return
+  slotForm.value.categoryColor = preset.color
+  if (!slotForm.value.icon || slotForm.value.icon === '📍') {
+    slotForm.value.icon = preset.icon
+  }
+}
+
+const onCategorySelect = (value: string | undefined) => {
+  slotForm.value.category = value || ''
+  if (value) {
+    applyCategoryPreset(value)
+  } else {
+    slotForm.value.categoryColor = 'blue'
+  }
+}
+
+const validateSlotForm = () => {
+  if (!slotForm.value.time || !dayjs.isDayjs(slotForm.value.time) || !slotForm.value.time.isValid()) {
+    message.warning(t('travelDetail.plannerTimeline.slotValidationTime'))
+    return false
+  }
+  if (!slotForm.value.activity || !slotForm.value.activity.trim()) {
+    message.warning(t('travelDetail.plannerTimeline.slotValidationActivity'))
+    return false
+  }
+  return true
+}
+
+const saveSlot = () => {
+  if (slotEditingDayIndex.value < 0) return
+  if (!validateSlotForm()) return
+
+  applyCategoryPreset(slotForm.value.category || '')
+
+  const day = daysRef.value[slotEditingDayIndex.value]
+  const slotData: TimeSlot = {
+    id: slotForm.value.id || uid(),
+    time: slotForm.value.time.format('HH:mm'),
+    activity: slotForm.value.activity,
+    location: slotForm.value.location,
+    icon: slotForm.value.icon,
+    category: slotForm.value.category,
+    categoryColor: slotForm.value.categoryColor,
+    notes: slotForm.value.notes,
+    completed: slotForm.value.completed
+  }
+
+  if (slotEditingSlotIndex.value >= 0) {
+    day.timeSlots.splice(slotEditingSlotIndex.value, 1, slotData)
+    message.success(t('travelDetail.plannerTimeline.slotUpdateSuccess'))
+  } else {
+    day.timeSlots.push(slotData)
+    message.success(t('travelDetail.plannerTimeline.slotCreateSuccess'))
+  }
+
+  slotModalVisible.value = false
+  syncPlannerItinerary()
+}
+
+const cancelSlotEdit = () => {
+  slotModalVisible.value = false
+}
+
+const deleteSlot = (dayIndex: number, slotIndex: number) => {
+  Modal.confirm({
+    title: t('travelDetail.plannerTimeline.slotDeleteConfirm'),
+    content: t('travelDetail.plannerTimeline.slotDeleteConfirmContent'),
+    onOk: () => {
+      daysRef.value[dayIndex].timeSlots.splice(slotIndex, 1)
+      syncPlannerItinerary()
+      message.success(t('travelDetail.plannerTimeline.slotDeleteSuccess'))
+    }
+  })
 }
 
 const updateSlotStatus = (dayIndex: number, slotIndex: number) => {
-  const slot = timelineDays.value[dayIndex].timeSlots[slotIndex]
-  message.success(`${slot.activity} ${slot.completed ? '已完成' : '未完成'}`)
+  const slot = daysRef.value[dayIndex].timeSlots[slotIndex]
+  syncPlannerItinerary()
+  message.success(`${slot.activity} ${slot.completed ? t('travelDetail.plannerTimeline.done') : t('travelDetail.plannerTimeline.undone')}`)
 }
 
 const viewLocation = (location: string) => {
-  message.info(`查看 ${location} 的地图`)
+  message.info(`${t('travelDetail.plannerTimeline.viewMap')}: ${location}`)
 }
 
 const optimizeRoute = async () => {
-  if (!plannerItinerary.value) {
-    message.warning('请先生成行程')
+  if (!currentItinerary.value) {
+    message.warning(t('travelDetail.plannerTimeline.generateFirst'))
     return
   }
-  
   try {
-    message.loading('AI 正在优化路线...', 0)
+    const hide = message.loading(t('travelDetail.plannerTimeline.optimizing'), 0)
     await travelStore.optimizePlannerItinerary('route')
-    message.destroy()
-    message.success('路线已优化，可节省20分钟')
+    hide()
+    message.success(t('travelDetail.plannerTimeline.optimizeSuccess'))
   } catch (error) {
     message.destroy()
-    message.error('路线优化失败，请重试')
+    message.error(t('travelDetail.plannerTimeline.optimizeFailed'))
   }
 }
 
 const exportItinerary = () => {
-  if (!plannerItinerary.value) {
-    message.warning('请先生成行程')
+  const it = currentItinerary.value
+  if (!it) {
+    message.warning(t('travelDetail.plannerTimeline.generateFirst'))
     return
   }
-  
-  message.loading('正在导出...', 1)
-  
-  // 生成 PDF 内容
-  const itineraryContent = generatePDFContent(plannerItinerary.value)
-  
-  // 创建下载链接
-  const blob = new Blob([itineraryContent], { type: 'text/plain;charset=utf-8' })
+  message.loading(t('travelDetail.plannerTimeline.exporting'), 1)
+  const content = generateExportText(it)
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${plannerItinerary.value.title || '行程安排'}.txt`
+  link.download = `${it.title || '行程安排'}.txt`
   link.click()
   URL.revokeObjectURL(url)
-  
-  message.success('行程已导出')
+  message.success(t('travelDetail.plannerTimeline.exportSuccess'))
 }
 
-// 生成 PDF 内容
-const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
+// 导出文本（Markdown 友好）
+const generateExportText = (itinerary: PlannerItineraryResponse): string => {
   let content = `# ${itinerary.title}\n\n`
   content += `目的地：${itinerary.destination}\n`
   content += `行程天数：${itinerary.duration}天\n`
-  content += `总预算：${formatCurrency(itinerary.totalCost, getDestinationCurrency.value)}\n\n`
-  content += `## 行程概述\n${itinerary.summary}\n\n`
-  
+  content += `总预算：${formatCurrency(itinerary.totalCost ?? 0, getDestinationCurrency.value)}\n\n`
+  content += `## 行程概述\n${itinerary.summary || ''}\n\n`
   content += `## 详细行程\n\n`
-  itinerary.days.forEach((day, index) => {
-    content += `### ${day.title}\n`
-    content += `${day.description}\n\n`
+  ;(itinerary.days || []).forEach((day, index) => {
+    content += `### ${day.title || `第${index + 1}天`}\n`
+    content += `${(day as any).description || ''}\n\n`
     content += `**时间安排：**\n`
-    day.timeSlots.forEach(slot => {
-      content += `- ${slot.time} ${slot.activity}`
+    ;((day as any).timeSlots || []).forEach((slot: any) => {
+      content += `- ${slot.time || ''} ${slot.activity || slot.title || ''}`
       if (slot.location) content += ` (${slot.location})`
       if (slot.notes) content += ` - ${slot.notes}`
       content += `\n`
     })
     content += `\n`
   })
-  
   content += `## 实用建议\n\n`
-  content += `**最佳旅游时间：** ${itinerary.recommendations.bestTimeToVisit}\n`
-  content += `**天气建议：** ${itinerary.recommendations.weatherAdvice}\n\n`
+  content += `**最佳旅游时间：** ${(itinerary.recommendations as any)?.bestTimeToVisit || ''}\n`
+  content += `**天气建议：** ${(itinerary.recommendations as any)?.weatherAdvice || ''}\n\n`
   content += `**打包清单：**\n`
-  itinerary.recommendations.packingTips.forEach(tip => {
-    content += `- ${tip}\n`
-  })
+  ;(((itinerary.recommendations as any)?.packingTips) || []).forEach((tip: string) => { content += `- ${tip}\n` })
   content += `\n`
-  
   content += `**当地小贴士：**\n`
-  itinerary.recommendations.localTips.forEach(tip => {
-    content += `- ${tip}\n`
-  })
+  ;(((itinerary.recommendations as any)?.localTips) || []).forEach((tip: string) => { content += `- ${tip}\n` })
   content += `\n`
-  
   content += `**紧急联系方式：**\n`
-  itinerary.recommendations.emergencyContacts.forEach(contact => {
-    content += `- ${contact}\n`
-  })
-  
+  ;(((itinerary.recommendations as any)?.emergencyContacts) || []).forEach((c: string) => { content += `- ${c}\n` })
   return content
 }
 </script>
@@ -556,6 +818,125 @@ const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
 <style scoped>
 .planner-timeline {
   padding: 0.5rem 0;
+}
+
+.planner-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.rhythm-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eef4ff 0%, #f5f0ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(79, 139, 249, 0.1);
+}
+
+.rhythm-info {
+  max-width: 240px;
+}
+
+.rhythm-level {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d295c;
+  margin-bottom: 6px;
+}
+
+.rhythm-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #4b5563;
+}
+
+.notifications {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  gap: 12px;
+}
+
+.notifications.empty {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
+}
+
+.notification-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notification-placeholder :deep(svg) {
+  margin-right: 6px;
+}
+
+.notification-card {
+  flex: 1;
+  min-width: 220px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(79, 139, 249, 0.1);
+  box-shadow: 0 12px 24px rgba(79, 139, 249, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notification-card.warn {
+  background: rgba(255, 183, 3, 0.14);
+  box-shadow: 0 12px 24px rgba(255, 183, 3, 0.16);
+}
+
+.notification-card.info {
+  background: rgba(79, 139, 249, 0.12);
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.notification-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(79, 139, 249, 0.18);
+  color: #1f3a8a;
+}
+
+.notification-card.warn .notification-tag {
+  background: rgba(255, 107, 54, 0.18);
+  color: #b45309;
+}
+
+.notification-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #374151;
+}
+
+.notifications :deep(.ant-btn-text) {
+  color: #64748b;
+}
+
+.notifications :deep(.ant-btn-text:hover) {
+  color: #1f2937;
 }
 
 .timeline-header {
@@ -582,7 +963,7 @@ const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 300px; /* Adjust height as needed */
+  height: 300px;
 }
 
 .map-placeholder {
@@ -600,7 +981,7 @@ const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 0.5rem;
-  cursor: pointer; /* Indicate clickability */
+  cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
@@ -713,4 +1094,23 @@ const generatePDFContent = (itinerary: PlannerItineraryResponse): string => {
   align-items: center;
   gap: 0.25rem;
 }
+
+.slot-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 12px;
+}
+
+@media (min-width: 768px) {
+  .slot-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.category-preview {
+  margin-top: 8px;
+}
+
 </style>

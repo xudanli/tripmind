@@ -3,7 +3,7 @@
  * 提供带重试机制的 API 调用
  */
 
-import { chatWithDeepSeek } from '@/services/deepseekAPI'
+import { chatWithLLM } from '@/services/deepseekAPI'
 
 // ==================== 类型定义 ====================
 
@@ -39,7 +39,7 @@ export async function askDeepSeek(
   
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const response = await chatWithDeepSeek(messages, {
+      const response = await chatWithLLM(messages, {
         temperature,
         max_tokens
       })

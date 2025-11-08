@@ -5,7 +5,9 @@
  */
 
 import { API_CONFIG } from '@/config/api'
-import { searchIStockPhoto, searchIStockPhotoSingle, type IStockPhoto } from './istockphotoAPI'
+import { sanitizeLabelToKeyword } from '@/utils/mediaHelpers'
+import { searchIStockPhoto, type IStockPhoto } from './istockphotoAPI'
+import { searchPexelsPhotos, type PexelsPhoto } from './pexelsAPI'
 
 export interface UnsplashPhoto {
   id: string
@@ -24,6 +26,11 @@ export interface UnsplashPhoto {
     name: string
     username: string
   }
+}
+
+type UnsplashSearchOptions = {
+  orientation?: 'landscape' | 'portrait' | 'squarish'
+  per_page?: number
 }
 
 /**
@@ -50,6 +57,69 @@ function convertIStockToUnsplash(photo: IStockPhoto): UnsplashPhoto {
   }
 }
 
+function convertPexelsToUnsplash(photo: PexelsPhoto): UnsplashPhoto {
+  const src = photo.src
+  return {
+    id: `pexels-${photo.id}`,
+    urls: {
+      raw: src.original,
+      full: src.large2x || src.original,
+      regular: src.large || src.medium || src.original,
+      small: src.small || src.medium || src.original,
+      thumb: src.tiny || src.small || src.original
+    },
+    width: photo.width,
+    height: photo.height,
+    description: photo.alt || null,
+    alt_description: photo.alt || null,
+    user: {
+      name: photo.photographer || 'Pexels',
+      username: photo.photographer ? `${photo.photographer} (Pexels)` : 'pexels'
+    }
+  }
+}
+
+async function fetchFallbackPhotos(query: string, options: UnsplashSearchOptions): Promise<UnsplashPhoto[]> {
+  const fallbackResults: UnsplashPhoto[] = []
+
+  const perPage = options.per_page ?? 10
+
+  try {
+    const pexelsOrientation =
+      options.orientation === 'squarish'
+        ? 'square'
+        : options.orientation ?? undefined
+
+    const pexelsPhotos = await searchPexelsPhotos(query, {
+      perPage,
+      orientation: pexelsOrientation as 'landscape' | 'portrait' | 'square' | undefined
+    })
+
+    if (pexelsPhotos.length > 0) {
+      console.log(`✅ 使用 Pexels 获取到 ${pexelsPhotos.length} 张图片`)
+      fallbackResults.push(...pexelsPhotos.map(convertPexelsToUnsplash))
+    }
+  } catch (pexelsError: any) {
+    console.warn('[Pexels] 图片检索失败:', pexelsError?.message || pexelsError)
+  }
+
+  if (fallbackResults.length > 0) {
+    return fallbackResults
+  }
+
+  try {
+    const istockPhotos = await searchIStockPhoto(query, options)
+    if (istockPhotos.length > 0) {
+      console.log(`✅ 使用 iStockPhoto 获取到 ${istockPhotos.length} 张图片`)
+      return istockPhotos.map(convertIStockToUnsplash)
+    }
+  } catch (fallbackError: any) {
+    console.warn('iStockPhoto 后备也失败:', fallbackError?.message || fallbackError)
+  }
+
+  return []
+}
+
 export interface UnsplashSearchResponse {
   total: number
   total_pages: number
@@ -61,10 +131,7 @@ export interface UnsplashSearchResponse {
  */
 export async function searchUnsplashPhotos(
   query: string,
-  options: {
-    orientation?: 'landscape' | 'portrait' | 'squarish'
-    per_page?: number
-  } = {}
+  options: UnsplashSearchOptions = {}
 ): Promise<UnsplashPhoto[]> {
   try {
     const { orientation = 'landscape', per_page = 10 } = options
@@ -116,23 +183,22 @@ export async function searchUnsplashPhotos(
     if (data.results && data.results.length > 0) {
       return data.results
     }
+
+    const fallbackPhotos = await fetchFallbackPhotos(query, options)
+    if (fallbackPhotos.length > 0) {
+      return fallbackPhotos
+    }
     
     return []
   } catch (error: any) {
     // 只在非网络错误时输出警告（网络错误可能是正常的超时）
     if (error?.message && !error.message.includes('fetch')) {
-      console.warn('Unsplash搜索失败，尝试使用 iStockPhoto/Pexels:', error.message)
+      console.warn('Unsplash搜索失败，尝试使用 Pexels/iStockPhoto:', error.message)
     }
     
-    // 如果 Unsplash 失败，尝试使用 iStockPhoto/Pexels 作为后备
-    try {
-      const istockPhotos = await searchIStockPhoto(query, options)
-      if (istockPhotos.length > 0) {
-        console.log(`✅ 使用 iStockPhoto/Pexels 获取到 ${istockPhotos.length} 张图片`)
-        return istockPhotos.map(convertIStockToUnsplash)
-      }
-    } catch (fallbackError: any) {
-      console.warn('iStockPhoto/Pexels 后备也失败:', fallbackError.message)
+    const fallbackPhotos = await fetchFallbackPhotos(query, options)
+    if (fallbackPhotos.length > 0) {
+      return fallbackPhotos
     }
     
     return []
@@ -144,10 +210,7 @@ export async function searchUnsplashPhotos(
  */
 export async function searchUnsplashPhoto(
   query: string,
-  options: {
-    orientation?: 'landscape' | 'portrait' | 'squarish'
-    per_page?: number
-  } = {}
+  options: UnsplashSearchOptions = {}
 ): Promise<UnsplashPhoto | null> {
   try {
     const photos = await searchUnsplashPhotos(query, { ...options, per_page: 1 })
@@ -155,16 +218,24 @@ export async function searchUnsplashPhoto(
       return photos[0]
     }
     
-    // 如果 Unsplash 没有结果，尝试 iStockPhoto/Pexels
-    const istockPhoto = await searchIStockPhotoSingle(query, options)
-    if (istockPhoto) {
-      console.log('✅ 使用 iStockPhoto/Pexels 获取图片')
-      return convertIStockToUnsplash(istockPhoto)
+    const fallbackPhotos = await fetchFallbackPhotos(query, { ...options, per_page: options.per_page ?? 3 })
+    if (fallbackPhotos.length > 0) {
+      const firstFallback = fallbackPhotos[0]
+      if (firstFallback) {
+        return firstFallback
+      }
     }
     
     return null
   } catch (error: any) {
     console.warn('搜索图片失败:', error.message)
+    const fallbackPhotos = await fetchFallbackPhotos(query, { ...options, per_page: options.per_page ?? 3 })
+    if (fallbackPhotos.length > 0) {
+      const firstFallback = fallbackPhotos[0]
+      if (firstFallback) {
+        return firstFallback
+      }
+    }
     return null
   }
 }
@@ -172,58 +243,140 @@ export async function searchUnsplashPhoto(
 /**
  * 为活动生成搜索关键词
  */
-export function generateSearchQuery(slot: any, destination?: string): string {
-  // 优先级：活动名称 > 地点 > 类型 > 目的地
-  const queries: string[] = []
-  
-  // 1. 使用活动的英文名称（如果有）
-  if (slot.details?.name?.english) {
-    queries.push(slot.details.name.english)
+const ASCII_DIACRITICS_REGEX = /[\u0300-\u036f]/g
+const ENGLISH_SEGMENT_REGEX = /[A-Za-z][A-Za-z0-9\s'&,.\-]*/g
+
+const toText = (value: any) => (typeof value === 'string' ? value.trim() : '')
+
+const normalizeAscii = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(ASCII_DIACRITICS_REGEX, '')
+
+const dedupe = (values: string[]) => {
+  const seen = new Set<string>()
+  return values
+    .map((item) => sanitizeLabelToKeyword(item))
+    .filter((item) => {
+      if (!item) return false
+      const lowered = item.toLowerCase()
+      if (seen.has(lowered)) return false
+      seen.add(lowered)
+      return true
+    })
+}
+
+const extractEnglishSegments = (value?: string | null): string[] => {
+  const text = toText(value)
+  if (!text) return []
+  const normalized = normalizeAscii(text)
+  if (!/[A-Za-z]/.test(normalized)) {
+    return []
+  }
+  const segments = normalized.match(ENGLISH_SEGMENT_REGEX)
+  if (!segments || segments.length === 0) {
+    return [normalized.trim()]
+  }
+  return dedupe(segments.map((segment) => segment.trim()).filter(Boolean))
   }
   
-  // 2. 使用活动标题
-  if (slot.title) {
-    queries.push(slot.title)
+interface GenerateSearchQueryOptions {
+  fallback?: string
+  preferEnglish?: boolean
+  includeActivityTerms?: boolean
+  locationHint?: string
+}
+
+export function generateSearchQuery(
+  slot: any,
+  destination?: string,
+  options: GenerateSearchQueryOptions = {}
+): string {
+  const { fallback, preferEnglish = false, includeActivityTerms = true, locationHint } = options
+
+  const activityCandidates = includeActivityTerms
+    ? [
+        toText(slot.details?.name?.english),
+        toText(slot.title),
+        toText(slot.activity),
+        toText(slot.details?.name?.local),
+        toText(slot.details?.name?.chinese)
+      ].filter(Boolean)
+    : []
+
+  const locationCandidates = [
+    toText(locationHint),
+    toText(slot.details?.address?.english),
+    toText(slot.details?.address?.local),
+    toText(slot.details?.address?.chinese),
+    toText(slot.location),
+    toText(destination),
+    toText(fallback)
+  ].filter(Boolean)
+
+  const englishActivityTerms =
+    preferEnglish && includeActivityTerms
+      ? dedupe([
+          ...activityCandidates.flatMap((item) => extractEnglishSegments(item)),
+          ...extractEnglishSegments(slot?.details?.address?.english),
+          ...extractEnglishSegments(slot?.details?.address?.local)
+        ])
+      : []
+
+  const englishLocationTerms = preferEnglish
+    ? dedupe([
+        ...locationCandidates.flatMap((item) => extractEnglishSegments(item)),
+        ...extractEnglishSegments(destination),
+        ...extractEnglishSegments(fallback)
+      ])
+    : []
+
+  const activityTerms = dedupe(activityCandidates)
+  const locationTerms = dedupe(locationCandidates)
+
+  const preferredActivityTerms =
+    preferEnglish && englishActivityTerms.length > 0 ? englishActivityTerms : activityTerms
+  const preferredLocationTerms =
+    preferEnglish && englishLocationTerms.length > 0 ? englishLocationTerms : locationTerms
+
+  if (preferredActivityTerms.length && preferredLocationTerms.length) {
+    return `${preferredActivityTerms[0]} ${preferredLocationTerms[0]}`.trim()
+  }
+
+  if (preferredLocationTerms.length) {
+    const firstLocation = preferredLocationTerms[0]
+    if (firstLocation) {
+      return firstLocation
+    }
+  }
+
+  if (preferredActivityTerms.length) {
+    const firstActivity = preferredActivityTerms[0]
+    if (firstActivity) {
+      return firstActivity
+    }
   }
   
-  // 3. 使用活动名称
-  if (slot.activity) {
-    queries.push(slot.activity)
+  const type = toText(slot.type || slot.category || '')
+  const englishType = preferEnglish ? extractEnglishSegments(type)[0] : undefined
+  const typeTerm = preferEnglish ? englishType || type : type
+
+  if (typeTerm && destination) {
+    const destinationTerm = preferEnglish
+      ? extractEnglishSegments(destination)[0] || destination
+      : destination
+    return `${sanitizeLabelToKeyword(typeTerm)} ${sanitizeLabelToKeyword(destinationTerm)}`
   }
-  
-  // 4. 使用地点
-  if (slot.location) {
-    queries.push(slot.location)
-  }
-  
-  // 5. 使用地址
-  if (slot.details?.address?.english) {
-    queries.push(slot.details.address.english)
-  } else if (slot.details?.address?.chinese) {
-    queries.push(slot.details.address.chinese)
-  }
-  
-  // 6. 使用类型和目的地组合
-  const type = slot.type || slot.category || 'travel'
-  const typeLabels: Record<string, string> = {
-    attraction: 'tourist attraction',
-    restaurant: 'restaurant food',
-    accommodation: 'hotel resort',
-    transport: 'transportation',
-    shopping: 'shopping',
-    activity: 'travel activity'
-  }
-  
-  const typeLabel = typeLabels[type] || type
   
   if (destination) {
-    queries.push(`${typeLabel} ${destination}`)
-  } else {
-    queries.push(typeLabel)
+    const destinationTerm = preferEnglish
+      ? extractEnglishSegments(destination)[0] || destination
+      : destination
+    const sanitized = sanitizeLabelToKeyword(destinationTerm)
+    return sanitized || 'travel experience'
   }
-  
-  // 返回第一个非空的查询词
-  return queries.find(q => q && q.trim()) || 'travel'
+
+  return 'travel experience'
 }
 
 /**

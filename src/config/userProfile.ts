@@ -5,6 +5,7 @@
 
 // 交通方式偏好类型
 export type TransportationPreference = 'public_transit_and_walking' | 'driving_and_walking'
+export type LLMProvider = 'deepseek' | 'openai'
 
 export interface UserProfileConfig {
   // 用户国籍
@@ -30,6 +31,10 @@ export interface UserProfileConfig {
   preferredTransportMode?: TransportationPreference
   // 货币偏好（默认为人民币）
   preferredCurrency?: string // ISO 4217 货币代码，如 'CNY', 'USD', 'EUR'
+  // 首选大模型提供商
+  preferredLLMProvider?: LLMProvider
+  // 自定义 OpenAI 模型
+  preferredLLMModel?: string
 }
 
 // 支持的语言列表
@@ -83,7 +88,9 @@ export function getUserProfileOrDefault(): UserProfileConfig {
     heldVisas: [],
     proficientLanguages: ['zh-CN'], // 默认中文
     preferredTransportMode: 'public_transit_and_walking', // 默认：公共交通+短距离步行
-    preferredCurrency: 'CNY' // 默认：人民币
+    preferredCurrency: 'CNY', // 默认：人民币
+    preferredLLMProvider: 'deepseek',
+    preferredLLMModel: ''
   }
   
   return defaultProfile
@@ -145,6 +152,14 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
   if (config.preferredCurrency && typeof config.preferredCurrency !== 'string') {
     return false
   }
+
+  if (config.preferredLLMProvider && !['deepseek', 'openai'].includes(config.preferredLLMProvider)) {
+    return false
+  }
+
+  if (config.preferredLLMModel && typeof config.preferredLLMModel !== 'string') {
+    return false
+  }
   
   return true
 }
@@ -195,5 +210,15 @@ export function getUserTransportPreference(): TransportationPreference {
 export function getUserPreferredCurrency(): string {
   const profile = getUserProfile()
   return profile?.preferredCurrency || 'CNY'
+}
+
+export function getUserPreferredLLMProvider(): LLMProvider {
+  const profile = getUserProfile()
+  return profile?.preferredLLMProvider || 'deepseek'
+}
+
+export function getUserPreferredLLMModel(): string {
+  const profile = getUserProfile()
+  return profile?.preferredLLMModel || ''
 }
 

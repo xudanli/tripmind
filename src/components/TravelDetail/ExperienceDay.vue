@@ -1,514 +1,54 @@
 <template>
   <div class="experience-journey">
-    <!-- 封面层（Hero Section）- 与其他模式保持一致 -->
-    <div class="hero-section inspiration-hero">
-      <div class="hero-cover">
-        <img :src="coverImage" :alt="inspirationTitle" />
-        <div class="hero-content">
-          <!-- 主标题 -->
-          <h1 class="hero-title">{{ inspirationTitle }}</h1>
-          
-          <!-- 旅行目的地 -->
-          <p v-if="destination" class="hero-destination">{{ destination }}</p>
-          
-          <!-- 核心哲学语句 -->
-          <p v-if="coreInsight" class="hero-core-insight">{{ coreInsight }}</p>
-          
-          <!-- 支持文本 -->
-          <p v-if="supportingText" class="hero-supporting-text">{{ supportingText }}</p>
-          
-          <!-- 底部描述段落 -->
-          <div v-if="journeyBackground" class="hero-footer-content">
-            <p class="hero-description">{{ journeyBackground }}</p>
-          </div>
-          
-          <!-- 底部图标 -->
-          <div class="hero-footer-icons">
-            <div class="footer-icon notification-icon" @click="handleShowVisaTips">
-              <span>✈️</span>
-              <span class="notification-badge" v-if="hasVisaInfo">1</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    
     <!-- 行程时间线 -->
     <section class="itinerary-timeline">
       <a-timeline>
         <a-timeline-item 
-          v-for="(day, index) in itineraryDays" 
-          :key="day.date || index"
+          v-for="day in itineraryDays"
+          :key="day.id || day.date || day.day"
           color="blue"
         >
           <template #dot>
             <calendar-outlined :style="{ fontSize: '16px' }" />
           </template>
-          <div class="day-card">
-            <div class="day-header">
-              <div class="day-info">
-                <h3 class="day-title">{{ day.theme || `${t('travelDetail.experienceDay.day')} ${day.day}` }}</h3>
-                <span class="day-date">{{ day.date }}</span>
-                <a-tag v-if="day.mood" :color="getMoodColor(day.mood)">{{ day.mood }}</a-tag>
-                <a-tag v-if="day.psychologicalStage" color="purple" style="margin-left: 0.5rem;">
-                  {{ day.psychologicalStage }}
-                </a-tag>
-      </div>
-        </div>
-            <!-- 每日行程摘要 -->
-            <p v-if="getDaySummary(day)" class="day-description">{{ getDaySummary(day) }}</p>
-            
-            <!-- 时间段活动 -->
-            <div class="time-slots">
-              <div 
-                v-for="(slot, slotIndex) in day.timeSlots" 
-                :key="slotIndex"
-                class="time-slot"
-              >
-                <div class="slot-time">{{ slot.time }}</div>
-                <div class="slot-content">
-                  <!-- 活动图片 -->
-                  <div v-if="(getSlotImage(day.day, slotIndex, slot) || isImageLoading(day.day, slotIndex, slot)) && !hasImageError(day.day, slotIndex, slot)" class="slot-image-container">
-                    <img 
-                      v-if="getSlotImage(day.day, slotIndex, slot)"
-                      :src="getSlotImage(day.day, slotIndex, slot)"
-                      :alt="slot.title || slot.activity || 'Activity image'"
-                      class="slot-image"
-                      @error="() => imageErrors.add(getSlotKey(day.day, slotIndex, slot))"
-                      @click="openImagePreview(day.day, slotIndex, slot)"
-                    />
-                    <div v-else-if="isImageLoading(day.day, slotIndex, slot)" class="slot-image-loading">
-                      <span class="loading-spinner"></span>
-                    </div>
-                  </div>
-                  
-                  <!-- Header 行：时间点 + 标题 + 位置 -->
-                  <div class="slot-header-new">
-                    <div class="slot-header-main">
-                      <div class="slot-title-section">
-                        <h4 class="slot-title-main">
-                      {{ slot.title || slot.activity }}
-                    </h4>
-                        <p v-if="slot.details?.name?.english" class="slot-title-sub">
-                          {{ slot.details.name.english }}
-                        </p>
-                      </div>
-                    <!-- 编辑按钮已移除 -->
-        </div>
-                  </div>
 
-                  <!-- 活动摘要 -->
-                  <div v-if="getActivitySummary(slot)" class="slot-summary">
-                    <p class="summary-text">{{ getActivitySummary(slot) }}</p>
-                  </div>
+          <DayCard
+            :day="day"
+            :summary="getDaySummary(day)"
+          >
+            <template #slots>
+              <TimeSlotCard
+                v-for="(slot, slotIndex) in day.timeSlots"
+                :key="getSlotKey(day.day, slotIndex, slot)"
+                :day="day"
+                :slot="slot"
+                :cover="getSlotCover(day.day, slotIndex, slot)"
+                :currency="getSlotCurrency(slot)"
+                :platform="getRatingPlatform(slot)"
+                :expanded="isSlotExpanded(day.day, slotIndex, slot)"
+                @navigate="handleNavigate(slot)"
+                @book="handleBook(slot)"
+                @search="openSearchModal(day.day, slotIndex, slot)"
+                @contact="handleContact(slot)"
+                @edit="handleEdit(day.day, slotIndex, slot)"
+                @remove="handleDeleteSlot(day.day, slotIndex)"
+                @preview="openImagePreview(day.day, slotIndex, slot)"
+                @rating-click="handleRatingClick(slot)"
+                @toggle="toggleDetailsByKey(getSlotKey(day.day, slotIndex, slot))"
+                @image-error="markImageError(day.day, slotIndex, slot)"
+                :loading="isImageLoading(day.day, slotIndex, slot)"
+              />
 
-                  <!-- 内部轨道预览（心理体验）- 主界面显示 -->
-                  <div v-if="slot.internalTrack && (slot.internalTrack.question || slot.internalTrack.ritual || slot.internalTrack.reflection)" class="internal-track-preview">
-                    <div v-if="slot.internalTrack.question" class="internal-track-preview-item">
-                      <span class="preview-icon">💭</span>
-                      <span class="preview-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') || '思考' }}：</span>
-                      <span class="preview-text">{{ slot.internalTrack.question }}</span>
-                    </div>
-                    <div v-if="slot.internalTrack.ritual && !slot.internalTrack.question" class="internal-track-preview-item">
-                      <span class="preview-icon">🎭</span>
-                      <span class="preview-label">{{ t('travelDetail.experienceDay.internalTrackRitual') || '仪式' }}：</span>
-                      <span class="preview-text">{{ slot.internalTrack.ritual }}</span>
-                    </div>
-                  </div>
-
-                  <!-- 关键指标一行化（胶囊 Chips） -->
-                  <div v-if="slot.details || slot.duration || slot.cost" class="slot-chips-row">
-                    <!-- ⏱ 预计停留 -->
-                    <span v-if="slot.details?.recommendations?.suggestedDuration || slot.duration" class="slot-chip">
-                      <span class="chip-icon">⏱</span>
-                      {{ t('travelDetail.experienceDay.estimatedStay') }}：{{ slot.details?.recommendations?.suggestedDuration || `${slot.duration}–${slot.duration + DEFAULT_VALUES.DURATION_BUFFER}${t('travelDetail.experienceDay.minutes')}` }}
-                    </span>
-                    <!-- ⭐ 评分 -->
-                    <span 
-                      v-if="slot.details?.rating" 
-                      class="slot-chip slot-rating-chip rating-clickable"
-                      @click="handleRatingClick(slot)"
-                      :title="t('travelDetail.experienceDay.clickToViewReviews') || '点击查看评论'"
-                    >
-                      <span class="chip-icon">⭐</span>
-                      <span class="slot-rating-score">{{ slot.details.rating.score }}</span>
-                      <span v-if="slot.details.rating.reviewCount" class="slot-rating-count">（{{ formatReviewCount(slot.details.rating.reviewCount) }}{{ t('travelDetail.experienceDay.reviews') }}）</span>
-                      <span v-if="getRatingPlatform(slot)" class="slot-rating-platform"> · {{ getRatingPlatform(slot) }}</span>
-                    </span>
-                    <!-- 🍂 季节提示 -->
-                    <span v-if="slot.details?.recommendations?.seasonal" class="slot-chip slot-seasonal-chip">
-                      <span class="chip-icon">🍂</span>
-                      {{ t('travelDetail.experienceDay.seasonalTip') }}：{{ slot.details.recommendations.seasonal }}
-                    </span>
-                  </div>
-                  
-                  <!-- 信息块（2列栅格） -->
-                  <div v-if="slot.details" class="slot-info-grid">
-                    <!-- 左列：到达/操作信息 -->
-                    <div class="slot-info-column">
-                      <!-- 交通 -->
-                      <div v-if="slot.details.transportation" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">🚌</span> {{ t('travelDetail.experienceDay.transportation') }}
-                        </h5>
-                        <p class="slot-info-text transportation-info">
-                          <!-- 步行 -->
-                          <span v-if="slot.details.transportation.fromStation?.walkTime">
-                            {{ t('travelDetail.experienceDay.walking') }}{{ slot.details.transportation.fromStation.walkTime }}{{ t('travelDetail.experienceDay.minutes') }}{{ t('travelDetail.experienceDay.minutesReachable') }}
-                          </span>
-                          <span v-else-if="slot.details.transportation.fromStation?.distance">
-                            {{ slot.details.transportation.fromStation.distance }}
-                          </span>
-                          <!-- 公交 -->
-                          <span v-if="slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance"> · </span>
-                            {{ t('travelDetail.experienceDay.bus') }}{{ Array.isArray(slot.details.transportation.busLines) ? slot.details.transportation.busLines.join('/') : slot.details.transportation.busLines }}{{ t('travelDetail.experienceDay.route') }}
-                            <span v-if="slot.details.transportation.busStop">（{{ slot.details.transportation.busStop }}）</span>
-                          </span>
-                          <!-- 地铁 -->
-                          <span v-if="slot.details.transportation.subway?.available">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length)"> · </span>
-                            {{ t('travelDetail.experienceDay.subway') || '地铁' }}
-                            <span v-if="slot.details.transportation.subway.lines && Array.isArray(slot.details.transportation.subway.lines) && slot.details.transportation.subway.lines.length">
-                              {{ Array.isArray(slot.details.transportation.subway.lines) ? slot.details.transportation.subway.lines.join('/') : slot.details.transportation.subway.lines }}{{ t('travelDetail.experienceDay.route') || '号线' }}
-                            </span>
-                            <span v-if="slot.details.transportation.subway.station">（{{ slot.details.transportation.subway.station }}）</span>
-                          </span>
-                          <!-- 驾车 -->
-                          <span v-if="slot.details.transportation.driving">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available"> · </span>
-                            {{ slot.details.transportation.driving }}
-                          </span>
-                          <!-- 接驳车/班车 -->
-                          <span v-if="slot.details.transportation.shuttle">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available || slot.details.transportation.driving"> · </span>
-                            {{ slot.details.transportation.shuttle }}
-                          </span>
-                          <!-- 停车信息 -->
-                          <span v-if="slot.details.transportation.parking">
-                            <span v-if="slot.details.transportation.fromStation?.walkTime || slot.details.transportation.fromStation?.distance || (slot.details.transportation.busLines && Array.isArray(slot.details.transportation.busLines) && slot.details.transportation.busLines.length) || slot.details.transportation.subway?.available || slot.details.transportation.driving || slot.details.transportation.shuttle"> · </span>
-                            {{ slot.details.transportation.parking }}
-                          </span>
-                          <!-- 如果都没有，显示步行不可达 -->
-                          <span v-if="!slot.details.transportation.fromStation?.walkTime && !slot.details.transportation.fromStation?.distance && (!slot.details.transportation.busLines || !Array.isArray(slot.details.transportation.busLines) || !slot.details.transportation.busLines.length) && !slot.details.transportation.subway?.available && !slot.details.transportation.driving && !slot.details.transportation.shuttle">
-                            {{ t('travelDetail.experienceDay.walkingNotReachable') }}
-                          </span>
-                        </p>
-                      </div>
-                      
-                      <!-- Booking链接（所有需要预订的活动） -->
-                      <div v-if="slot.bookingLinks && slot.bookingLinks.length > 0" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">🔗</span> 预订链接
-                        </h5>
-                        <div class="booking-links-display">
-                          <a 
-                            v-for="(link, linkIndex) in slot.bookingLinks" 
-                            :key="linkIndex"
-                            :href="link.url" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            class="booking-link-card"
-                          >
-                            <link-outlined class="booking-link-icon" />
-                            <span class="booking-link-name">{{ link.name || '预订链接' }}</span>
-                            <span class="booking-link-arrow">→</span>
-                          </a>
-                        </div>
-                      </div>
-                      
-                      <!-- 预订 -->
-                      <div v-if="slot.details.recommendations?.bookingRequired !== undefined || isTransportOrAccommodation(slot)" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">📅</span> {{ t('travelDetail.experienceDay.booking') }}
-                        </h5>
-                        <p class="slot-info-text">
-                          <span v-if="slot.details.recommendations?.bookingRequired">
-                            {{ `${t('travelDetail.experienceDay.bookingRequired')}${slot.details.recommendations.bookingAdvance || t('travelDetail.experienceDay.bookingAdvanceDefault')}` }}
-                          </span>
-                          <span v-else-if="isTransportOrAccommodation(slot)">
-                            {{ t('travelDetail.experienceDay.noBookingRequired') }}，{{ t('travelDetail.experienceDay.bookingSuggestionAvailable') }}
-                          </span>
-                          <span v-else>
-                            {{ t('travelDetail.experienceDay.noBookingRequired') }}
-                          </span>
-                        </p>
-                      </div>
-                      
-                      <!-- 开放时间 -->
-                      <div v-if="slot.details.openingHours" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">🕘</span> {{ t('travelDetail.experienceDay.openingHours') }}
-                        </h5>
-                        <p class="slot-info-text">
-                          <span v-if="slot.details.openingHours.days">{{ slot.details.openingHours.days }} </span>
-                          <span v-if="slot.details.openingHours.hours">
-                            {{ formatOpeningHours(slot.details.openingHours.hours) }}
-                          </span>
-                        </p>
-                      </div>
-                      
-                      <!-- 位置 -->
-                      <div v-if="slot.location || slot.details?.address || slot.details?.name" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">📍</span> {{ t('travelDetail.experienceDay.location') }}
-                        </h5>
-                        <p class="slot-info-text location-lines">
-                          <template v-if="getSlotLocationLines(slot).length">
-                            <span
-                              v-for="(line, lineIndex) in getSlotLocationLines(slot)"
-                              :key="lineIndex"
-                              class="location-line"
-                              :class="`location-line-${line.type}`"
-                            >
-                              {{ line.text }}
-                            </span>
-                          </template>
-                          <span v-else>{{ slot.location || '位置待更新' }}</span>
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <!-- 右列：体验/建议 -->
-                    <div class="slot-info-column">
-                      <!-- 穿搭建议 -->
-                      <div v-if="slot.details.recommendations?.outfitSuggestions" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">👗</span> {{ t('travelDetail.experienceDay.outfitSuggestions') }}
-                        </h5>
-                        <p class="slot-info-text outfit-suggestions-text">{{ slot.details.recommendations.outfitSuggestions }}</p>
-                      </div>
-                      
-                      <!-- 当地文化友好提示 -->
-                      <div v-if="slot.details.recommendations?.culturalTips" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">🌍</span> {{ t('travelDetail.experienceDay.culturalTips') }}
-                        </h5>
-                        <p class="slot-info-text cultural-tips-text">{{ slot.details.recommendations.culturalTips }}</p>
-                      </div>
-                      
-                      <!-- 行前建议（合并穿搭和其他建议） -->
-                      <div v-if="slot.details.recommendations?.dressCode || slot.details.recommendations?.bestTime || slot.details.recommendations?.suitableFor" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">💡</span> {{ t('travelDetail.experienceDay.preTripAdvice') }}
-                        </h5>
-                        <p class="slot-info-text">
-                          <span v-if="slot.details.recommendations.dressCode">{{ t('travelDetail.experienceDay.dressCode') }}：{{ slot.details.recommendations.dressCode }}</span>
-                          <span v-if="slot.details.recommendations.bestTime">
-                            <span v-if="slot.details.recommendations.dressCode"> · </span>
-                            {{ t('travelDetail.experienceDay.bestTime') }}：{{ slot.details.recommendations.bestTime }}
-                          </span>
-                          <span v-if="slot.details.recommendations.suitableFor">
-                            <span v-if="slot.details.recommendations.dressCode || slot.details.recommendations.bestTime"> · </span>
-                            {{ t('travelDetail.experienceDay.suitableFor') }}：{{ slot.details.recommendations.suitableFor }}
-                          </span>
-                        </p>
-                      </div>
-                      
-                      <!-- 费用详情 -->
-                      <div v-if="slot.details.pricing && hasValidPricing(slot.details.pricing)" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">💵</span> {{ t('travelDetail.experienceDay.pricingDetails') }}
-                        </h5>
-                        <p class="slot-info-text">
-                          <span v-if="slot.details.pricing.general">
-                            {{ t('travelDetail.experienceDay.transportationCost') }}：{{ formatCurrency(slot.details.pricing.general, getSlotCurrency(slot)) }}
-                            <span v-if="slot.details.pricing.description">（{{ slot.details.pricing.description }}）</span>
-                          </span>
-                          <span v-if="slot.details.pricing.detail?.children && slot.details.pricing.detail.children.price && (typeof slot.details.pricing.detail.children.price === 'number' ? slot.details.pricing.detail.children.price > 0 : parseFloat(slot.details.pricing.detail.children.price) > 0)">
-                            <span v-if="slot.details.pricing.general"> · </span>
-                            {{ t('travelDetail.experienceDay.children') }}{{ formatCurrency(slot.details.pricing.detail.children.price, getSlotCurrency(slot)) }}
-                            <span v-if="slot.details.pricing.detail.children.ageRange">（{{ slot.details.pricing.detail.children.ageRange }}）</span>
-                          </span>
-                          <span v-if="slot.details.pricing.detail?.groupDiscount && slot.details.pricing.detail.groupDiscount.minPeople > 0 && slot.details.pricing.detail.groupDiscount.percentage < 100">
-                            <span v-if="slot.details.pricing.general || (slot.details.pricing.detail?.children && slot.details.pricing.detail.children.price > 0)"> · </span>
-                            {{ slot.details.pricing.detail.groupDiscount.minPeople }}{{ t('travelDetail.experienceDay.peoplePlus') }} {{ 100 - slot.details.pricing.detail.groupDiscount.percentage }}{{ t('travelDetail.experienceDay.discount') }}
-                          </span>
-                        </p>
-                      </div>
-                      
-                      <!-- 不适合人群 -->
-                      <div v-if="slot.details.recommendations?.notSuitableFor" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">⚠️</span> {{ t('travelDetail.experienceDay.notSuitableFor') }}
-                        </h5>
-                        <p class="slot-info-text">{{ slot.details.recommendations.notSuitableFor }}</p>
-                      </div>
-                      
-                      <!-- 注意事项 -->
-                      <div v-if="slot.details?.recommendations?.specialNotes && slot.details.recommendations.specialNotes.length" class="slot-info-item">
-                        <h5 class="slot-info-label">
-                          <span class="info-icon">📌</span> {{ t('travelDetail.experienceDay.notes') }}
-                        </h5>
-                        <ul class="slot-detail-list">
-                          <li v-for="(note, noteIndex) in slot.details.recommendations.specialNotes" :key="noteIndex">{{ note }}</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <!-- 操作条 -->
-                  <div class="slot-actions-bar">
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn slot-action-primary"
-                      @click="handleNavigate(slot)"
-                    >
-                      <span>📍</span> {{ t('travelDetail.experienceDay.navigate') }}
-                    </a-button>
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn"
-                      @click="openSearchModal(day.day, slotIndex, slot)"
-                    >
-                      <span>🔍</span> {{ t('travelDetail.experienceDay.searchNearby') || '搜索附近' }}
-                    </a-button>
-                    <a-button 
-                      v-if="slot.details?.recommendations?.bookingRequired || isTransportOrAccommodation(slot)"
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn"
-                      @click="handleBook(slot)"
-                    >
-                      <span>🗓</span> {{ t('travelDetail.experienceDay.book') }}
-                    </a-button>
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn"
-                      @click="handleContact(slot)"
-                    >
-                      <span>📞</span> {{ t('travelDetail.experienceDay.contact') }}
-                    </a-button>
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn"
-                      @click="handleEdit(day.day, slotIndex, slot)"
-                    >
-                      <span>✏️</span> {{ t('travelDetail.experienceDay.edit') || '编辑' }}
-                    </a-button>
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn slot-action-danger"
-                      @click="handleDeleteSlot(day.day, slotIndex)"
-                    >
-                      <span>🗑️</span> {{ t('travelDetail.experienceDay.delete') || '删除' }}
-                    </a-button>
-                    <a-button 
-                      type="text" 
-                      size="small" 
-                      class="slot-action-btn"
-                      @click="toggleDetails(day.day, slotIndex)"
-                    >
-                      <span>↧</span> {{ expandedDetails[`${day.day}-${slotIndex}`] ? t('travelDetail.experienceDay.collapse') : t('travelDetail.experienceDay.more') }}
-                    </a-button>
-                  </div>
-                  
-                  <!-- 信息来源 -->
-                  <div v-if="slot.details" class="slot-source-info">
-                    <span class="source-text">{{ t('travelDetail.experienceDay.informationSource') }}：{{ getSourceInfo(slot) }}</span>
-                    <template v-if="getSourceLinks(slot).length > 0">
-                      <template v-for="(link, linkIndex) in getSourceLinks(slot)" :key="linkIndex">
-                        <a 
-                          :href="link.url" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          class="source-link"
-                        >
-                          {{ link.label }}
-                        </a>
-                        <span v-if="linkIndex < getSourceLinks(slot).length - 1">、</span>
-                      </template>
-                    </template>
-                    <span v-if="slot.details.lastUpdated" class="source-text"> · {{ t('travelDetail.experienceDay.updated') }}：{{ formatDate(slot.details.lastUpdated) }}</span>
-                  </div>
-                  
-                  <!-- 折叠详情 -->
-                  <div v-if="expandedDetails[`${day.day}-${slotIndex}`]" class="slot-expanded-details">
-                    <!-- 当地名称 -->
-                    <div v-if="slot.details?.name?.local" class="slot-detail-section">
-                      <h5 class="slot-detail-label">{{ t('travelDetail.experienceDay.localName') }}</h5>
-                      <p class="slot-detail-text">{{ slot.details.name.local }}</p>
-                    </div>
-                    
-                    <!-- 详细说明 -->
-                    <div v-if="slot.details?.description" class="slot-detail-section">
-                      <h5 class="slot-detail-label">{{ t('travelDetail.experienceDay.detailedDescription') }}</h5>
-                      <p class="slot-detail-text" v-if="slot.details.description.cuisine">{{ t('travelDetail.experienceDay.cuisineType') }}：{{ slot.details.description.cuisine }}</p>
-                      <p class="slot-detail-text" v-if="slot.details.description.specialty">{{ t('travelDetail.experienceDay.specialty') }}：{{ slot.details.description.specialty }}</p>
-                      <p class="slot-detail-text" v-if="slot.details.description.atmosphere">{{ t('travelDetail.experienceDay.atmosphere') }}：{{ slot.details.description.atmosphere }}</p>
-                    </div>
-                    
-                    <!-- 内部轨迹（心理体验） -->
-                    <div v-if="slot.internalTrack" class="slot-detail-section internal-track-section">
-                      <h5 class="slot-detail-label">
-                        <span class="internal-track-icon">💭</span>
-                        {{ t('travelDetail.experienceDay.internalTrack') || '内在体验' }}
-                      </h5>
-                      <div class="internal-track-content">
-                        <div v-if="slot.internalTrack.question" class="internal-track-item">
-                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') || '思考' }}：</span>
-                          <p class="internal-track-text">{{ slot.internalTrack.question }}</p>
-                        </div>
-                        <div v-if="slot.internalTrack.ritual" class="internal-track-item">
-                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackRitual') || '仪式' }}：</span>
-                          <p class="internal-track-text">{{ slot.internalTrack.ritual }}</p>
-                        </div>
-                        <div v-if="slot.internalTrack.reflection" class="internal-track-item">
-                          <span class="internal-track-label">{{ t('travelDetail.experienceDay.internalTrackReflection') || '反思' }}：</span>
-                          <p class="internal-track-text">{{ slot.internalTrack.reflection }}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-
-
-                  <div class="slot-meta">
-                    <a-tag
-                      v-if="slot.type || slot.category" 
-                      size="small"
-                      :color="getActivityTypeColor(slot.type || slot.category)"
-                    >
-                      {{ getActivityTypeLabel(slot.type || slot.category) }}
-                    </a-tag>
-                    <span v-if="slot.duration" class="slot-duration">{{ t('travelDetail.experienceDay.duration') }}：{{ slot.duration }}{{ t('travelDetail.experienceDay.minutes') }}</span>
-                    <span v-if="slot.cost" class="slot-cost">
-                      {{ t('travelDetail.experienceDay.cost') }}：{{ formatCurrency(slot.cost, getSlotCurrency(slot)) }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- 添加活动按钮 -->
-              <div class="add-slot-button-container">
                 <a-button 
                   type="dashed" 
                   size="small" 
                   class="add-slot-btn"
-                  @click="handleAddSlot(day.day, slotIndex)"
+                @click="handleAddSlot(day.day, (day.timeSlots || []).length)"
                 >
-                  <span>➕</span> {{ t('travelDetail.experienceDay.addActivity') || '添加活动' }}
+                <span>➕</span>{{ t('travelDetail.experienceDay.addActivity') }}
                 </a-button>
-              </div>
-            </div>
-            
-            <!-- 在最后一个时间段后也显示添加按钮 -->
-            <div v-if="slotIndex === day.timeSlots.length - 1" class="add-slot-button-container add-slot-button-last">
-              <a-button 
-                type="dashed" 
-                size="small" 
-                class="add-slot-btn"
-                @click="handleAddSlot(day.day, day.timeSlots.length)"
-              >
-                <span>➕</span> {{ t('travelDetail.experienceDay.addActivity') || '添加活动' }}
-              </a-button>
-            </div>
-          </div>
+            </template>
+          </DayCard>
         </a-timeline-item>
       </a-timeline>
     </section>
@@ -688,10 +228,10 @@
             <span class="healing-label">{{ t('travelDetail.experienceDay.community') || '社群' }}：</span>
             {{ healingDesign.community }}
           </div>
-        </div>
-      </div>
+            </div>
+          </div>
     </section>
-
+    
     <!-- 编辑活动弹窗 -->
     <a-modal
       v-model:open="editModalVisible"
@@ -905,7 +445,7 @@
                 <div class="poi-meta">
                   <span v-if="poi.estimatedDuration" class="meta-item">
                     <span class="meta-icon">⏱️</span>
-                    <span class="meta-label">{{ durationLabel }}：</span>
+                    <span class="meta-label">{{ durationLabel.value }}：</span>
                     {{ poi.estimatedDuration }}
                   </span>
                   <span v-if="poi.pricing?.general" class="meta-item">
@@ -954,69 +494,13 @@
     </a-modal>
     
     <!-- 图片预览模态框 -->
-    <a-modal
+    <ImagePreviewModal
       v-model:open="previewVisible"
-      :footer="null"
-      :width="'90%'"
-      :style="{ maxWidth: '1200px', top: '5vh' }"
-      class="image-preview-modal"
-      @cancel="closeImagePreview"
-      :body-style="{ padding: 0 }"
-    >
-      <div class="image-preview-container">
-        <div class="preview-image-wrapper">
-          <img 
-            v-if="previewImages[previewCurrentIndex]"
-            :src="previewImages[previewCurrentIndex]"
-            :alt="`Image ${previewCurrentIndex + 1}`"
-            class="preview-image"
-          />
-        </div>
-        <div class="preview-controls">
-          <a-button 
-            type="text" 
-            class="preview-nav-btn"
-            @click="prevImage"
-            :disabled="previewImages.length <= 1"
-          >
-            <span class="nav-icon">←</span>
-          </a-button>
-          <div class="preview-info">
-            <span class="preview-counter">{{ previewCurrentIndex + 1 }} / {{ previewImages.length }}</span>
-          </div>
-          <a-button 
-            type="text" 
-            class="preview-nav-btn"
-            @click="nextImage"
-            :disabled="previewImages.length <= 1"
-          >
-            <span class="nav-icon">→</span>
-          </a-button>
-        </div>
-        <div class="preview-actions">
-          <a-button 
-            type="primary" 
-            class="set-cover-btn"
-            @click="setAsCover"
-            :title="t('travelDetail.experienceDay.setAsCover') || '设为封面'"
-          >
-            <span class="cover-icon">📌</span>
-            <span class="cover-text">{{ t('travelDetail.experienceDay.setAsCover') || '设为封面' }}</span>
-          </a-button>
-        </div>
-        <div class="preview-thumbnails" v-if="previewImages.length > 1">
-          <div 
-            v-for="(img, index) in previewImages" 
-            :key="index"
-            class="preview-thumbnail"
-            :class="{ active: index === previewCurrentIndex }"
-            @click="previewCurrentIndex = index"
-          >
-            <img :src="img" :alt="`Thumbnail ${index + 1}`" />
-          </div>
-        </div>
-      </div>
-    </a-modal>
+      :media="previewMedia"
+      :index="previewCurrentIndex"
+      @update:index="value => (previewCurrentIndex = value)"
+      @set-cover="setAsCover"
+    />
   </div>
 </template>
 
@@ -1034,6 +518,7 @@ import { getVisaInfo } from '@/config/visa'
 import { getUserNationalityCode, getUserPermanentResidencyCode, getUserLocationCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/services/unsplashAPI'
+import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
 import { searchNearbyPOI, type POIResult, type POICategory } from '@/services/poiSearchAPI'
 import {
   COUNTRY_KEYWORDS,
@@ -1043,6 +528,10 @@ import {
   MOOD_COLORS,
   ACTIVITY_TYPE_COLORS,
 } from '@/utils/travelConstants'
+import DayCard from './ExperienceDay/DayCard.vue'
+import TimeSlotCard from './ExperienceDay/TimeSlotCard.vue'
+import ImagePreviewModal from './ExperienceDay/ImagePreviewModal.vue'
+import { useItineraryModals, type PreviewMediaItem } from './ExperienceDay/useItineraryModals'
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -1198,21 +687,29 @@ const itineraryDays = computed(() => {
 
 // 活动图片存储
 const activityImages = ref<Map<string, string>>(new Map())
-const activityImagesList = ref<Map<string, string[]>>(new Map()) // 存储每个活动的多张图片
+const activityMediaList = ref<Map<string, PreviewMediaItem[]>>(new Map()) // 存储每个活动的多媒体（图片/视频）
+const activityVideoCache = ref<Map<string, InspirationVideo | null>>(new Map())
 const imageLoading = ref<Set<string>>(new Set())
 const imageErrors = ref<Set<string>>(new Set())
 
-// 图片预览状态
-const previewVisible = ref(false)
-const previewImages = ref<string[]>([])
-const previewCurrentIndex = ref(0)
-const currentPreviewDay = ref<number | null>(null)
-const currentPreviewSlotIndex = ref<number | null>(null)
-const currentPreviewSlot = ref<any>(null)
+const createImageItem = (url: string): PreviewMediaItem => ({
+  type: 'image',
+  src: url,
+})
+
+const createVideoItem = (video: InspirationVideo): PreviewMediaItem => ({
+  type: 'video',
+  src: video.downloadUrl,
+  poster: video.previewImage,
+  meta: video,
+})
 
 // 获取活动的唯一键
 const getSlotKey = (day: number, slotIndex: number, slot: any): string => {
-  return `${day}-${slotIndex}-${slot.title || slot.activity || slotIndex}`
+  if (slot?.id) return String(slot.id)
+  if (slot?.uuid) return String(slot.uuid)
+  const base = slot?.title || slot?.activity || slot?.time || slotIndex
+  return `${day}-${slotIndex}-${base}`
 }
 
 // 获取活动图片URL
@@ -1222,61 +719,88 @@ const getSlotImage = (day: number, slotIndex: number, slot: any): string | null 
 }
 
 // 获取活动的多张图片
-const getSlotImagesList = (day: number, slotIndex: number, slot: any): string[] => {
+const getSlotMediaList = (day: number, slotIndex: number, slot: any): PreviewMediaItem[] => {
   const key = getSlotKey(day, slotIndex, slot)
-  return activityImagesList.value.get(key) || []
+  return activityMediaList.value.get(key) || []
 }
 
-// 打开图片预览
+// 打开图片/视频预览
 const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
   const key = getSlotKey(day, slotIndex, slot)
+
+  const ensureCurrentImage = () => {
+    const currentImage = getSlotImage(day, slotIndex, slot)
+    return currentImage ? [createImageItem(currentImage)] : []
+}
+
+  if (!activityMediaList.value.has(key)) {
+    const mediaItems: PreviewMediaItem[] = []
   
-  // 如果还没有加载多张图片，先加载
-  if (!activityImagesList.value.has(key)) {
     try {
       const images = await getActivityImagesList(slot, destination.value, {
         orientation: 'landscape',
         size: 'regular',
-        count: 10
+        count: 9,
       })
-      
-      if (images.length > 0) {
-        activityImagesList.value.set(key, images)
-      } else {
-        // 如果没有多张图片，至少使用当前显示的图片
-        const currentImage = getSlotImage(day, slotIndex, slot)
-        if (currentImage) {
-          activityImagesList.value.set(key, [currentImage])
-        } else {
-          return // 没有图片，不打开预览
-        }
+      if (images.length) {
+        mediaItems.push(...images.map(createImageItem))
       }
     } catch (error) {
       console.warn('加载图片列表失败:', error)
-      // 如果加载失败，至少使用当前显示的图片
-      const currentImage = getSlotImage(day, slotIndex, slot)
-      if (currentImage) {
-        activityImagesList.value.set(key, [currentImage])
+    }
+
+    if (!mediaItems.length) {
+      mediaItems.push(...ensureCurrentImage())
+    }
+
+    if (!activityVideoCache.value.has(key)) {
+      try {
+        const query = generateSearchQuery(slot, destination.value)
+        if (query) {
+          const [video] = await searchPexelsVideos(query, { perPage: 1, orientation: 'landscape' })
+          const newVideoCache = new Map(activityVideoCache.value)
+          newVideoCache.set(key, video || null)
+          activityVideoCache.value = newVideoCache
       } else {
-        return
+          const newVideoCache = new Map(activityVideoCache.value)
+          newVideoCache.set(key, null)
+          activityVideoCache.value = newVideoCache
+        }
+      } catch (error) {
+        console.warn('加载视频失败:', error)
+        const newVideoCache = new Map(activityVideoCache.value)
+        newVideoCache.set(key, null)
+        activityVideoCache.value = newVideoCache
       }
     }
+
+    const cachedVideo = activityVideoCache.value.get(key)
+    if (cachedVideo && cachedVideo.downloadUrl) {
+      mediaItems.push(createVideoItem(cachedVideo))
+    }
+
+    if (!mediaItems.length) {
+      return
+    }
+
+    const newMediaMap = new Map(activityMediaList.value)
+    newMediaMap.set(key, mediaItems)
+    activityMediaList.value = newMediaMap
   }
-  
-  const images = activityImagesList.value.get(key) || []
-  if (images.length === 0) return
-  
-  // 查找当前封面图片在列表中的索引
+
+  const mediaList = activityMediaList.value.get(key) || []
+  if (!mediaList.length) return
+
   const currentCoverImage = getSlotImage(day, slotIndex, slot)
   let initialIndex = 0
   if (currentCoverImage) {
-    const coverIndex = images.findIndex(img => img === currentCoverImage)
+    const coverIndex = mediaList.findIndex(item => item.type === 'image' && item.src === currentCoverImage)
     if (coverIndex >= 0) {
       initialIndex = coverIndex
     }
   }
   
-  previewImages.value = images
+  previewMedia.value = [...mediaList]
   previewCurrentIndex.value = initialIndex
   currentPreviewDay.value = day
   currentPreviewSlotIndex.value = slotIndex
@@ -1287,7 +811,7 @@ const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
 // 关闭图片预览
 const closeImagePreview = () => {
   previewVisible.value = false
-  previewImages.value = []
+  previewMedia.value = []
   previewCurrentIndex.value = 0
   currentPreviewDay.value = null
   currentPreviewSlotIndex.value = null
@@ -1300,11 +824,18 @@ const setAsCover = async () => {
     return
   }
   
-  const selectedImage = previewImages.value[previewCurrentIndex.value]
-  if (!selectedImage) {
+  const selectedItem = previewMedia.value[previewCurrentIndex.value]
+  if (!selectedItem) {
     message.warning(t('travelDetail.experienceDay.noImageSelected') || '请先选择一张图片')
     return
   }
+  
+  if (selectedItem.type === 'video') {
+    message.warning(t('travelDetail.experienceDay.videoNotSupportedForCover') || '视频无法设置为封面')
+    return
+  }
+
+  const selectedImage = selectedItem.src
   
   const day = currentPreviewDay.value
   const slotIndex = currentPreviewSlotIndex.value
@@ -1318,11 +849,13 @@ const setAsCover = async () => {
   activityImages.value = newActivityImages
   
   // 确保图片列表包含这张图片（如果不在列表中，添加到列表开头）
-  const currentImagesList = activityImagesList.value.get(key) || []
-  if (!currentImagesList.includes(selectedImage)) {
-    const newActivityImagesList = new Map(activityImagesList.value)
-    newActivityImagesList.set(key, [selectedImage, ...currentImagesList])
-    activityImagesList.value = newActivityImagesList
+  const currentMediaList = activityMediaList.value.get(key) || []
+  const hasImage = currentMediaList.some(item => item.type === 'image' && item.src === selectedImage)
+  if (!hasImage) {
+    const newMediaList: PreviewMediaItem[] = [createImageItem(selectedImage), ...currentMediaList]
+    const newActivityMediaList = new Map(activityMediaList.value)
+    newActivityMediaList.set(key, newMediaList)
+    activityMediaList.value = newActivityMediaList
   }
   
   // 保存到行程数据中
@@ -1384,30 +917,6 @@ const setAsCover = async () => {
       message.error(t('travelDetail.experienceDay.coverImageSetFailed') || '设置封面图片失败')
     }
   }
-}
-
-// 切换到上一张图片
-const prevImage = () => {
-  if (previewCurrentIndex.value > 0) {
-    previewCurrentIndex.value--
-  } else {
-    previewCurrentIndex.value = previewImages.value.length - 1
-  }
-}
-
-// 切换到下一张图片
-const nextImage = () => {
-  if (previewCurrentIndex.value < previewImages.value.length - 1) {
-    previewCurrentIndex.value++
-  } else {
-    previewCurrentIndex.value = 0
-  }
-}
-
-// 检查图片是否正在加载
-const isImageLoading = (day: number, slotIndex: number, slot: any): boolean => {
-  const key = getSlotKey(day, slotIndex, slot)
-  return imageLoading.value.has(key)
 }
 
 // 检查图片是否加载失败
@@ -1506,7 +1015,8 @@ watch(
     if (newDays && newDays.length > 0 && travelId && dest) {
       // 清除旧的图片数据
       activityImages.value.clear()
-      activityImagesList.value.clear()
+      activityMediaList.value.clear()
+      activityVideoCache.value.clear()
       imageLoading.value.clear()
       imageErrors.value.clear()
       // 延迟加载，确保数据完全加载
@@ -1800,48 +1310,32 @@ const totalCost = computed(() => {
   return total > 0 ? formatCurrency(total, getOverallCurrency()) : null
 })
 
-// 编辑状态
-const editModalVisible = ref(false)
-const editingSlot = ref<{ day: number; slotIndex: number } | null>(null)
-const editingData = ref<{
-  title: string
-  notes: string
-  type: string
-  cost: number | null
-  bookingLinks: Array<{ name: string; url: string }>
-}>({
-  title: '',
-  notes: '',
-  type: 'attraction',
-  cost: null,
-  bookingLinks: [],
-})
+// 编辑状态、搜索与预览状态
+const {
+  editModalVisible,
+  editingSlot,
+  editingData,
+  searchModalVisible,
+  searching,
+  searchResults,
+  selectedSearchCategory,
+  hasSearched,
+  searchLocation,
+  currentSearchContext,
+  durationLabelKey,
+  previewVisible,
+  previewMedia,
+  previewCurrentIndex,
+  currentPreviewDay,
+  currentPreviewSlotIndex,
+  currentPreviewSlot,
+} = useItineraryModals()
 
-// 搜索状态
-const searchModalVisible = ref(false)
-const searching = ref(false)
-const searchResults = ref<POIResult[]>([])
-const selectedSearchCategory = ref<POICategory>('restaurant')
 const durationLabel = computed(() => {
-  if (selectedSearchCategory.value === 'ev_charging') {
-    return t('travelDetail.experienceDay.chargingDuration') || '充电时长'
-  }
-  if (selectedSearchCategory.value === 'accommodation') {
-    return t('travelDetail.experienceDay.stayDuration') || '入住时长'
-  }
-  return t('travelDetail.experienceDay.estimatedStay') || '预计停留'
+  const key = durationLabelKey.value
+  const translated = t(key)
+  return translated || t('travelDetail.experienceDay.estimatedStay')
 })
-const hasSearched = ref(false)
-const searchLocation = ref<{
-  name: string
-  address?: string
-  coordinates?: { lat: number; lng: number }
-}>({ name: '' })
-const currentSearchContext = ref<{
-  day: number
-  slotIndex: number
-  slot: any
-} | null>(null)
 
 // 获取搜索位置的货币（根据位置地址推断）
 const getSearchLocationCurrency = computed(() => {
@@ -1960,10 +1454,32 @@ const getCurrentSlot = () => {
 // 详细信息展开状态
 const expandedDetails = ref<Record<string, boolean>>({})
 
-// 切换详细信息显示
-const toggleDetails = (day: number, slotIndex: number) => {
-  const key = `${day}-${slotIndex}`
+const isSlotExpanded = (day: number, slotIndex: number, slot: any): boolean => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return !!expandedDetails.value[key]
+}
+
+const toggleDetailsByKey = (key: string) => {
   expandedDetails.value[key] = !expandedDetails.value[key]
+}
+
+const isImageLoading = (day: number, slotIndex: number, slot: any): boolean => {
+  const key = getSlotKey(day, slotIndex, slot)
+  return imageLoading.value.has(key)
+}
+
+const getSlotCover = (day: number, slotIndex: number, slot: any): string | null => {
+  if (hasImageError(day, slotIndex, slot)) {
+    return null
+  }
+  return getSlotImage(day, slotIndex, slot)
+}
+
+const markImageError = (day: number, slotIndex: number, slot: any) => {
+  const key = getSlotKey(day, slotIndex, slot)
+  imageErrors.value.add(key)
+  imageLoading.value.delete(key)
+  activityImages.value.delete(key)
 }
 
 // 打开编辑弹窗
@@ -2792,38 +2308,6 @@ const formatReviewCount = (count: number): string => {
     return `${(count / 1000).toFixed(1)}千`
   }
   return count.toString()
-}
-
-// 格式化开放时间（统一为24小时制）
-const formatOpeningHours = (hours: string): string => {
-  if (!hours) return ''
-  // 将12小时制转换为24小时制，如 "9:00 AM - 5:00 PM" -> "09:00–17:00"
-  const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi
-  let formatted = hours
-  formatted = formatted.replace(timeRegex, (match, hour, minute, period) => {
-    let h = parseInt(hour, 10)
-    if (period.toUpperCase() === 'PM' && h !== 12) {
-      h += 12
-    } else if (period.toUpperCase() === 'AM' && h === 12) {
-      h = 0
-    }
-    return `${h.toString().padStart(2, '0')}:${minute}`
-  })
-  // 替换常见的分隔符
-  formatted = formatted.replace(/\s*-\s*/g, '–')
-  formatted = formatted.replace(/\s*to\s*/gi, '–')
-  formatted = formatted.replace(/\s*至\s*/g, '–')
-  return formatted
-}
-
-// 检查价格数据是否有效
-const hasValidPricing = (pricing: any): boolean => {
-  if (!pricing) return false
-  // 如果有有效的一般价格，返回true
-  if (pricing.general && pricing.general > 0) return true
-  // 如果有有效的儿童价格，返回true
-  if (pricing.detail?.children?.price && pricing.detail.children.price > 0) return true
-  return false
 }
 
 // 获取信息来源
@@ -3707,8 +3191,6 @@ const getVisaActionTips = (visaType: string): any => {
   padding: 16px 20px;
   background: #ffffff;
   border-radius: 16px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -3749,11 +3231,12 @@ const getVisaActionTips = (visaType: string): any => {
 .slot-image-container {
   width: 100%;
   margin-bottom: 16px;
-  border-radius: 12px;
+  border-radius: 16px;
   overflow: hidden;
   background: #f5f5f7;
-  aspect-ratio: 16 / 9;
+  height: 260px;
   position: relative;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
 }
 
 .slot-image {
@@ -3767,7 +3250,7 @@ const getVisaActionTips = (visaType: string): any => {
 
 .slot-image:hover {
   transform: scale(1.02);
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .slot-image-loading {
@@ -3776,7 +3259,7 @@ const getVisaActionTips = (visaType: string): any => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f5f7;
+  background: linear-gradient(135deg, #f8fafc, #e2e8f0);
 }
 
 .loading-spinner {
@@ -3797,7 +3280,8 @@ const getVisaActionTips = (visaType: string): any => {
 @media (max-width: 768px) {
   .slot-image-container {
     margin-bottom: 12px;
-    border-radius: 10px;
+    border-radius: 12px;
+    height: 220px;
   }
   
   .loading-spinner {
@@ -3925,42 +3409,7 @@ const getVisaActionTips = (visaType: string): any => {
 }
 
 .slot-location-new :deep(.anticon) {
-  font-size: 18px;
-}
-
-/* 关键指标一行化（胶囊 Chips） */
-.slot-chips-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-  align-items: center;
-}
-
-.slot-chip {
-  font-size: 13px;
-  font-weight: 500;
-  color: #1d1d1f;
-  padding: 6px 12px;
-  height: 30px;
-  background: #f5f5f7;
-  border-radius: 16px;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  line-height: 1;
-}
-
-.chip-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.chip-note {
-  font-size: 11px;
-  color: #6e6e73;
-  margin-left: 4px;
+  font-size: 16px;
 }
 
 .slot-rating-chip.rating-clickable {
@@ -4021,121 +3470,6 @@ const getVisaActionTips = (visaType: string): any => {
   color: #D97706;
 }
 
-/* 信息块（2列栅格） */
-.slot-info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px 20px;
-  margin-bottom: 16px;
-  min-width: 0; /* 允许 grid 子元素收缩 */
-  overflow: visible; /* 确保内容不被裁剪 */
-}
-
-.slot-info-column {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0; /* 允许 flex 子元素收缩 */
-  overflow: visible; /* 确保内容不被裁剪 */
-}
-
-.slot-info-item {
-  margin: 0;
-  min-height: 32px;
-  min-width: 0; /* 允许 flex 子元素收缩 */
-  overflow: visible; /* 确保内容不被裁剪 */
-}
-
-.slot-info-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #666666;
-  margin: 0 0 6px 0;
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-.slot-info-text {
-  font-size: 14px;
-  line-height: 1.65;
-  color: #1d1d1f;
-  margin: 0;
-  letter-spacing: -0.005em;
-  font-family: 'Noto Sans SC', sans-serif;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  max-width: 100%;
-  overflow: visible;
-  text-overflow: clip; /* 不使用 ellipsis，确保完整显示 */
-}
-
-
-.info-icon {
-  font-size: 14px;
-  margin-right: 4px;
-}
-
-/* 一句话体验文案 */
-.slot-experience-text {
-  font-size: 14px;
-  line-height: 1.5;
-  color: #86868b;
-  margin: 0 0 16px 0;
-  font-style: italic;
-  letter-spacing: -0.01em;
-}
-
-/* 操作条 */
-.slot-actions-bar {
-  display: flex;
-  gap: 8px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  flex-wrap: wrap;
-}
-
-.slot-action-btn {
-  font-size: 14px;
-  color: #0071e3;
-  padding: 4px 8px;
-  height: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.slot-action-btn:hover {
-  background: rgba(0, 113, 227, 0.08);
-}
-
-.slot-action-primary {
-  font-weight: 500;
-}
-
-.slot-action-danger {
-  color: #ff4d4f !important;
-}
-
-.slot-action-danger:hover {
-  background: rgba(255, 77, 79, 0.08) !important;
-}
-
-/* 添加活动按钮 */
-.add-slot-button-container {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed rgba(0, 0, 0, 0.1);
-  display: flex;
-  justify-content: center;
-}
-
-.add-slot-button-container.add-slot-button-last {
-  margin-top: 16px;
-  border-top: 1px dashed rgba(0, 0, 0, 0.15);
-}
 
 .add-slot-btn {
   width: 100%;
@@ -4295,37 +3629,12 @@ const getVisaActionTips = (visaType: string): any => {
 }
 
 @media (max-width: 768px) {
-  .slot-info-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  
-  .slot-chips-row {
-    gap: 8px;
-  }
-  
-  .slot-chip {
-    font-size: 12px;
-    padding: 5px 10px;
-    height: 28px;
-    border-radius: 14px;
-  }
-  
   .slot-title-main {
     font-size: 21px;
   }
   
   .slot-title-sub {
     font-size: 15px;
-  }
-  
-  .slot-chips-row {
-    gap: 6px;
-  }
-  
-  .slot-chip {
-    font-size: 13px;
-    padding: 3px 6px;
   }
   
   .slot-badge {

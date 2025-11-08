@@ -1,13 +1,20 @@
 // API 配置文件
 export const API_CONFIG = {
   // DeepSeek API 配置
-  DEEPSEEK_API_KEY: 'sk-989f235589864c379120c947d4758cac',
-  DEEPSEEK_BASE_URL: 'https://api.deepseek.com',
+  DEEPSEEK_API_KEY: import.meta.env.VITE_DEEPSEEK_API_KEY || '',
+  DEEPSEEK_BASE_URL: import.meta.env.VITE_DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
+  
+  // OpenAI API 配置
+  OPENAI_API_KEY: import.meta.env.VITE_OPENAI_API_KEY || '',
+  OPENAI_BASE_URL: import.meta.env.VITE_OPENAI_BASE_URL || 'https://api.openai.com',
+  OPENAI_DEFAULT_MODEL: import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini',
   
   // Unsplash API 配置
-  UNSPLASH_ACCESS_KEY: 'EEMmDKUUjc-Dc3uSYHM6hfKnhBKSvVkaFuTXjy1xiQ8',
-  UNSPLASH_SECRET_KEY: 'N8-j4rRI2cGZQUy8oqGyPQWtfljPHn1Ub6hGJw37lv8',
-  UNSPLASH_API_URL: 'https://api.unsplash.com',
+  UNSPLASH_ACCESS_KEY: import.meta.env.VITE_UNSPLASH_ACCESS_KEY || '',
+  UNSPLASH_SECRET_KEY: import.meta.env.VITE_UNSPLASH_SECRET_KEY || '',
+  UNSPLASH_API_URL: import.meta.env.VITE_UNSPLASH_API_URL || 'https://api.unsplash.com',
+  PEXELS_API_KEY: import.meta.env.VITE_PEXELS_API_KEY || '',
+  PEXELS_API_URL: import.meta.env.VITE_PEXELS_API_URL || 'https://api.pexels.com',
   
   // iStockPhoto (Getty Images) API 配置
   // 注意：iStockPhoto 是 Getty Images 的一部分，需要 API key 和付费订阅
@@ -22,6 +29,7 @@ export const API_CONFIG = {
   // API 端点
   ENDPOINTS: {
     DEEPSEEK_CHAT: '/v1/chat/completions',
+    OPENAI_CHAT: '/v1/chat/completions',
     DETECT_EMOTION: '/emotional-travel/detect-emotion',
     EMOTIONAL_STATES: '/emotional-travel/emotional-states',
     GENERATE_NARRATIVE: '/emotional-travel/generate-narrative',
@@ -37,6 +45,8 @@ export const API_CONFIG = {
     // iStockPhoto (Getty Images) API 端点
     ISTOCKPHOTO_SEARCH: '/search/images',
     ISTOCKPHOTO_OAUTH: '/oauth2/token',
+    // Pexels API 端点
+    PEXELS_SEARCH: '/v1/search',
     // 旅行攻略 API 端点
     TRAVEL_GUIDES: '/travel-guides',
     TRAVEL_GUIDES_SEARCH: '/travel-guides/search',

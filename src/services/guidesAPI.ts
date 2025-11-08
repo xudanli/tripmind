@@ -4,7 +4,7 @@
  */
 
 import { API_CONFIG } from '@/config/api'
-import { chatWithDeepSeek } from './deepseekAPI'
+import { chatWithLLM } from './deepseekAPI'
 import { parseJSONSafe } from '@/utils/inspiration/core/jsonProcessor'
 
 export interface TravelGuide {
@@ -252,7 +252,7 @@ ${JSON.stringify(guidesSummary, null, 2)}
 
 请筛选出最相关的${limit}篇攻略，返回ID数组。`
 
-    const response = await chatWithDeepSeek([
+    const response = await chatWithLLM([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ], {
@@ -321,7 +321,7 @@ ${JSON.stringify(guidesList, null, 2)}
 
 请为每篇攻略打分。`
 
-    const response = await chatWithDeepSeek([
+    const response = await chatWithLLM([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ], {
@@ -386,7 +386,7 @@ url可以是示例URL格式，如：https://example.com/guide/{id}`
 
 返回JSON格式的攻略列表。`
 
-    const response = await chatWithDeepSeek([
+    const response = await chatWithLLM([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ], {

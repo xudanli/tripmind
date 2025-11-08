@@ -3,7 +3,7 @@
  * 统一 LLM 调用接口，提供超时、重试、JSON 模式等功能
  */
 
-import { chatWithDeepSeek } from '@/services/deepseekAPI'
+import { chatWithLLM } from '@/services/deepseekAPI'
 import { LoggingAdapter } from '@/utils/inspiration/core/logger'
 import { parseSafe, tryRepairAndParse, extractDaysArray, extractTimeSlotsArray, type ParseResult } from '@/utils/jsonProcessor'
 
@@ -61,7 +61,7 @@ export class DeepSeekClient {
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
         const response = await Promise.race([
-          chatWithDeepSeek(messages, { temperature, max_tokens }),
+          chatWithLLM(messages, { temperature, max_tokens }),
           this.createTimeoutPromise(timeout)
         ])
 

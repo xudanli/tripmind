@@ -54,33 +54,30 @@ ${context.previousDays && context.previousDays.length > 0
   ? `Previous Days Locations:\n${context.previousDays.map((d, i) => `Day ${i + 1}: ${d.timeSlots?.map((s: any) => s.location).filter(Boolean).join(', ') || 'N/A'}`).join('\n')}`
   : ''}
 
-Generate 4-6 timeSlots with complete location details:
+Generate 3-4 timeSlots with concise, location-grounded details:
 - time (HH:MM), title (vivid, location-specific, **IN ENGLISH**), activity (**IN ENGLISH**), location (specific with area/district, **IN ENGLISH**)
-- type, category, duration, notes (40+ words, **IN ENGLISH**), localTip (**IN ENGLISH**), cost, coordinates (realistic lat/lng)
-- internalTrack (question, ritual, reflection matching psychological stage, **ALL IN ENGLISH**)
-- details (for restaurants/hotels/attractions/shopping):
-  * name (chinese, english, **local** - MUST include local language name. chinese and english fields should match the main language requirement)
-  * address (chinese, english, **local** - MUST include local language address, landmark. chinese and english fields should match the main language requirement)
-  * transportation (fromStation with walkTime/distance, busLines with busStop, subway with lines/station, **driving** - e.g., "40 minutes drive from X", **shuttle** - e.g., "pre-booked shuttle", parking, **ALL DESCRIPTIONS IN ENGLISH**)
-  * openingHours, pricing, rating (with platformUrl if available), recommendations, description (**ALL IN ENGLISH**)
-  * **officialWebsite** (if available), **sourceUrl** (if available)
+- type, category, duration (integer minutes), cost (short textual band), coordinates (realistic lat/lng)
+- notes (**IN ENGLISH**, ≤ 35 words, ≤ 2 sentences), localTip (**IN ENGLISH**, ≤ 2 sentences)
+- internalTrack (question, ritual, reflection matching psychological stage, each ≤ 20 words, **ALL IN ENGLISH**)
+- details (only when relevant to food/hotel/attraction/shopping):
+  * name (chinese, english, **local language** – keep each ≤ 6 words)
+  * address (chinese, english, **local language** – concise, include landmark if useful)
+  * transportation (fromStation walkTime/distance OR nearest transit; include driving/shuttle/parking only when essential)
+  * openingHours, pricing, rating, recommendations, description (**ALL IN ENGLISH**, each ≤ 20 words)
+  * optional officialWebsite / sourceUrl (omit if unknown)
 
 ${buildTransportPreferenceBlock(context.language, context.transportPreference || 'public_transit_and_walking')}
 
 Arrange activities geographically. Use REAL locations in ${context.destination}. Match the day's theme and psychological stage.
 
-${buildJSONCompletenessRequirement(context.language, 'You can simplify some field descriptions, but MUST ensure all timeSlots array elements are fully closed.')}
+${buildJSONCompletenessRequirement(context.language, 'Keep JSON compact. Prefer omitting optional sub-fields over writing very long strings. Ensure every timeSlots element is fully closed.')}
 
-⚠️ **CRITICAL: If your response is getting too long, prioritize JSON structure completeness. You can:
-- Shorten "notes" field to 30-50 words instead of 40+ words
-- Simplify "localTip" to 1-2 sentences
-- Omit some optional fields if needed
-- But ALWAYS ensure all strings are properly closed with quotes and all objects/arrays are properly closed.**
+⚠️ **CRITICAL**: If content grows too long, REDUCE detail (shorter text, fewer optional fields) but NEVER leave arrays/objects open or strings unterminated.
 
 Return ONLY JSON:
 {
   "day": ${dayIndex},
-  "timeSlots": [/* 4-6 time slots with full details, ensure each object is fully closed */]
+  "timeSlots": [/* 3-4 time slots with full details, ensure each object is fully closed */]
 }`
     : `你是基于地理位置的旅行活动生成器。为一天生成详细的地理位置信息。
 
@@ -99,32 +96,30 @@ ${context.previousDays && context.previousDays.length > 0
   ? `前几天的位置：\n${context.previousDays.map((d, i) => `第${i + 1}天：${d.timeSlots?.map((s: any) => s.location).filter(Boolean).join('、') || '无'}`).join('\n')}`
   : ''}
 
-生成4-6个时间段，包含完整地点详情：
-- time（HH:MM）、title（生动、具体地点，**必须使用中文**）、activity（**必须使用中文**）、location（具体，含区域/街区，**必须使用中文**）
-- type、category、duration、notes（40+字，**必须使用中文**）、localTip（**必须使用中文**）、cost、coordinates（真实lat/lng）
-- internalTrack（问题、仪式、反思，匹配心理阶段，**全部必须使用中文**）
-- details（针对餐厅/酒店/景点/购物）：
-  * name（**必须包含local当地语言名称**，chinese字段必须使用中文）、address（**必须包含local当地语言地址**、landmark，chinese字段必须使用中文）
-  * transportation（fromStation步行时间/距离、busLines公交路线+busStop站名、subway地铁线路+站名、**driving驾车说明**如"从X驾车40分钟"、**shuttle接驳车/班车**如"预订的接驳车"、parking停车信息，**所有描述必须使用中文**）
-  * openingHours、pricing、rating（如有platformUrl评分平台链接请包含）、recommendations、description（**全部必须使用中文**）
-  * **officialWebsite官方网站**（如有）、**sourceUrl来源链接**（如有）
+生成3-4个时间段，保持精炼但确保地点具体：
+- time（HH:MM）、title（生动、具体地点，**必须使用中文**）、activity（**必须使用中文**）、location（具体含区域/街区，**必须使用中文**）
+- type、category、duration（整数分钟）、cost（花费档位简写）、coordinates（真实lat/lng）
+- notes（**必须使用中文**，≤2句，每句≤20字）、localTip（**必须使用中文**，≤2句）
+- internalTrack（问题、仪式、反思，匹配心理阶段，各≤20字，**全部必须使用中文**）
+- details（适用于餐厅/酒店/景点/购物时）：
+  * name（含中文、英文、当地语言名称；每个不超过6个词）
+  * address（含中文、英文、当地语言地址；简洁，可加地标）
+  * transportation（fromStation步行时间或距离、公交/地铁二选一；仅在必要时添加驾车/接驳/停车说明）
+  * openingHours、pricing、rating、recommendations、description（**全部中文**，每项≤20字）
+  * 可选字段：officialWebsite / sourceUrl（未知可省略）
 
 ${buildTransportPreferenceBlock(context.language, context.transportPreference || 'public_transit_and_walking')}
 
 按地理位置安排活动。使用${context.destination}的真实地点。匹配当天主题和心理阶段。
 
-${buildJSONCompletenessRequirement(context.language, '可以适当简化某些字段的详细描述，但必须确保所有timeSlots数组元素都完整闭合。')}
+${buildJSONCompletenessRequirement(context.language, '保持 JSON 精简；如遇篇幅限制，可删除可选字段，但必须保证 timeSlots 中每个对象都完整闭合。')}
 
-⚠️ **关键提示：如果响应内容过长，优先保证 JSON 结构完整性。你可以：
-- 将 "notes" 字段缩短到 30-50 字，而不是 40+ 字
-- 将 "localTip" 简化为 1-2 句话
-- 必要时省略某些可选字段
-- 但必须确保所有字符串都用引号正确闭合，所有对象/数组都正确闭合。**
+⚠️ **关键提示**：当内容偏长时，优先收缩描述或省略可选字段，绝不能留下未闭合的数组/对象或字符串。
 
 只返回JSON：
 {
   "day": ${dayIndex},
-  "timeSlots": [/* 4-6个包含完整详情的时间段，确保每个对象都完整闭合 */]
+  "timeSlots": [/* 3-4个包含完整详情的时间段，确保每个对象都完整闭合 */]
 }`
 
   const userPrompt = isEnglish

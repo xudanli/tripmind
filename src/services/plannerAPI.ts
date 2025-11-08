@@ -1,5 +1,16 @@
-import { chatWithDeepSeek } from './deepseekAPI'
-import type { PlannerFormData } from '@/stores/travel'
+// path: src/services/plannerAPI.ts
+import { chatWithLLM } from './deepseekAPI'
+import {
+  buildPlannerSystemPrompt,
+  buildPlannerUserPrompt,
+  buildOptimizationSystemPrompt,
+  type PlannerItineraryPromptRequest
+} from '@/prompts/planner/itinerary'
+import {
+  validateLLMJson,
+  sanitizeLLMJson,
+  validateAppItinerary
+} from '@/utils/itineraryValidator'
 
 export interface PlannerItineraryRequest {
   destination: string
@@ -8,6 +19,7 @@ export interface PlannerItineraryRequest {
   preferences: string[]
   travelStyle: string
   customRequirements?: string
+  language?: string
 }
 
 export interface TimeSlot {
@@ -18,12 +30,9 @@ export interface TimeSlot {
   category: string
   categoryColor: string
   notes?: string
-  estimatedDuration: number
+  estimatedDuration: number // hours
   estimatedCost: number
-  coordinates?: {
-    lat: number
-    lng: number
-  }
+  coordinates?: { lat: number; lng: number }
 }
 
 export interface DayPlan {
@@ -31,10 +40,7 @@ export interface DayPlan {
   title: string
   description: string
   status: 'planned' | 'in-progress' | 'completed'
-  stats: {
-    duration: number
-    cost: number
-  }
+  stats: { duration: number; cost: number } // duration in hours
   timeSlots: TimeSlot[]
 }
 
@@ -60,29 +66,279 @@ export interface PlannerItineraryResponse {
   }
 }
 
+type JsonValue = any
+
+// ------------------------- Utils (why: 统一解析/容错/归一化) -------------------------
+const toStr = (v: unknown, fallback = '') => {
+  const s = (v ?? '').toString().trim()
+  return s.length ? s : fallback
+}
+const toNum = (v: unknown, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback)
+const toArr = <T = unknown>(v: unknown) => (Array.isArray(v) ? (v as T[]) : ([] as T[]))
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))
+
+const extractJsonFromText = (text: string): string => {
+  if (!text) return ''
+  // 1) ```json ... ```
+  const m1 = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (m1?.[1]) return m1[1].trim()
+  // 2) 第一个 { ... }（容忍内嵌）
+  const m2 = text.match(/\{[\s\S]*\}/)
+  if (m2) return m2[0]
+  // 3) 原文
+  return text.trim()
+}
+
+const sanitizeJsonText = (s: string): string => {
+  // 仅做不会破坏内容的“修复”，避免过度改写
+  let out = s
+  // 将字符串内的裸换行转义，避免 JSON 失效
+  out = (() => {
+    let buf = ''
+    let inStr = false
+    let esc = false
+    for (let i = 0; i < out.length; i++) {
+      const ch = out[i]
+      if (!inStr) {
+        if (ch === '"') { inStr = true; buf += ch; continue }
+        buf += ch; continue
+      }
+      if (esc) { buf += ch; esc = false; continue }
+      if (ch === '\\') { buf += ch; esc = true; continue }
+      if (ch === '"') { buf += ch; inStr = false; continue }
+      if (ch === '\n' || ch === '\r') { buf += '\\n'; continue }
+      buf += ch
+    }
+    if (inStr) buf += '"' // 补引号（极端情况）
+    return buf
+  })()
+  // 直引号化
+  out = out.replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+  // 移除注释
+  out = out.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  // 去末尾逗号
+  out = out.replace(/,\s*(\}|\])/g, '$1')
+  // 清理控制符
+  out = out.replace(/[\u0000-\u001F\u007F\u00A0]/g, ' ')
+  return out.trim()
+}
+
+const repairTruncation = (s: string): string => {
+  let out = ''
+  const stack: string[] = []
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    out += ch
+    if (inStr) {
+      if (esc) { esc = false; continue }
+      if (ch === '\\') { esc = true; continue }
+      if (ch === '"') { inStr = false; continue }
+    } else {
+      if (ch === '"') { inStr = true; continue }
+      if (ch === '{' || ch === '[') stack.push(ch)
+      else if (ch === '}') { if (stack[stack.length - 1] === '{') stack.pop() }
+      else if (ch === ']') { if (stack[stack.length - 1] === '[') stack.pop() }
+    }
+  }
+  if (inStr) out += '"'
+  while (stack.length) out += (stack.pop() === '{') ? '}' : ']'
+  return out
+}
+
+const tryParseStrict = (s: string): JsonValue | null => {
+  try { return JSON.parse(s) } catch { return null }
+}
+
+const parseLoose = (raw: string): JsonValue | null => {
+  if (!raw) return null
+  const extracted = extractJsonFromText(raw)
+  const direct = tryParseStrict(extracted)
+  if (direct) return direct
+
+  const sanitized = sanitizeJsonText(extracted)
+  const s1 = tryParseStrict(sanitized)
+  if (s1) return s1
+
+  const repaired = repairTruncation(sanitized)
+  const s2 = tryParseStrict(repaired)
+  if (s2) return s2
+
+  // 截断到最后一个 } 再修复
+  const last = sanitized.lastIndexOf('}')
+  if (last > 0) {
+    const trunc = sanitized.slice(0, last + 1)
+    const s3 = tryParseStrict(repairTruncation(trunc))
+    if (s3) return s3
+  }
+  return null
+}
+
+// 新模板 → 内部 DayPlan
+const mapNewTemplateDayToDayPlan = (d: any, idx: number): DayPlan => {
+  let acts = toArr<any>(d.activities)
+  if (!acts.length) {
+    acts = [{
+      time: '09:00',
+      title: '自由探索时间',
+      type: 'activity',
+      duration: 120,
+      location: { lat: 0, lng: 0 },
+      notes: 'AI 暂未生成具体安排，建议自行安排或稍后重试。',
+      localTip: '',
+      transport: { mode: 'walk', from: '', to: '', duration: 15, notes: '步行即可，无需额外安排。' },
+      cost: 0
+    }]
+  }
+  const totalMinutes = acts.reduce((acc, a) => acc + toNum(a?.duration, 0), 0)
+  const totalCost = acts.reduce((acc, a) => acc + toNum(a?.cost, 0), 0)
+  return {
+    date: `Day ${toNum(d?.day, idx + 1)}`,
+    title: toStr(d?.theme, `第${idx + 1}天`),
+    description: toStr(d?.summary, ''),
+    status: 'planned',
+    stats: { duration: Math.max(0, Math.round(totalMinutes / 60)), cost: Math.max(0, totalCost) },
+    timeSlots: acts.map((a: any) => ({
+      time: toStr(a?.time, '10:00'),
+      activity: toStr(a?.title, ''),
+      location: toStr(a?.transport?.to, ''),
+      icon: '📍',
+      category: toStr(a?.type, 'attraction'),
+      categoryColor: 'blue',
+      notes: [toStr(a?.notes, ''), a?.localTip ? `提示：${toStr(a.localTip)}` : ''].filter(Boolean).join(' ｜'),
+      estimatedDuration: Math.max(1, Math.round(toNum(a?.duration, 60) / 60)),
+      estimatedCost: Math.max(0, toNum(a?.cost, 0)),
+      coordinates: (a?.location && typeof a.location === 'object'
+        && Number.isFinite(a.location.lat) && Number.isFinite(a.location.lng))
+        ? { lat: clamp(Number(a.location.lat), -90, 90), lng: clamp(Number(a.location.lng), -180, 180) }
+        : undefined
+    }))
+  }
+}
+
+// 规范化完整响应
+const normalizeItinerary = (data: Partial<PlannerItineraryResponse>, ctx?: PlannerItineraryRequest): PlannerItineraryResponse => {
+  const rec = data.recommendations ?? {}
+  const ai = data.aiInsights ?? {}
+  const days = toArr<DayPlan>(data.days).map((d, i) => {
+    const slots = toArr<TimeSlot>(d?.timeSlots).map((s) => ({
+      time: toStr((s as any)?.time, ''),
+      activity: toStr((s as any)?.activity, ''),
+      location: toStr((s as any)?.location, ''),
+      icon: toStr((s as any)?.icon, '📍'),
+      category: toStr((s as any)?.category, 'activity'),
+      categoryColor: toStr((s as any)?.categoryColor, 'blue'),
+      notes: toStr((s as any)?.notes, ''),
+      estimatedDuration: Math.max(0, toNum((s as any)?.estimatedDuration, 0)),
+      estimatedCost: Math.max(0, toNum((s as any)?.estimatedCost, 0)),
+      coordinates: (s as any)?.coordinates &&
+        Number.isFinite((s as any)?.coordinates?.lat) &&
+        Number.isFinite((s as any)?.coordinates?.lng)
+        ? {
+            lat: clamp(Number((s as any)?.coordinates?.lat), -90, 90),
+            lng: clamp(Number((s as any)?.coordinates?.lng), -180, 180)
+          }
+        : undefined
+    }))
+    const safeSlots = slots.length ? slots : [{
+      time: '09:00',
+      activity: '自由探索时间',
+      location: toStr(d?.title, `第${i + 1}天`),
+      icon: '📍',
+      category: 'activity',
+      categoryColor: 'blue',
+      notes: 'AI 暂未返回详细活动，已为你预留自由安排时间段，可在此添加自定义活动。',
+      estimatedDuration: 2,
+      estimatedCost: 0
+    }]
+
+    return {
+      date: toStr(d?.date, `Day ${i + 1}`),
+      title: toStr(d?.title, `第${i + 1}天`),
+      description: toStr(d?.description, ''),
+      status: (['planned', 'in-progress', 'completed'] as const).includes(d?.status as any)
+        ? (d.status as any) : 'planned',
+      stats: {
+        duration: Math.max(0, toNum(d?.stats?.duration, 0)),
+        cost: Math.max(0, toNum(d?.stats?.cost, 0))
+      },
+      timeSlots: safeSlots
+    }
+  })
+
+  const totalCost =
+    Number.isFinite(data.totalCost) ? Number(data.totalCost) :
+    days.reduce((sum, d) => sum + (d.stats?.cost || 0), 0)
+
+  return {
+    title: toStr(data.title, `${ctx?.destination || '目的地'}行程规划`),
+    destination: toStr(data.destination, ctx?.destination || '目的地'),
+    duration: Math.max(1, toNum(data.duration, days.length || ctx?.duration || 1)),
+    totalCost: Math.max(0, totalCost),
+    summary: toStr(data.summary, ''),
+    days,
+    recommendations: {
+      bestTimeToVisit: toStr((rec as any).bestTimeToVisit, ''),
+      weatherAdvice: toStr((rec as any).weatherAdvice, ''),
+      packingTips: toArr<string>((rec as any).packingTips).map((item) => toStr(item)),
+      localTips: toArr<string>((rec as any).localTips).map((item) => toStr(item)),
+      emergencyContacts: toArr<string>((rec as any).emergencyContacts).map((item) => toStr(item))
+    },
+    aiInsights: {
+      optimizationSuggestions: toArr<string>((ai as any).optimizationSuggestions).map((item) => toStr(item)),
+      alternativeActivities: toArr<string>((ai as any).alternativeActivities).map((item) => toStr(item)),
+      budgetOptimization: toArr<string>((ai as any).budgetOptimization).map((item) => toStr(item)),
+      culturalNotes: toArr<string>((ai as any).culturalNotes).map((item) => toStr(item))
+    }
+  }
+}
+
+// ------------------------- API -------------------------
 class PlannerAPI {
   /**
    * 生成智能行程
    */
   async generateItinerary(request: PlannerItineraryRequest): Promise<PlannerItineraryResponse> {
     try {
-      const prompt = this.buildItineraryPrompt(request)
-      const response = await chatWithDeepSeek([
-        { role: 'user', content: prompt }
+      const startDate = new Date().toISOString().split('T')[0]
+      const systemPrompt = buildPlannerSystemPrompt(request.language)
+      const promptInput: PlannerItineraryPromptRequest = {
+        destination: request.destination,
+        duration: request.duration,
+        budget: request.budget,
+        preferences: request.preferences,
+        travelStyle: request.travelStyle,
+        startDate
+      }
+      if (request.customRequirements) {
+        promptInput.customRequirements = request.customRequirements
+      }
+      if (request.language) {
+        promptInput.language = request.language
+      }
+      const userPrompt = buildPlannerUserPrompt(promptInput)
+
+      const response = await chatWithLLM([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
       ])
       
-      // 解析 AI 响应
       let itineraryData = this.parseItineraryResponse(response, request)
-      // 统一保证天数与用户填写一致（若 AI 生成天数不足则补齐占位日）
       itineraryData = this.ensureDuration(itineraryData, request.duration, request.destination)
-      // 回填目的地与标题，避免硬编码默认值
+
+      const validation = validateAppItinerary(itineraryData)
+      if (!validation.valid) {
+        console.warn('[plannerAPI] App itinerary validation failed:', validation.errors)
+      }
+
       if (!itineraryData.destination || itineraryData.destination === '目的地') {
         itineraryData.destination = request.destination
       }
       if (!itineraryData.title || itineraryData.title === '智能行程规划') {
         itineraryData.title = `${request.destination}行程规划`
       }
-      
       return itineraryData
     } catch (error) {
       console.error('生成行程失败:', error)
@@ -95,12 +351,26 @@ class PlannerAPI {
    */
   async optimizeItinerary(currentItinerary: PlannerItineraryResponse, optimizationType: 'time' | 'cost' | 'route'): Promise<PlannerItineraryResponse> {
     try {
+      const system = buildOptimizationSystemPrompt()
       const prompt = this.buildOptimizationPrompt(currentItinerary, optimizationType)
-      const response = await chatWithDeepSeek([
+      const response = await chatWithLLM([
+        { role: 'system', content: system },
         { role: 'user', content: prompt }
       ])
-      
-      const optimizedData = this.parseItineraryResponse(response)
+      let optimizedData = this.parseItineraryResponse(response, {
+        destination: currentItinerary.destination,
+        duration: currentItinerary.duration,
+        budget: '',
+        preferences: [],
+        travelStyle: '',
+      } as PlannerItineraryRequest)
+      optimizedData = this.ensureDuration(optimizedData, currentItinerary.duration, currentItinerary.destination)
+
+      const validation = validateAppItinerary(optimizedData)
+      if (!validation.valid) {
+        console.warn('[plannerAPI] Optimized itinerary validation failed:', validation.errors)
+      }
+
       return optimizedData
     } catch (error) {
       console.error('优化行程失败:', error)
@@ -118,18 +388,26 @@ class PlannerAPI {
     emergencyContacts: string[]
   }> {
     try {
-      const prompt = `请提供关于目的地"${destination}"的实时信息：
-1. 当前天气状况和建议
-2. 最佳旅游时间
-3. 3-5个实用的当地小贴士
-4. 紧急联系方式
+      const prompt = `仅返回严格 JSON；不得包含 Markdown 或解释。
+必须包含且仅包含字段：weather, bestTimeToVisit, localTips, emergencyContacts。
+示例：{"weather":"","bestTimeToVisit":"","localTips":[],"emergencyContacts":[]}
 
-请以JSON格式返回，包含weather, bestTimeToVisit, localTips, emergencyContacts字段。`
+目的地: "${destination}"
+请给出：
+- 当前天气与建议（weather）
+- 最佳旅行时间（bestTimeToVisit）
+- 3-5 条目的地特有小贴士（localTips）
+- 当地紧急电话/机构（emergencyContacts）`
       
-      const response = await chatWithDeepSeek([
-        { role: 'user', content: prompt }
-      ])
-      return JSON.parse(response || '{}')
+      const response = await chatWithLLM([{ role: 'user', content: prompt }])
+      const parsed = parseLoose(response)
+      if (!parsed) throw new Error('parse failed')
+      return {
+        weather: toStr(parsed.weather, '请查询当地天气预报'),
+        bestTimeToVisit: toStr(parsed.bestTimeToVisit, '春秋季节较为适宜'),
+        localTips: toArr<string>(parsed.localTips).map((item) => toStr(item)),
+        emergencyContacts: toArr<string>(parsed.emergencyContacts).map((item) => toStr(item))
+      }
     } catch (error) {
       console.error('获取目的地信息失败:', error)
       return {
@@ -142,122 +420,22 @@ class PlannerAPI {
   }
 
   /**
-   * 构建行程生成提示词
-   */
-  private buildItineraryPrompt(request: PlannerItineraryRequest): string {
-    const { destination, duration, budget, preferences, travelStyle, customRequirements } = request
-    const days = duration
-    const startDate = new Date().toISOString().split('T')[0]
-    const preferenceText = preferences.join('、') || '通用偏好'
-    const extra = customRequirements && customRequirements.trim() ? `；自定义要求：${customRequirements.trim()}` : ''
-    const preferenceGuidance = `预算：${budget}；节奏：${travelStyle}；务必兼顾当地特色体验与休息节奏${extra}`
-    const dateInstructions = `建议从 ${startDate} 开始，连续 ${days} 天`
-
-    const prompt = `
-你是一名专业旅行规划师与文案设计师，具备旅行地理知识、交通衔接逻辑与创意叙事能力。
-请为以下需求生成一份【专业可执行 + 富有叙事感 + 自动衔接交通 + 每日主题】的旅行行程规划书。
-
----
-🗺️ 目的地：${destination}
-📆 行程天数：${days}天
-💡 用户偏好：${preferenceText}
-🎯 偏好具体要求：${preferenceGuidance}
-📅 时间指引：${dateInstructions}
----
-
-请严格按照以下JSON结构输出，不要添加额外说明：
-
-{
-  "days": [
-    {
-      "day": 1,
-      "date": "${startDate}",
-      "theme": "当天主题名称（如‘初遇之光’、‘风与时间的边界’）",
-      "mood": "当天氛围关键词（如‘探索’、‘放松’、‘觉醒’）",
-      "summary": "以叙事语气总结当日体验（不少于40字）",
-      "activities": [
-        {
-          "time": "09:00",
-          "title": "富有画面感与吸引力的活动标题",
-          "type": "attraction | meal | hotel | shopping | transport",
-          "duration": 120,
-          "location": {"lat": 34.9949, "lng": 135.7850},
-          "notes": "详细的体验描述，包括景点亮点、文化背景、拍照建议与感受描写。",
-          "localTip": "一条实用或文化建议（如‘寺庙禁止拍照，请轻声交谈’或‘最佳观景时间为傍晚6点’）",
-          "transport": {
-            "mode": "car | walk | train | ferry",
-            "from": "上一个活动地点",
-            "to": "当前活动地点",
-            "duration": 30,
-            "notes": "交通方式与建议（如‘自驾沿海公路，风景极佳’）"
-          },
-          "cost": 400
-        }
-      ]
-    }
-  ],
-  "totalCost": 8000,
-  "summary": "行程整体总结：概括旅行节奏、体验核心、文化亮点与情感线索（不少于100字）"
-}
-
----
-重要规则：
-1️⃣ 时间与地理逻辑：
-- 每日行程应符合地理连续性（同一区域内合理移动，不跳跃）。
-- 交通时间自动计算，避免重复返回或长途跨区。
-- 各活动之间需有合理休息与用餐安排。
-
-2️⃣ 标题与内容创意：
-- 活动标题必须生动、有画面感，避免“游览”“参观”“品尝”等通用词。
-- 景点标题例："登上海雾缭绕的神庙"、"追逐极光的尽头"。
-- 美食标题例："在清晨的咖啡香里看日出"、"街角炭火上的晚餐"。
-- 酒店标题例："夜宿山谷间的玻璃穹顶"。
-
-3️⃣ notes 字段：
-- 包含【文化 + 实用 + 情绪】三层内容；
-- 每项不少于40字，既有执行信息，又有感官描写；
-- 风格介于旅行攻略与散文之间，语言自然、真诚、有温度。
-
-4️⃣ localTip 字段：
-- 必须存在，提供独特的当地提示或注意事项（文化、交通、拍照、礼仪）。
-
-5️⃣ theme 与 mood：
-- 每天必须有一个“主题词”和“情绪词”；
-- 主题应与整体旅程主线呼应；
-- mood 用于传递当天氛围（如“静”“探”“放”“燃”“悟”）。
-
-6️⃣ summary（每日与整体）：
-- 每日summary应以第一人称或第二人称书写，让读者能“身临其境”；
-- 总体summary需形成旅行叙事闭环，如“从未知到领悟”“从喧嚣到安静”。
-
-7️⃣ 严格输出JSON数据，不添加多余文字或注释。
-`
-
-    return prompt
-  }
-
-  /**
    * 构建优化提示词
    */
   private buildOptimizationPrompt(itinerary: PlannerItineraryResponse, type: 'time' | 'cost' | 'route'): string {
-    const optimizationFocus = {
-      time: '时间效率',
-      cost: '成本控制',
-      route: '路线优化'
-    }[type]
+    const focus = { time: '时间效率', cost: '成本控制', route: '路线优化' }[type]
+    // why: 强化严格 JSON 输出与结构一致性，避免围栏/注释
+    return `你是旅行行程优化器。仅返回严格 JSON，可被 JSON.parse 解析；禁止 Markdown、注释、额外文本或尾逗号。
+优化目标：${focus}
+保持原有偏好与风格；确保可行性（时间/交通衔接/节奏）。
 
-    return `请优化以下${itinerary.destination}行程的${optimizationFocus}：
+输入（当前行程）：
+${JSON.stringify(itinerary)}
 
-**当前行程：**
-${JSON.stringify(itinerary, null, 2)}
-
-**优化要求：**
-- 优化类型：${optimizationFocus}
-- 保持原有偏好和风格
-- 提供具体的优化建议
-- 确保行程的可行性和实用性
-
-请返回优化后的完整行程JSON，格式与原始行程相同。`
+输出要求：
+- 返回与输入相同 schema 的完整 JSON（字段/层级/类型一致）
+- 对天内顺序/时长/交通/费用做必要调整
+- 提供 aiInsights.optimizationSuggestions 的可执行清单`
   }
 
   /**
@@ -265,245 +443,90 @@ ${JSON.stringify(itinerary, null, 2)}
    */
   private parseItineraryResponse(response: string, context?: PlannerItineraryRequest): PlannerItineraryResponse {
     try {
-      // 尝试提取JSON部分（兼容多种围栏与格式）
-      let jsonString = ''
       if (!response) throw new Error('Empty response')
+      const parsed = parseLoose(response)
 
-      // 1) 优先匹配 ```json ... ``` 或 ``` ... ```
-      const fenceMatch = response.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-      if (fenceMatch && fenceMatch[1]) {
-        jsonString = fenceMatch[1].trim()
-      }
-
-      // 2) 若未匹配，尝试提取第一个大括号包裹的 JSON 片段
-      if (!jsonString) {
-        const braceMatch = response.match(/\{[\s\S]*\}/)
-        if (braceMatch) jsonString = braceMatch[0]
-      }
-
-      // 3) 兜底：直接使用原始内容
-      if (!jsonString) jsonString = response.trim()
-      
-      const tryParse = (text: string) => {
-        try { return JSON.parse(text) } catch { return null }
-      }
-
-      let data = tryParse(jsonString)
-
-      // 如果第一次解析失败，尝试进行常见修复
-      if (!data) {
-        // 将字符串内部的裸换行统一转义为 \n，避免 LLM 在字符串里直接插入换行导致 JSON 失效
-        const sanitizeStringNewlines = (s: string): string => {
-          let out = ''
-          let inStr = false
-          let escaped = false
-          for (let i = 0; i < s.length; i++) {
-            const ch = s[i]
-            if (!inStr) {
-              if (ch === '"') { out += ch; inStr = true; escaped = false; continue }
-              out += ch; continue
-            }
-            // in string
-            if (escaped) { out += ch; escaped = false; continue }
-            if (ch === '\\') { out += ch; escaped = true; continue }
-            if (ch === '"') { out += ch; inStr = false; continue }
-            if (ch === '\n' || ch === '\r') { out += '\\n'; continue }
-            out += ch
-          }
-          return out
+      if (!parsed) {
+        // 兜底：从片段构造最小可用结构
+        const head = extractJsonFromText(response).slice(0, 2000)
+        const pick = (re: RegExp) => {
+          const m = head.match(re); return m?.[1]?.trim() ?? ''
         }
-
-        let fixed = sanitizeStringNewlines(jsonString)
-          // 中文/弯引号转直引号
-          .replace(/[“”]/g, '"')
-          .replace(/[‘’]/g, '\'')
-          // 删除行内注释与多余注释块
-          .replace(/\/\/.*$/gm, '')
-          .replace(/\/\*[\s\S]*?\*\//g, '')
-          // 删除对象/数组末尾多余逗号
-          .replace(/,\s*(\}|\])/g, '$1')
-          // 删除 JSON 外围杂项字符
-          .trim()
-
-        data = tryParse(fixed)
-      }
-
-      // 仍然失败，尝试再次移除不可见字符与控制字符
-      if (!data) {
-        const reClean = (s: string) => s
-          .replace(/[\u0000-\u001F\u007F\u00A0]/g, ' ')
-          .replace(/,\s*(\}|\])/g, '$1')
-          .trim()
-        data = tryParse(reClean(jsonString)) || tryParse(reClean(jsonString.replace(/[“”‘’]/g, '"')))
-      }
-
-      // 依旧失败：尝试闭合未完成的字符串与括号（LLM 截断场景）
-      if (!data) {
-        const repairTruncation = (s: string): string => {
-          let out = ''
-          const stack: string[] = []
-          let inStr = false
-          let escaped = false
-          for (let i = 0; i < s.length; i++) {
-            const ch = s[i]
-            out += ch
-            if (inStr) {
-              if (escaped) { escaped = false; continue }
-              if (ch === '\\') { escaped = true; continue }
-              if (ch === '"') { inStr = false; continue }
-              continue
-            } else {
-              if (ch === '"') { inStr = true; continue }
-              if (ch === '{' || ch === '[') stack.push(ch)
-              else if (ch === '}') { if (stack[stack.length - 1] === '{') stack.pop() }
-              else if (ch === ']') { if (stack[stack.length - 1] === '[') stack.pop() }
-            }
-          }
-          // 如果结束时仍在字符串中，补齐引号
-          if (inStr) out += '"'
-          // 补齐未闭合的括号
-          while (stack.length) {
-            const top = stack.pop()
-            out += (top === '{') ? '}' : ']'
-          }
-          return out
-        }
-        const repaired = repairTruncation(jsonString)
-        data = tryParse(repaired)
-      }
-
-      // 依旧失败：截断到最后一个完整的 '}'，再做括号/字符串闭合
-      if (!data) {
-        const lastBrace = jsonString.lastIndexOf('}')
-        if (lastBrace > 0) {
-          const truncated = jsonString.slice(0, lastBrace + 1)
-          const attempt = truncated
-          // 复用 repairTruncation 以补齐外层 ] / }
-          const repairedTruncated = ((): string => {
-            let out = ''
-            const stack: string[] = []
-            let inStr = false
-            let escaped = false
-            for (let i = 0; i < attempt.length; i++) {
-              const ch = attempt[i]
-              out += ch
-              if (inStr) {
-                if (escaped) { escaped = false; continue }
-                if (ch === '\\') { escaped = true; continue }
-                if (ch === '"') { inStr = false; continue }
-              } else {
-                if (ch === '"') { inStr = true; continue }
-                if (ch === '{' || ch === '[') stack.push(ch)
-                else if (ch === '}') { if (stack[stack.length - 1] === '{') stack.pop() }
-                else if (ch === ']') { if (stack[stack.length - 1] === '[') stack.pop() }
-              }
-            }
-            if (inStr) out += '"'
-            while (stack.length) out += (stack.pop() === '{') ? '}' : ']'
-            return out
-          })()
-          data = tryParse(repairedTruncated)
-        }
-      }
-
-      if (!data) {
-        // 最后一次尝试：从文本头部粗提取关键信息构造最小行程（确保不崩）
-        const head = (jsonString || '').slice(0, 2000)
-        const get = (re: RegExp) => {
-          const m = head.match(re)
-          return m && m[1] ? m[1].trim() : ''
-        }
-        const date = get(/"date"\s*:\s*"([^"]*)"/)
-        const theme = get(/"theme"\s*:\s*"([^"]*)"/)
-        const mood = get(/"mood"\s*:\s*"([^"]*)"/)
-        const summary = get(/"summary"\s*:\s*"([\s\S]*?)"\s*,\s*"activities"/)
-
-        if (date || theme || summary) {
-          return {
+        const summary = pick(/"summary"\s*:\s*"([\s\S]*?)"/)
+        const date = pick(/"date"\s*:\s*"([^"]*)"/)
+        const theme = pick(/"theme"\s*:\s*"([^"]*)"/)
+        return normalizeItinerary({
             title: `${context?.destination || '目的地'}行程规划`,
             destination: context?.destination || '目的地',
             duration: context?.duration || 1,
             totalCost: 0,
-            summary: summary || '',
-            days: [
-              {
+          summary,
+          days: [{
                 date: date || 'Day 1',
                 title: theme || '第一天',
                 description: summary || '',
                 status: 'planned',
                 stats: { duration: 6, cost: 0 },
                 timeSlots: []
-              }
-            ],
+          }],
             recommendations: { bestTimeToVisit: '', weatherAdvice: '', packingTips: [], localTips: [], emergencyContacts: [] },
             aiInsights: { optimizationSuggestions: [], alternativeActivities: [], budgetOptimization: [], culturalNotes: [] }
+        }, context)
+      }
+
+      // 新模板（days[].activities）
+      if (parsed && Array.isArray(parsed.days) && !parsed.title) {
+        const validation = validateLLMJson(parsed)
+        let llmSource: any = parsed
+        if (!validation.valid) {
+          console.warn('[plannerAPI] LLM schema validation failed:', validation.errors)
+          llmSource = sanitizeLLMJson(parsed)
+          const recheck = validateLLMJson(llmSource)
+          if (!recheck.valid) {
+            console.warn('[plannerAPI] LLM schema still invalid after sanitize:', recheck.errors)
           }
         }
 
-        throw new Error('JSON parse failed after sanitization')
-      }
+        const mappedDays = toArr(llmSource.days).map(mapNewTemplateDayToDayPlan)
+        const totalCost = Number.isFinite(llmSource.totalCost)
+          ? Number(llmSource.totalCost)
+          : mappedDays.reduce((acc: number, d: DayPlan) => acc + (d.stats?.cost || 0), 0)
 
-      // 新模板：只有 days/totalCost/summary，需要转换为内部结构
-      if (data && Array.isArray(data.days) && !data.title) {
-        const mappedDays: DayPlan[] = data.days.map((d: any, idx: number) => {
-          const totalMinutes = (d.activities || []).reduce((acc: number, a: any) => acc + (a.duration || 0), 0)
-          const totalCost = (d.activities || []).reduce((acc: number, a: any) => acc + (a.cost || 0), 0)
-          return {
-            date: `Day ${d.day || idx + 1}`,
-            title: d.theme || `第${d.day || idx + 1}天`,
-            description: d.summary || '',
-            status: 'planned',
-            stats: { duration: Math.round(totalMinutes / 60), cost: totalCost },
-            timeSlots: (d.activities || []).map((a: any) => ({
-              time: a.time || '10:00',
-              activity: a.title || '',
-              location: a.transport?.to || '',
-              icon: '📍',
-              category: a.type || 'attraction',
-              categoryColor: 'blue',
-              notes: (a.notes ? a.notes : '') + (a.localTip ? ` ｜提示：${a.localTip}` : ''),
-              estimatedDuration: Math.max(1, Math.round((a.duration || 60) / 60)),
-              estimatedCost: a.cost || 0
-            }))
-          }
-        })
-
-        const totalCost = data.totalCost || mappedDays.reduce((acc: number, d: DayPlan) => acc + (d.stats?.cost || 0), 0)
-
-        const mapped: PlannerItineraryResponse = {
+        const normalized = normalizeItinerary({
           title: `${context?.destination || '目的地'}行程规划`,
           destination: context?.destination || '目的地',
           duration: mappedDays.length,
           totalCost,
-          summary: data.summary || '',
+          summary: toStr(llmSource.summary, ''),
           days: mappedDays,
-          recommendations: {
-            bestTimeToVisit: '',
-            weatherAdvice: '',
-            packingTips: [],
-            localTips: [],
-            emergencyContacts: []
-          },
-          aiInsights: {
-            optimizationSuggestions: [],
-            alternativeActivities: [],
-            budgetOptimization: [],
-            culturalNotes: []
-          }
+          recommendations: { bestTimeToVisit: '', weatherAdvice: '', packingTips: [], localTips: [], emergencyContacts: [] },
+          aiInsights: { optimizationSuggestions: [], alternativeActivities: [], budgetOptimization: [], culturalNotes: [] }
+        }, context)
+        const appValidation = validateAppItinerary(normalized)
+        if (!appValidation.valid) {
+          console.warn('[plannerAPI] App schema validation failed after mapping:', appValidation.errors)
         }
-        return mapped
+        return normalized
       }
 
-      // 旧模板：已包含完整字段
-      if (!data.title || !data.days || !Array.isArray(data.days)) {
-        // 返回一个最小可用结构（带上下文）
-        return {
+      // 旧模板或完整模板
+      if (parsed && parsed.title && parsed.days) {
+        const normalized = normalizeItinerary(parsed as PlannerItineraryResponse, context)
+        const validation = validateAppItinerary(normalized)
+        if (!validation.valid) {
+          console.warn('[plannerAPI] App schema validation failed for parsed response:', validation.errors)
+        }
+        return normalized
+      }
+
+      // 其他未知结构 → normalize + 兜底
+      const normalized = normalizeItinerary({
           title: `${context?.destination || '目的地'}行程规划`,
           destination: context?.destination || '目的地',
-          duration: (data.days && Array.isArray(data.days)) ? data.days.length : 0,
-          totalCost: data.totalCost || 0,
-          summary: data.summary || '',
-          days: (data.days || []).map((_: any, idx: number) => ({
+        duration: toNum((parsed as any)?.duration, context?.duration || 1),
+        totalCost: toNum((parsed as any)?.totalCost, 0),
+        summary: toStr((parsed as any)?.summary, ''),
+        days: toArr((parsed as any)?.days).map((_: any, idx: number) => ({
             date: `Day ${idx + 1}`,
             title: `第${idx + 1}天`,
             description: '',
@@ -513,41 +536,26 @@ ${JSON.stringify(itinerary, null, 2)}
           })),
           recommendations: { bestTimeToVisit: '', weatherAdvice: '', packingTips: [], localTips: [], emergencyContacts: [] },
           aiInsights: { optimizationSuggestions: [], alternativeActivities: [], budgetOptimization: [], culturalNotes: [] }
-        }
+      }, context)
+      const validation = validateAppItinerary(normalized)
+      if (!validation.valid) {
+        console.warn('[plannerAPI] App schema validation failed for fallback normalization:', validation.errors)
       }
-      return data as PlannerItineraryResponse
+      return normalized
     } catch (error) {
       console.error('解析AI响应失败:', error)
       console.warn('[plannerAPI] Raw response head:', (response || '').slice(0, 500))
-      // 返回默认行程作为后备（带上下文）
-      return {
-        title: `${context?.destination || '目的地'}行程规划`,
-        destination: context?.destination || '目的地',
-        duration: context?.duration || 3,
-        totalCost: 0,
-        summary: '',
-        days: [
-          {
-            date: 'Day 1',
-            title: '第一天',
-            description: '',
-            status: 'planned',
-            stats: { duration: 6, cost: 0 },
-            timeSlots: []
-          }
-        ],
-        recommendations: { bestTimeToVisit: '', weatherAdvice: '', packingTips: [], localTips: [], emergencyContacts: [] },
-        aiInsights: { optimizationSuggestions: [], alternativeActivities: [], budgetOptimization: [], culturalNotes: [] }
-      }
+      return this.getDefaultItinerary(context)
     }
   }
 
-  // 兜底：默认行程
-  private getDefaultItinerary(): PlannerItineraryResponse {
+  // 默认行程
+  private getDefaultItinerary(context?: PlannerItineraryRequest): PlannerItineraryResponse {
+    const dest = context?.destination || '目的地'
     return {
-      title: '智能行程规划',
-      destination: '目的地',
-      duration: 3,
+      title: `${dest}行程规划`,
+      destination: dest,
+      duration: context?.duration || 3,
       totalCost: 3000,
       summary: '这是一个示例行程，用于在 AI 返回不可解析时保证页面可用。',
       days: [
@@ -570,7 +578,6 @@ ${JSON.stringify(itinerary, null, 2)}
 
   // 补齐/规范行程天数
   private ensureDuration(itin: PlannerItineraryResponse, targetDays: number, destination?: string): PlannerItineraryResponse {
-    try {
       if (!targetDays || targetDays <= 0) return itin
       const days = Array.isArray(itin.days) ? [...itin.days] : []
       for (let i = days.length; i < targetDays; i++) {
@@ -584,9 +591,6 @@ ${JSON.stringify(itinerary, null, 2)}
         })
       }
       return { ...itin, duration: targetDays, days }
-    } catch {
-      return itin
-    }
   }
 }
 

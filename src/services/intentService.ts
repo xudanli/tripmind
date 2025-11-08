@@ -67,7 +67,9 @@ export class IntentService {
 
       throw new Error('AI 意图检测失败且无本地评分')
     } catch (error: any) {
-      logger.error('❌ AI 意图检测失败:', error)
+      const isJsonParseIssue = error instanceof Error && error.message.includes('无法解析 LLM 返回的 JSON')
+      const logFn = isJsonParseIssue ? logger.warn.bind(logger) : logger.error.bind(logger)
+      logFn(isJsonParseIssue ? '⚠️ AI 意图检测输出不完整，已回退到本地评分' : '❌ AI 意图检测失败:', error)
 
       // Fallback: 使用本地评分
       if (localScore) {

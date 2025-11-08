@@ -15,6 +15,7 @@ import {
 import { getAllCurrencies, type CurrencyInfo } from '@/utils/currency'
 import { message } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
+import { API_CONFIG } from '@/config/api'
 
 const i18nStore = useI18nStore()
 const { t } = useI18n()
@@ -29,6 +30,8 @@ const selectedHeldVisas = ref<string[]>([]) // 已持有的签证
 const selectedProficientLanguages = ref<string[]>(['zh-CN']) // 精通的语言列表
 const selectedTransportMode = ref<TransportationPreference>('public_transit_and_walking') // 交通方式偏好
 const selectedCurrency = ref<string>('CNY') // 货币偏好
+const selectedLLMProvider = ref<'deepseek' | 'openai'>('deepseek')
+const selectedLLMModel = ref<string>(API_CONFIG.OPENAI_DEFAULT_MODEL)
 const userProfile = ref<UserProfileConfig | null>(null)
 
 // 货币选项
@@ -39,6 +42,13 @@ const currencyOptions = computed(() => {
     value: currency.code
   }))
 })
+
+const openAIModelOptions = [
+  { label: 'GPT-4o mini', value: 'gpt-4o-mini' },
+  { label: 'GPT-4o', value: 'gpt-4o' },
+  { label: 'o1-mini', value: 'o1-mini' },
+  { label: 'o1-preview', value: 'o1-preview' }
+]
 
 // 响应式用户配置，用于显示（保存后会更新）
 const reactiveUserProfile = ref<UserProfileConfig>(getUserProfileOrDefault())
@@ -67,6 +77,8 @@ const handleUserProfileClick = () => {
   selectedProficientLanguages.value = profile.proficientLanguages || ['zh-CN']
   selectedTransportMode.value = profile.preferredTransportMode || 'public_transit_and_walking'
   selectedCurrency.value = profile.preferredCurrency || 'CNY'
+  selectedLLMProvider.value = profile.preferredLLMProvider || 'deepseek'
+  selectedLLMModel.value = profile.preferredLLMModel || API_CONFIG.OPENAI_DEFAULT_MODEL
 }
 
 // 保存用户个人信息
@@ -99,7 +111,11 @@ const handleUserProfileSave = () => {
     heldVisas: selectedHeldVisas.value || [],
     proficientLanguages: selectedProficientLanguages.value.length > 0 ? selectedProficientLanguages.value : ['zh-CN'],
     preferredTransportMode: selectedTransportMode.value,
-    preferredCurrency: selectedCurrency.value || 'CNY'
+    preferredCurrency: selectedCurrency.value || 'CNY',
+    preferredLLMProvider: selectedLLMProvider.value,
+    preferredLLMModel: selectedLLMProvider.value === 'openai'
+      ? (selectedLLMModel.value || API_CONFIG.OPENAI_DEFAULT_MODEL)
+      : ''
   }
   
   setUserProfile(newProfile)
@@ -432,6 +448,59 @@ onMounted(() => {
                 💡 系统会根据您的货币偏好显示费用和价格信息
                 <br/>
                 <span class="hint-example">例如：选择美元后，行程中的费用信息会以美元显示</span>
+              </div>
+            </div>
+          </div>
+        </a-card>
+
+        <!-- 4.1 AI 助手设置 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🤖</span>
+              AI 助手设置
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="form-item">
+              <label class="form-label">首选大模型提供商</label>
+              <a-radio-group v-model:value="selectedLLMProvider" style="width: 100%">
+                <a-radio 
+                  value="deepseek" 
+                  style="display: block; margin-bottom: 12px; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px;"
+                >
+                  <div style="font-weight: 500; margin-bottom: 4px;">DeepSeek 智能体</div>
+                  <div style="font-size: 12px; color: #888;">默认模型，响应速度快，适合中文旅行场景</div>
+                </a-radio>
+                <a-radio 
+                  value="openai" 
+                  style="display: block; padding: 12px; border: 1px solid #e8e8e8; border-radius: 6px;"
+                >
+                  <div style="font-weight: 500; margin-bottom: 4px;">OpenAI (GPT)</div>
+                  <div style="font-size: 12px; color: #888;">使用 OpenAI 最新模型，适合需要更强创意与推理的场景</div>
+                </a-radio>
+              </a-radio-group>
+              <div class="form-hint">
+                💡 可在此选择行程生成与灵感模式使用的默认 AI 提供商，随时可在个人偏好中切换。
+              </div>
+            </div>
+            <div v-if="selectedLLMProvider === 'openai'" class="form-item">
+              <label class="form-label">OpenAI 模型</label>
+              <a-select
+                v-model:value="selectedLLMModel"
+                placeholder="请选择默认使用的 OpenAI 模型"
+                style="width: 100%"
+              >
+                <a-select-option 
+                  v-for="option in openAIModelOptions" 
+                  :key="option.value" 
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </a-select-option>
+              </a-select>
+              <div class="form-hint">
+                💡 默认使用 {{ API_CONFIG.OPENAI_DEFAULT_MODEL }}，如需自定义高级模型，请在环境变量中配置或在此处选择。
               </div>
             </div>
           </div>

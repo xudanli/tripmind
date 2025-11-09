@@ -51,22 +51,13 @@
           </p>
         </div>
 
-        <div class="hero-side" v-if="sideHighlights.length">
-          <div class="side-card" v-for="highlight in sideHighlights" :key="highlight.title">
-            <div class="side-card-title">
-              <component :is="highlight.icon" class="side-icon" />
-              <span>{{ highlight.title }}</span>
-            </div>
-            <p>{{ highlight.description }}</p>
-          </div>
-        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Travel } from '@/stores/travelList'
 import {
@@ -74,18 +65,18 @@ import {
   CompassOutlined,
   CrownOutlined,
   EnvironmentOutlined,
-  FireOutlined,
   ScheduleOutlined,
   SmileOutlined,
   StarOutlined
 } from '@ant-design/icons-vue'
+import { reverseGeocodeDetail } from '@/utils/geocode'
 
 interface Props {
   travel: Travel | null
 }
 
 const props = defineProps<Props>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const translate = (key: string, fallback: string, params?: Record<string, any>) => {
   const result = t(key, params)
@@ -161,7 +152,121 @@ const extractDestination = (travelValue: Travel | null, data: any) => {
   return ''
 }
 
-const heroDestination = computed(() => extractDestination(props.travel ?? null, travelData.value))
+const heroDestination = ref('')
+
+const sanitizeAdministrativeLabel = (value?: string | null) => {
+  if (!value) return ''
+  const cleaned = value.replace(/[()\[\]{}（）]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!cleaned) return ''
+  const firstLevel = cleaned.split(/[·•|]/).map(part => part.trim()).filter(Boolean)
+  const primary = firstLevel.length ? firstLevel[0] : cleaned
+  const slashSplit = primary.split('/').map(part => part.trim()).filter(Boolean)
+  return slashSplit.length ? slashSplit[0] : primary
+}
+
+const normalizeCoordinate = (candidate: any) => {
+  if (!candidate || typeof candidate !== 'object') return null
+  const lat = Number(candidate.lat ?? candidate.latitude ?? candidate.latDeg ?? candidate.latLng?.[0])
+  const lng = Number(candidate.lng ?? candidate.lon ?? candidate.longitude ?? candidate.long ?? candidate.latLng?.[1])
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng }
+  }
+  return null
+}
+
+const extractPrimaryCoordinate = (): { lat: number; lng: number } | null => {
+  const data: any = travelData.value
+  const travelValue = props.travel as any
+  const itinerary = itineraryData.value as any
+
+  const candidates: any[] = [
+    travelValue?.coordinates,
+    travelValue?.geo,
+    travelValue?.destination?.coordinates,
+    data?.coordinates,
+    data?.destinationCoordinates,
+    data?.locationCoordinates,
+    data?.geo,
+    data?.geolocation,
+  ]
+
+  for (const candidate of candidates) {
+    const coord = normalizeCoordinate(candidate)
+    if (coord) return coord
+  }
+
+  const traverseSlots = (slots: any[]): { lat: number; lng: number } | null => {
+    for (const slot of slots) {
+      if (!slot || typeof slot !== 'object') continue
+      const direct = normalizeCoordinate(slot.coordinates)
+      if (direct) return direct
+      const nested = normalizeCoordinate(slot.location?.coordinates)
+      if (nested) return nested
+      const detailCoord = normalizeCoordinate(slot.details?.coordinates)
+      if (detailCoord) return detailCoord
+    }
+    return null
+  }
+
+  if (itinerary?.days && Array.isArray(itinerary.days)) {
+    for (const day of itinerary.days) {
+      const coord = traverseSlots(Array.isArray(day?.timeSlots) ? day.timeSlots : [])
+      if (coord) return coord
+    }
+  }
+
+  return null
+}
+
+watchEffect((onCleanup) => {
+  let cancelled = false
+  onCleanup(() => {
+    cancelled = true
+  })
+
+  const data: any = travelData.value
+  const itinerary = itineraryData.value
+  const fallback = extractDestination(props.travel ?? null, data)
+  heroDestination.value = fallback
+
+  const coords = extractPrimaryCoordinate()
+  if (!coords) return
+
+  const language = locale?.value || 'zh-CN'
+  const fallbackCountryCandidates = [
+    data?.currentCountry,
+    itinerary?.country,
+    props.travel?.country,
+  ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+
+  ;(async () => {
+    const detail = await reverseGeocodeDetail(coords.lat, coords.lng, language)
+    if (cancelled || !detail) return
+
+    const uniqueParts = new Set<string>()
+
+    const pushPart = (value?: string | null) => {
+      const sanitized = sanitizeAdministrativeLabel(value)
+      if (sanitized) {
+        uniqueParts.add(sanitized)
+      }
+    }
+
+    if (detail.country) {
+      pushPart(detail.country)
+    } else if (fallbackCountryCandidates.length) {
+      pushPart(fallbackCountryCandidates[0])
+    }
+
+    pushPart(detail.state)
+    pushPart(detail.city)
+
+    const display = Array.from(uniqueParts).filter(Boolean).join(' · ')
+    if (display) {
+      heroDestination.value = display
+    }
+  })()
+})
 
 const heroCoverImage = computed(() => {
   const data: any = travelData.value
@@ -311,60 +416,6 @@ const collectChips = () => {
 
 const heroChips = computed(() => collectChips())
 
-const sideHighlights = computed(() => {
-  const data: any = travelData.value
-  const highlights: Array<{ title: string; description: string; icon: any }> = []
-
-  if (data?.aiHighlights && Array.isArray(data.aiHighlights) && data.aiHighlights.length) {
-    data.aiHighlights.slice(0, 2).forEach((text: string) => {
-      if (text && typeof text === 'string') {
-        highlights.push({
-          title: translate('travelDetail.inspirationHero.highlightLabel', '亮点'),
-          description: text,
-          icon: StarOutlined
-        })
-      }
-    })
-  } else if (itineraryData.value?.days?.length) {
-    const firstDay = itineraryData.value.days[0]
-    if (firstDay?.timeSlots?.length) {
-      const morning = firstDay.timeSlots[0]
-      if (morning?.activity) {
-      highlights.push({
-        title: translate('travelDetail.inspirationHero.firstExperience', '开场体验'),
-        description: morning.activity,
-        icon: FireOutlined
-      })
-      }
-    }
-
-    if (firstDay?.mood) {
-      highlights.push({
-        title: translate('travelDetail.inspirationHero.dayMood', '当日情绪'),
-        description: firstDay.mood,
-        icon: SmileOutlined
-      })
-    }
-  }
-
-  if (data?.optimizationTips && typeof data.optimizationTips === 'string') {
-    highlights.push({
-      title: translate('travelDetail.inspirationHero.aiTip', 'AI 提示'),
-      description: data.optimizationTips,
-      icon: BulbOutlined
-    })
-  }
-
-  if (!highlights.length && heroSupportingText.value) {
-    highlights.push({
-      title: translate('travelDetail.inspirationHero.storyHook', '故事线索'),
-      description: heroSupportingText.value,
-      icon: CompassOutlined
-    })
-  }
-
-  return highlights.slice(0, 2)
-})
 </script>
 
 <style scoped>
@@ -374,13 +425,15 @@ const sideHighlights = computed(() => {
 
 .hero-cover {
   position: relative;
+  display: grid;
   border-radius: 16px;
   overflow: hidden;
-  height: 380px;
+  min-height: 360px;
   background: #111827;
 }
 
 .hero-cover img {
+  grid-area: 1 / 1;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -388,8 +441,8 @@ const sideHighlights = computed(() => {
 }
 
 .hero-overlay {
-  position: absolute;
-  inset: 0;
+  grid-area: 1 / 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -502,49 +555,12 @@ const sideHighlights = computed(() => {
   line-height: 1.7;
 }
 
-.hero-side {
-  display: grid;
-  gap: 16px;
-  align-self: flex-end;
-  min-width: 260px;
-}
-
-.side-card {
-  background: rgba(14, 22, 40, 0.72);
-  border-radius: 12px;
-  padding: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-}
-
-.side-card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-weight: 600;
-  color: #f8fafc;
-}
-
-.side-card p {
-  margin: 0;
-  color: rgba(226, 232, 240, 0.85);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.side-icon {
-  font-size: 18px;
-  color: #93c5fd;
-}
-
 @media (max-width: 991px) {
   .hero-overlay {
     padding: 24px;
-    height: auto;
   }
 
   .hero-cover {
-    height: auto;
     min-height: 420px;
   }
 

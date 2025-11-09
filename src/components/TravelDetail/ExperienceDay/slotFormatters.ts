@@ -22,6 +22,11 @@ export interface SlotChips {
   cost?: string | null
 }
 
+export interface TransportInfo {
+  summary: string | null
+  items: string[]
+}
+
 export const formatReviewCount = (count: number): string => {
   if (count >= 10000) {
     return `${(count / 10000).toFixed(1)}万`
@@ -188,6 +193,40 @@ export const buildTransportText = (transport: any, t: TranslateFn): string | nul
   return parts.length ? parts.join(' · ') : t('travelDetail.experienceDay.walkingNotReachable')
 }
 
+export const buildTransportInfo = (transport: any, t: TranslateFn): TransportInfo | null => {
+  if (!transport) return null
+
+  const summary =
+    typeof transport.enhancedSummary === 'string' && transport.enhancedSummary.trim()
+      ? transport.enhancedSummary.trim()
+      : ''
+
+  const items = Array.isArray(transport.options)
+    ? transport.options
+        .map((item: any) =>
+          typeof item === 'string' ? item.replace(/^•\s*/, '').trim() : ''
+        )
+        .filter(Boolean)
+    : []
+
+  if (summary || items.length) {
+    return {
+      summary: summary || null,
+      items,
+    }
+  }
+
+  const fallback = buildTransportText(transport, t)
+  if (fallback) {
+    return {
+      summary: fallback,
+      items: [],
+    }
+  }
+
+  return null
+}
+
 export const formatOpeningHours = (hours: string): string => {
   if (!hours) return ''
   const timeRegex = /(\d{1,2}):(\d{2})\s*(AM|PM)/gi
@@ -211,9 +250,14 @@ export const formatLocationLines = (options: { name?: any; address?: any; fallba
   const lines: LocationLineEntry[] = []
   const { name, address, fallback } = options
 
+  const existing = new Set<string>()
+
   const pushLine = (text: string | null | undefined, type: LocationLineEntry['type']) => {
     if (text && text.trim()) {
-      lines.push({ text: text.trim(), type })
+      const trimmed = text.trim()
+      if (existing.has(trimmed)) return
+      lines.push({ text: trimmed, type })
+      existing.add(trimmed)
     }
   }
 
@@ -226,11 +270,17 @@ export const formatLocationLines = (options: { name?: any; address?: any; fallba
   if (address?.english) {
     pushLine(address.landmark ? `${address.english} · ${address.landmark}` : address.english, 'english')
   }
+  if ((address as any)?.geocodedEnglish) {
+    pushLine((address as any).geocodedEnglish, 'english')
+  }
   if (!address?.english) {
     pushLine(address?.chinese ? (address.landmark ? `${address.chinese} · ${address.landmark}` : address.chinese) : null, 'chinese')
   }
   if (address?.english && address?.chinese) {
     pushLine(address.chinese, 'chinese')
+  }
+  if ((address as any)?.geocodedChinese) {
+    pushLine((address as any).geocodedChinese, 'chinese')
   }
   if (address?.landmark) {
     pushLine(address.landmark, 'landmark')
@@ -285,7 +335,21 @@ export const buildSlotChips = (
 }
 
 export const buildNotes = (slot: any): string[] => {
-  return Array.isArray(slot?.details?.recommendations?.specialNotes)
-    ? slot.details.recommendations.specialNotes
-    : []
+  const collected: string[] = []
+
+  const pushValue = (value: unknown) => {
+    if (!value) return
+    if (Array.isArray(value)) {
+      value.forEach(pushValue)
+      return
+    }
+    if (typeof value === 'string' && value.trim()) {
+      collected.push(value.trim())
+    }
+  }
+
+  pushValue(slot?.details?.recommendations?.specialNotes)
+  pushValue(slot?.notes)
+
+  return collected
 }

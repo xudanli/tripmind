@@ -1,12 +1,15 @@
+type UnsplashSearchOptions = {
+  orientation?: 'landscape' | 'portrait' | 'squarish'
+  per_page?: number
+}
 /**
  * Unsplash API 服务
  * 用于获取旅行相关的图片
- * 如果 Unsplash 失败，会自动回退到 iStockPhoto/Pexels
+ * 如果 Unsplash 失败，会自动回退到 Pexels
  */
 
 import { API_CONFIG } from '@/config/api'
 import { sanitizeLabelToKeyword } from '@/utils/mediaHelpers'
-import { searchIStockPhoto, type IStockPhoto } from './istockphotoAPI'
 import { searchPexelsPhotos, type PexelsPhoto } from './pexelsAPI'
 
 export interface UnsplashPhoto {
@@ -25,35 +28,6 @@ export interface UnsplashPhoto {
   user: {
     name: string
     username: string
-  }
-}
-
-type UnsplashSearchOptions = {
-  orientation?: 'landscape' | 'portrait' | 'squarish'
-  per_page?: number
-}
-
-/**
- * 将 iStockPhoto 格式转换为 UnsplashPhoto 格式（用于兼容）
- */
-function convertIStockToUnsplash(photo: IStockPhoto): UnsplashPhoto {
-  return {
-    id: photo.id,
-    urls: {
-      raw: photo.url,
-      full: photo.url,
-      regular: photo.url,
-      small: photo.thumbnail,
-      thumb: photo.thumbnail
-    },
-    width: photo.width,
-    height: photo.height,
-    description: photo.description || null,
-    alt_description: photo.title || null,
-    user: {
-      name: photo.title,
-      username: 'istockphoto'
-    }
   }
 }
 
@@ -85,14 +59,9 @@ async function fetchFallbackPhotos(query: string, options: UnsplashSearchOptions
   const perPage = options.per_page ?? 10
 
   try {
-    const pexelsOrientation =
-      options.orientation === 'squarish'
-        ? 'square'
-        : options.orientation ?? undefined
-
     const pexelsPhotos = await searchPexelsPhotos(query, {
-      perPage,
-      orientation: pexelsOrientation as 'landscape' | 'portrait' | 'square' | undefined
+      per_page: perPage,
+      orientation: options.orientation,
     })
 
     if (pexelsPhotos.length > 0) {
@@ -105,16 +74,6 @@ async function fetchFallbackPhotos(query: string, options: UnsplashSearchOptions
 
   if (fallbackResults.length > 0) {
     return fallbackResults
-  }
-
-  try {
-    const istockPhotos = await searchIStockPhoto(query, options)
-    if (istockPhotos.length > 0) {
-      console.log(`✅ 使用 iStockPhoto 获取到 ${istockPhotos.length} 张图片`)
-      return istockPhotos.map(convertIStockToUnsplash)
-    }
-  } catch (fallbackError: any) {
-    console.warn('iStockPhoto 后备也失败:', fallbackError?.message || fallbackError)
   }
 
   return []
@@ -193,7 +152,7 @@ export async function searchUnsplashPhotos(
   } catch (error: any) {
     // 只在非网络错误时输出警告（网络错误可能是正常的超时）
     if (error?.message && !error.message.includes('fetch')) {
-      console.warn('Unsplash搜索失败，尝试使用 Pexels/iStockPhoto:', error.message)
+      console.warn('Unsplash搜索失败，尝试使用 Pexels:', error.message)
     }
     
     const fallbackPhotos = await fetchFallbackPhotos(query, options)

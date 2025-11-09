@@ -158,9 +158,9 @@
                 </div>
               </div>
               <div class="slot-actions">
-                <a-button type="text" size="small" @click="editSlot(index, slotIndex)">
-                  <edit-outlined />
-                </a-button>
+              <a-button type="text" size="small" @click="editSlot(index, slotIndex)">
+                <edit-outlined />
+              </a-button>
                 <a-button type="text" size="small" danger @click="deleteSlot(index, slotIndex)">
                   <delete-outlined />
                 </a-button>
@@ -441,7 +441,7 @@ watch(currentItinerary, (it) => {
   if (suppressNextItineraryToast.value) {
     suppressNextItineraryToast.value = false
   } else {
-    message.success(t('travelDetail.plannerTimeline.generated'))
+  message.success(t('travelDetail.plannerTimeline.generated'))
   }
 }, { immediate: true })
 

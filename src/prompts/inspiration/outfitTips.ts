@@ -43,24 +43,20 @@ ${context.weather ? `- Weather: ${context.weather}` : ''}
 ${context.season ? `- Season: ${context.season}` : ''}
 
 Generate:
-1. **Outfit Suggestions** (50-100 words, **IN ENGLISH**): Specific, practical outfit recommendations based on:
+1. **Outfit Suggestions**: Provide 2-3 bullet points, each ≤ 18 English words, starting with "• ". Focus on:
    - Activity type and location
-   - Weather and season
-   - Cultural appropriateness
-   - Comfort and practicality
-   - Style tips that match the activity's mood
+   - Weather / season
+   - Cultural appropriateness & comfort
 
-2. **Cultural Tips** (50-100 words, **IN ENGLISH**): Local cultural etiquette and friendly practices:
-   - Appropriate behavior and customs
+2. **Cultural Tips**: Provide 2-3 bullet points, each ≤ 18 English words, starting with "• ". Cover:
+   - Respectful behaviour & etiquette
    - What to avoid
-   - How to show respect
-   - Cultural dos and don'ts
-   - Local communication tips
+   - Friendly communication reminders
 
 Return ONLY JSON:
 {
-  "outfitSuggestions": "Detailed outfit suggestions in ENGLISH...",
-  "culturalTips": "Cultural tips and etiquette advice in ENGLISH..."
+  "outfitSuggestions": "• First tip\\n• Second tip",
+  "culturalTips": "• First tip\\n• Second tip"
 }`
     : `你是旅行穿搭和文化顾问。为特定活动生成穿搭建议和当地文化友好提示。
 
@@ -76,24 +72,20 @@ ${context.weather ? `- 天气：${context.weather}` : ''}
 ${context.season ? `- 季节：${context.season}` : ''}
 
 生成：
-1. **穿搭建议**（50-100字，**必须使用中文**）：具体、实用的穿搭建议，基于：
-   - 活动类型和位置
-   - 天气和季节
-   - 文化适宜性
-   - 舒适度和实用性
-   - 匹配活动氛围的穿搭风格
+1. **穿搭建议**：输出 2-3 条项目符号，每条 ≤ 18 个汉字，以「• 」开头，结合：
+   - 活动类型与位置
+   - 天气 / 季节
+   - 文化适宜与舒适度
 
-2. **当地文化友好提示**（50-100字，**必须使用中文**）：当地文化礼仪和友好行为：
-   - 得体的行为和习俗
+2. **当地文化友好提示**：输出 2-3 条项目符号，每条 ≤ 18 个汉字，以「• 」开头，涵盖：
+   - 得体行为与习俗
    - 需要避免的事项
-   - 如何表达尊重
-   - 文化注意事项
-   - 当地沟通技巧
+   - 礼貌沟通提醒
 
 只返回JSON：
 {
-  "outfitSuggestions": "详细的穿搭建议（必须使用中文）...",
-  "culturalTips": "文化提示和礼仪建议（必须使用中文）..."
+  "outfitSuggestions": "• 第一条\\n• 第二条",
+  "culturalTips": "• 第一条\\n• 第二条"
 }`
 
   const userPrompt = isEnglish

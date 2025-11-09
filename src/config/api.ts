@@ -15,13 +15,15 @@ export const API_CONFIG = {
   UNSPLASH_API_URL: import.meta.env.VITE_UNSPLASH_API_URL || 'https://api.unsplash.com',
   PEXELS_API_KEY: import.meta.env.VITE_PEXELS_API_KEY || '',
   PEXELS_API_URL: import.meta.env.VITE_PEXELS_API_URL || 'https://api.pexels.com',
-  
-  // iStockPhoto (Getty Images) API 配置
-  // 注意：iStockPhoto 是 Getty Images 的一部分，需要 API key 和付费订阅
-  // 获取 API key: https://developers.gettyimages.com/
-  ISTOCKPHOTO_API_KEY: import.meta.env.VITE_ISTOCKPHOTO_API_KEY || '',
-  ISTOCKPHOTO_API_SECRET: import.meta.env.VITE_ISTOCKPHOTO_API_SECRET || '',
-  ISTOCKPHOTO_API_URL: 'https://api.gettyimages.com/v3',
+  GOOGLE_MAPS_API_KEY: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
+  GOOGLE_MAPS_BASE_URL: import.meta.env.VITE_GOOGLE_MAPS_BASE_URL || 'https://maps.googleapis.com',
+  TRIPADVISOR_RAPIDAPI_KEY: import.meta.env.VITE_TRIPADVISOR_RAPIDAPI_KEY || '',
+  TRIPADVISOR_RAPIDAPI_HOST: import.meta.env.VITE_TRIPADVISOR_RAPIDAPI_HOST || 'travel-advisor.p.rapidapi.com',
+  GETYOURGUIDE_API_KEY: import.meta.env.VITE_GETYOURGUIDE_API_KEY || '',
+  EVENTBRITE_API_TOKEN: import.meta.env.VITE_EVENTBRITE_API_TOKEN || '',
+  EVENTBRITE_API_URL: import.meta.env.VITE_EVENTBRITE_API_URL || 'https://www.eventbriteapi.com',
+  MAPBOX_ACCESS_TOKEN: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '',
+  MAPBOX_API_URL: import.meta.env.VITE_MAPBOX_API_URL || 'https://api.mapbox.com',
   
   // 基础URL - 根据环境切换
   BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://api.emotional-travel.com',
@@ -42,16 +44,11 @@ export const API_CONFIG = {
     TEMPORAL_PERCEPTION: '/emotional-travel/temporal-perception',
     // Unsplash API 端点
     UNSPLASH_SEARCH: '/search/photos',
-    // iStockPhoto (Getty Images) API 端点
-    ISTOCKPHOTO_SEARCH: '/search/images',
-    ISTOCKPHOTO_OAUTH: '/oauth2/token',
     // Pexels API 端点
     PEXELS_SEARCH: '/v1/search',
     // 旅行攻略 API 端点
     TRAVEL_GUIDES: '/travel-guides',
     TRAVEL_GUIDES_SEARCH: '/travel-guides/search',
-    // 图片代理端点（后端需要实现）
-    PROXY_ISTOCKPHOTO: '/api/proxy/istockphoto'
   },
   
   // 请求配置

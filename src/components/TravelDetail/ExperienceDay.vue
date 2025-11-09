@@ -1078,7 +1078,32 @@ const getStageName = (key: string) => {
 }
 
 // 获取每个活动对应的货币信息（根据活动的具体位置）
+const resolveCurrencyByCode = (code: unknown): CurrencyInfo | null => {
+  if (!code) return null
+  if (typeof code === 'object' && code && 'code' in (code as any)) {
+    return resolveCurrencyByCode((code as any).code)
+  }
+  const str = String(code).trim()
+  if (!str) return null
+  const upper = str.toUpperCase()
+  return getCurrencyByCode(upper) || null
+}
+
 const getSlotCurrency = (slot: any): CurrencyInfo => {
+  // 0. 如果有明确的币种代码，优先使用
+  const explicitCode =
+    slot?.costCurrency ||
+    slot?.currency ||
+    slot?.details?.currency ||
+    slot?.details?.currencyCode ||
+    slot?.details?.pricing?.currency ||
+    slot?.details?.pricing?.currencyCode
+
+  const explicitCurrency = resolveCurrencyByCode(explicitCode)
+  if (explicitCurrency) {
+    return explicitCurrency
+  }
+
   // 1. 优先使用活动的位置信息
   const slotLocation = slot.details?.address?.chinese || 
                        slot.details?.address?.english || 
@@ -1104,6 +1129,18 @@ const getSlotCurrency = (slot: any): CurrencyInfo => {
 
 // 行程整体货币信息（用于总费用等全局显示）
 const getOverallCurrency = (): CurrencyInfo => {
+  // 0. 明确的币种代码
+  const explicitCode =
+    travel.value?.data?.currencyCode ||
+    travel.value?.currency ||
+    travel.value?.data?.currency ||
+    itineraryData.value?.currencyCode
+
+  const explicitCurrency = resolveCurrencyByCode(explicitCode)
+  if (explicitCurrency) {
+    return explicitCurrency
+  }
+
   // 1. 优先使用明确的国家信息（最准确）
   const explicitCountry = travel.value?.data?.currentCountry ||
                   travel.value?.data?.locationCountries?.[travel.value?.location || ''] ||
@@ -1134,6 +1171,35 @@ const getOverallCurrency = (): CurrencyInfo => {
     // 如果 destination 中包含中国相关关键词，返回人民币
     if (COUNTRY_KEYWORDS.CHINA.some(keyword => destString.includes(keyword))) {
       return getCurrencyForDestination('中国')
+    }
+  }
+  
+  // 3. 遍历行程中的活动位置尝试推断
+  if (itineraryData.value?.days && itineraryData.value.days.length) {
+    for (const day of itineraryData.value.days) {
+      const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : []
+      for (const slot of slots) {
+        const locationText =
+          slot?.details?.address?.chinese ||
+          slot?.details?.address?.english ||
+          slot?.location ||
+          ''
+        if (locationText) {
+          const currency = getCurrencyForDestination(locationText)
+          if (currency.code !== 'CNY') {
+            return currency
+          }
+        }
+        const slotCurrency = resolveCurrencyByCode(
+          slot?.costCurrency ||
+            slot?.currency ||
+            slot?.details?.pricing?.currency ||
+            slot?.details?.pricing?.currencyCode
+        )
+        if (slotCurrency) {
+          return slotCurrency
+        }
+      }
     }
   }
   

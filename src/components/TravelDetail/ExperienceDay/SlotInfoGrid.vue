@@ -2,11 +2,16 @@
   <div class="slot-info-grid">
     <div class="slot-info-grid__column">
       <InfoBlock
-        v-if="transportText"
+        v-if="transportInfo"
         icon="🚌"
         :label="t('travelDetail.experienceDay.transportation')"
       >
-        <span>{{ transportText }}</span>
+        <template v-if="transportInfo.summary || transportInfo.items.length">
+          <p v-if="transportInfo.summary" class="slot-info-grid__text">{{ transportInfo.summary }}</p>
+          <ul v-if="transportInfo.items.length" class="slot-info-grid__list">
+            <li v-for="(item, index) in transportInfo.items" :key="index">{{ item }}</li>
+          </ul>
+        </template>
       </InfoBlock>
 
       <InfoBlock
@@ -61,19 +66,23 @@
 
     <div class="slot-info-grid__column">
       <InfoBlock
-        v-if="outfit"
+        v-if="outfitList.length"
         icon="👗"
         :label="t('travelDetail.experienceDay.outfitSuggestions')"
       >
-        <span>{{ outfit }}</span>
+        <ul class="slot-info-grid__list">
+          <li v-for="(item, index) in outfitList" :key="index">{{ item }}</li>
+        </ul>
       </InfoBlock>
 
       <InfoBlock
-        v-if="culture"
+        v-if="cultureList.length"
         icon="🌍"
         :label="t('travelDetail.experienceDay.culturalTips')"
       >
-        <span>{{ culture }}</span>
+        <ul class="slot-info-grid__list">
+          <li v-for="(item, index) in cultureList" :key="index">{{ item }}</li>
+        </ul>
       </InfoBlock>
 
       <InfoBlock
@@ -121,10 +130,11 @@ import {
   buildBookingText,
   buildPreTrip,
   buildPricing,
-  buildTransportText,
+  buildTransportInfo,
   formatOpeningHours,
   getSlotLocationLines,
   type LocationLineEntry,
+  type TransportInfo,
 } from './slotFormatters'
 
 interface SlotInfoGridProps {
@@ -142,12 +152,40 @@ const props = withDefaults(defineProps<SlotInfoGridProps>(), {
 
 const { t } = useI18n()
 
-const transportText = computed(() => buildTransportText(props.slot.details?.transportation, t))
+const transportInfo = computed<TransportInfo | null>(() =>
+  buildTransportInfo(props.slot.details?.transportation, t)
+)
 const bookingText = computed(() => buildBookingText(props.slot, t))
 const openingText = computed(() => formatOpeningHours(props.slot.details?.openingHours?.hours || ''))
 const locationLines = computed<LocationLineEntry[]>(() => getSlotLocationLines(props.slot))
-const outfit = computed(() => props.slot.details?.recommendations?.outfitSuggestions || '')
-const culture = computed(() => props.slot.details?.recommendations?.culturalTips || '')
+const normalizeList = (value: unknown): string[] => {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        typeof item === 'string'
+          ? item.replace(/\\n/g, '\n').split(/[\n\r]+/).map((token) => token.replace(/^•\s*/, '').trim())
+          : []
+      )
+      .flat()
+      .filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value
+      .replace(/\\n/g, '\n')
+      .split(/[\n\r]+/)
+      .map((item) => item.replace(/^•\s*/, '').trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+const outfitList = computed(() =>
+  normalizeList(props.slot.details?.recommendations?.outfitSuggestions)
+)
+const cultureList = computed(() =>
+  normalizeList(props.slot.details?.recommendations?.culturalTips)
+)
 const preTrip = computed(() => buildPreTrip(props.slot.details?.recommendations, t))
 const pricingText = computed(() => {
   if (!props.slot.details?.pricing) return null
@@ -249,6 +287,26 @@ const InfoBlock = defineComponent({
 
 .slot-info-grid__location-line--landmark {
   color: #2563eb;
+}
+
+.slot-info-grid__text {
+  margin: 0;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+.slot-info-grid__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #475569;
+}
+
+.slot-info-grid__list li {
+  list-style-type: disc;
+  line-height: 1.6;
 }
 
 .slot-info-grid__notes {

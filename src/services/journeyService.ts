@@ -11,6 +11,9 @@ import { buildDayDetailsPrompt } from '@/prompts/inspiration/dayDetails'
 import { buildOutfitTipsPrompt } from '@/prompts/inspiration/outfitTips'
 import { calcFrameworkMaxTokens, calcDayDetailsMaxTokens } from '@/utils/tokens'
 import { pickSeason } from '@/utils/lang'
+import { reverseGeocodeToChinese, reverseGeocodeToEnglish } from '@/utils/geocode'
+import { fetchTransportInsights, fetchPricingInsights } from '@/services/locationInsights'
+import { fetchFestivalEvents, type FestivalEvent } from '@/services/eventInsights'
 import { buildReferenceCatalog } from '@/utils/inspiration/core/referenceCatalog'
 import { extractDaysFromInput } from '@/utils/extractDays'
 import { buildDestinationConstraint } from '@/utils/inspirationCore'
@@ -82,20 +85,31 @@ export class JourneyService {
       selectedDestination
     )
 
+    // 4.1 基于地理位置信息生成景点简介
+    const itineraryWithNarratives = await this.generateScenicIntrosForAllSlots(
+      itineraryWithDetails,
+      ctx
+    )
+
+    const itineraryWithTransport = await this.generateTransportGuidesForAllSlots(
+      itineraryWithNarratives,
+      ctx
+    )
+
     // 5. 生成 Tips（可选，如果用户需要快速响应可以跳过或异步生成）
     // 优化：Tips 生成改为可选，先返回基本行程，Tips 可以后续异步补充
-    let finalItinerary = itineraryWithDetails
+    let finalItinerary = itineraryWithTransport
     
     // 如果天数较少（<=3天），生成 Tips；否则先返回基本行程
     if (estimatedDays <= 3) {
       finalItinerary = await this.generateTipsForAllSlots(
-        itineraryWithDetails,
+        itineraryWithTransport,
         ctx
       )
     } else {
       logger.log('  ⏭️ 跳过 Tips 生成以加快响应速度（天数较多）')
       // 异步生成 Tips，不阻塞主流程
-      this.generateTipsForAllSlots(itineraryWithDetails, ctx).catch(err => {
+      this.generateTipsForAllSlots(itineraryWithTransport, ctx).catch(err => {
         logger.warn('  ⚠️ 异步生成 Tips 失败:', err)
       })
     }
@@ -135,7 +149,7 @@ export class JourneyService {
     referenceResult: { referenceCatalog: string; locationGuidance?: string }
   }): Promise<Itinerary> {
     const { input, intent, ctx, selectedDestination, estimatedDays, referenceResult } = params
-    const { llm, jsonParser, logger } = this.deps
+    const { llm, logger } = this.deps
 
     const startDate: string = new Date().toISOString().split('T')[0] || new Date().toISOString().substring(0, 10)
     const destinationNote = buildDestinationConstraint(selectedDestination, ctx.language, 'critical')
@@ -445,6 +459,651 @@ CRITICAL REMINDER:
   }
 
   /**
+   * 基于地理位置信息生成景点简介（并发，限制并发数）
+   */
+  private async generateScenicIntrosForAllSlots(
+    itinerary: Itinerary,
+    ctx: TravelContext
+  ): Promise<Itinerary> {
+    const { llm, logger } = this.deps
+    const result = { ...itinerary, days: [...(itinerary.days || [])] }
+    const language = ctx.language || 'zh-CN'
+    const isEnglish = language.startsWith('en')
+    const CONCURRENT_LIMIT = 3
+
+    const sanitizeText = (text: string) =>
+      text
+        .replace(/^[\s-•·]+/, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    const geocodeCache = new Map<string, { zh?: string | null; en?: string | null }>()
+    const translationCache = new Map<string, string>()
+
+    const hasChineseCharacters = (value: string | null | undefined): boolean => {
+      if (!value) return false
+      return /[\u4e00-\u9fa5]/.test(value)
+    }
+
+    const fetchGeocodeLabels = async (lat: number, lng: number) => {
+      const key = `${lat.toFixed(4)},${lng.toFixed(4)}`
+      if (geocodeCache.has(key)) {
+        return geocodeCache.get(key)!
+      }
+      const [zh, en] = await Promise.all([
+        reverseGeocodeToChinese(lat, lng).catch(() => null),
+        reverseGeocodeToEnglish(lat, lng).catch(() => null),
+      ])
+      const payload = { zh, en }
+      geocodeCache.set(key, payload)
+      return payload
+    }
+
+    const translateNameToChinese = async (name: string): Promise<string | null> => {
+      if (!name || !/[A-Za-z]/.test(name)) return null
+      const cacheKey = name.trim().toLowerCase()
+      if (translationCache.has(cacheKey)) {
+        return translationCache.get(cacheKey) ?? null
+      }
+      try {
+        const response = await llm.callLLM(
+          `You are a bilingual travel translator. Convert international attraction names into their widely accepted Simplified Chinese names. 
+Return ONLY the translated name (≤ 8 Chinese characters). If the input already contains Chinese, return it unchanged.`,
+          `Translate this attraction name into Simplified Chinese:\n${name}`,
+          {
+            temperature: 0.3,
+            max_tokens: 60,
+          }
+        )
+        const translated = typeof response.content === 'string' ? response.content.trim() : ''
+        const result = translated && hasChineseCharacters(translated) ? translated.replace(/[\s\n]+/g, '') : null
+        translationCache.set(cacheKey, result ?? '')
+        return result
+      } catch (error) {
+        logger.warn('       ⚠️ 景点名称翻译失败:', error)
+        translationCache.set(cacheKey, '')
+        return null
+      }
+    }
+
+    const festivalCache = new Map<string, FestivalEvent[] | null>()
+
+    const fetchFestivalForDay = async (destination: string, date: string) => {
+      const key = `${destination}::${date}`
+      if (festivalCache.has(key)) {
+        return festivalCache.get(key) || []
+      }
+      const start = new Date(date)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 1)
+      const events = await fetchFestivalEvents({
+        destination,
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        language: ctx.language,
+        limit: 5,
+      })
+      festivalCache.set(key, events)
+      return events
+    }
+
+    for (let i = 0; i < result.days.length; i++) {
+      const day = result.days[i]
+      if (!day || !Array.isArray(day.timeSlots) || day.timeSlots.length === 0) continue
+
+      for (let j = 0; j < day.timeSlots.length; j += CONCURRENT_LIMIT) {
+        const batch = day.timeSlots.slice(j, j + CONCURRENT_LIMIT)
+
+        await Promise.all(
+          batch.map(async (slot: any) => {
+            try {
+              if (!slot || typeof slot !== 'object' || Array.isArray(slot)) return
+
+              const existingSummary = typeof slot.summary === 'string' ? slot.summary.trim() : ''
+              const existingIntro =
+                typeof slot.details?.description?.scenicIntro === 'string'
+                  ? slot.details.description.scenicIntro.trim()
+                  : ''
+
+              if (existingSummary.length >= 12 || existingIntro.length >= 12) {
+                return
+              }
+
+              const coords =
+                slot.coordinates ||
+                slot.location?.coordinates ||
+                slot.details?.coordinates ||
+                null
+
+              if (
+                !coords ||
+                typeof coords.lat !== 'number' ||
+                typeof coords.lng !== 'number' ||
+                Number.isNaN(coords.lat) ||
+                Number.isNaN(coords.lng)
+              ) {
+                // 没有地理坐标时暂不生成简介，确保在获取地理信息之后执行
+                return
+              }
+
+              const nameCandidates = [
+                slot.title,
+                slot.activity,
+                slot.location,
+                slot.details?.name?.chinese,
+                slot.details?.name?.english,
+                slot.details?.name?.local,
+              ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+              const spotName = nameCandidates[0]
+              if (!spotName) return
+
+              const { zh: geocodeZh, en: geocodeEn } = await fetchGeocodeLabels(coords.lat, coords.lng)
+
+              const needsChineseName =
+                !hasChineseCharacters(slot.details?.name?.chinese) ||
+                (slot.details?.name?.chinese && /[A-Za-z]/.test(slot.details.name.chinese))
+              if (needsChineseName) {
+                const translated = await translateNameToChinese(spotName)
+                if (translated) {
+                  if (!slot.details) slot.details = {}
+                  if (!slot.details.name || typeof slot.details.name !== 'object') {
+                    slot.details.name = {}
+                  }
+                  slot.details.name.chinese = translated
+                }
+              }
+
+              if (!slot.details) slot.details = {}
+              if (!slot.details.address || typeof slot.details.address !== 'object') {
+                slot.details.address = {}
+              }
+              if (geocodeZh && !hasChineseCharacters(slot.details.address.chinese)) {
+                slot.details.address.geocodedChinese = geocodeZh
+              }
+              if (geocodeEn && (!slot.details.address.english || slot.details.address.english.length < 4)) {
+                slot.details.address.geocodedEnglish = geocodeEn
+              }
+
+              const addressCandidates = [
+                slot.details?.address?.chinese,
+                slot.details?.address?.english,
+                slot.details?.address?.local,
+                (slot.details?.address as any)?.geocodedChinese,
+                (slot.details?.address as any)?.geocodedEnglish,
+              ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+
+              const coordinateLabel = `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`
+              const activityText =
+                typeof slot.activity === 'string'
+                  ? slot.activity
+                  : Array.isArray(slot.activity)
+                  ? slot.activity.join(isEnglish ? ', ' : '、')
+                  : ''
+              const locationText =
+                typeof slot.location === 'string'
+                  ? slot.location
+                  : Array.isArray(slot.location)
+                  ? slot.location.join(isEnglish ? ', ' : '、')
+                  : ''
+              const notesText =
+                typeof slot.notes === 'string'
+                  ? slot.notes
+                  : Array.isArray(slot.notes)
+                  ? slot.notes.join(isEnglish ? ', ' : '、')
+                  : ''
+              const localTipsText =
+                typeof slot.localTip === 'string'
+                  ? slot.localTip
+                  : Array.isArray(slot.localTip)
+                  ? slot.localTip.join(isEnglish ? ', ' : '、')
+                  : ''
+
+              const systemPrompt = isEnglish
+                ? `You are a poetic yet concise travel copywriter. Craft vivid scenic introductions that highlight emotional resonance, sensory details, and why the traveller should stop there. Respond in English using at most two sentences (max 55 words).`
+                : `你是一名富有画面感的旅行文案。请以中文写出景点简介，强调氛围、感官体验与停留理由，语气温柔友好。限制在1-2句，总字数不超过60字。`
+
+              const userPrompt = [
+                isEnglish
+                  ? `Destination: ${result.destination || ''}`
+                  : `目的地：${result.destination || ''}`,
+                isEnglish ? `Day theme: ${day.theme || ''}` : `当日主题：${day.theme || ''}`,
+                isEnglish ? `Mood: ${day.mood || ''}` : `情绪锚点：${day.mood || ''}`,
+                isEnglish
+                  ? `Psychological stage: ${day.psychologicalStage || ''}`
+                  : `心理阶段：${day.psychologicalStage || ''}`,
+                isEnglish ? `Spot: ${spotName}` : `景点：${spotName}`,
+                activityText ? (isEnglish ? `Activity: ${activityText}` : `活动内容：${activityText}`) : '',
+                locationText ? (isEnglish ? `Nearby area: ${locationText}` : `附近区域：${locationText}`) : '',
+                notesText ? (isEnglish ? `Traveller notes: ${notesText}` : `旅行者备注：${notesText}`) : '',
+                localTipsText ? (isEnglish ? `Local tip: ${localTipsText}` : `本地提示：${localTipsText}`) : '',
+                addressCandidates.length
+                  ? isEnglish
+                    ? `Nearby address: ${addressCandidates.join(' / ')}`
+                    : `附近地址：${addressCandidates.join(' / ')}`
+                  : '',
+                isEnglish ? `Coordinates: ${coordinateLabel}` : `地理坐标：${coordinateLabel}`,
+                isEnglish
+                  ? 'Output: Craft an inviting short introduction in English.'
+                  : '输出要求：写成邀请式的短句，使用中文。',
+              ]
+                .filter(Boolean)
+                .join('\n')
+
+              const response = await llm.callLLM(systemPrompt, userPrompt, {
+                temperature: 0.65,
+                max_tokens: isEnglish ? 160 : 180,
+              })
+
+              const generated = typeof response.content === 'string' ? sanitizeText(response.content) : ''
+              if (!generated) return
+
+              if (!slot.details || typeof slot.details !== 'object') {
+                slot.details = {}
+              }
+              if (!slot.details.description || typeof slot.details.description !== 'object') {
+                slot.details.description = {}
+              }
+
+              slot.details.description.scenicIntro = generated
+              // 若原本没有 summary，则填充
+              if (!existingSummary) {
+                slot.summary = generated
+              }
+            } catch (error) {
+              logger.warn('       ⚠️ 景点简介生成失败:', error)
+            }
+          })
+        )
+      }
+
+      const primarySlot = day.timeSlots?.[0]
+      if (primarySlot) {
+        const eventQuery =
+          itinerary.destination ||
+          primarySlot.details?.address?.english ||
+          primarySlot.details?.address?.chinese ||
+          primarySlot.details?.name?.english ||
+          primarySlot.details?.name?.chinese ||
+          primarySlot.location ||
+          primarySlot.title ||
+          primarySlot.activity ||
+          ''
+
+        if (eventQuery) {
+          const events = await fetchFestivalForDay(eventQuery, day.date)
+          if (events.length) {
+            if (!primarySlot.details) primarySlot.details = {}
+            if (!primarySlot.details.operational || typeof primarySlot.details.operational !== 'object') {
+              primarySlot.details.operational = {}
+            }
+            const operational = primarySlot.details.operational as Record<string, any>
+            operational.events = events.map((item) =>
+              item.mood ? `${item.name} · ${item.mood}` : item.name
+            )
+            const firstEvent = events[0]
+            if (firstEvent) {
+              operational.eventsSource = firstEvent.source
+              operational.eventsFetchedAt = firstEvent.fetchedAt
+            }
+            operational.eventsSubscribeUrl = `https://www.eventbrite.com/d/online/${encodeURIComponent(
+              eventQuery
+            )}-events/`
+            if (import.meta.env.DEV) {
+              console.info('[JourneyService] Festival events attached', {
+                day: day.date,
+                destination: eventQuery,
+                events: operational.events,
+              })
+            }
+          }
+        }
+      }
+
+      result.days[i] = { ...day, timeSlots: [...day.timeSlots] }
+    }
+
+    return result
+  }
+
+  /**
+   * 基于地理位置与现有信息生成交通引导
+   */
+  private async generateTransportGuidesForAllSlots(
+    itinerary: Itinerary,
+    ctx: TravelContext
+  ): Promise<Itinerary> {
+    const { llm, logger } = this.deps
+    const result = { ...itinerary, days: [...(itinerary.days || [])] }
+    const language = ctx.language || 'zh-CN'
+    const isEnglish = language.startsWith('en')
+    const CONCURRENT_LIMIT = 3
+
+    const normalizeOptions = (value: unknown): string[] => {
+      if (!value) return []
+      if (Array.isArray(value)) {
+        return value
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter(Boolean)
+      }
+      if (typeof value === 'string') {
+        return value
+          .split(/[\n\r]+/)
+          .map((item) => item.replace(/^•\s*/, '').trim())
+          .filter(Boolean)
+      }
+      return []
+    }
+
+    for (let i = 0; i < result.days.length; i++) {
+      const day = result.days[i]
+      if (!day || !Array.isArray(day.timeSlots) || day.timeSlots.length === 0) continue
+
+      for (let j = 0; j < day.timeSlots.length; j += CONCURRENT_LIMIT) {
+        const batch = day.timeSlots.slice(j, j + CONCURRENT_LIMIT)
+
+        await Promise.all(
+          batch.map(async (slot: any) => {
+            try {
+              if (!slot || typeof slot !== 'object' || Array.isArray(slot)) return
+
+              if (!slot.details || typeof slot.details !== 'object') {
+                slot.details = {}
+              }
+              if (!slot.details.transportation || typeof slot.details.transportation !== 'object') {
+                slot.details.transportation = {}
+              }
+
+              const transport = slot.details.transportation
+
+              if (!slot.details.operational || typeof slot.details.operational !== 'object') {
+                slot.details.operational = {}
+              }
+              const operational = slot.details.operational as Record<string, any>
+
+              const originLocation = itinerary.destination || ctx.userCountry || ''
+              const destinationName =
+                slot.details?.name?.english ||
+                slot.details?.name?.chinese ||
+                slot.details?.address?.english ||
+                slot.details?.address?.chinese ||
+                slot.location ||
+                slot.title ||
+                slot.activity ||
+                ''
+
+              if (destinationName) {
+                if (
+                  (!transport.enhancedSummary || !transport.enhancedSummary.trim()) ||
+                  !Array.isArray(transport.options) ||
+                  !transport.options.length
+                ) {
+                  const transportData = await fetchTransportInsights({
+                    origin: originLocation,
+                    destination: destinationName,
+                    language: ctx.language,
+                  })
+                  if (transportData) {
+                    if (transportData.summary) transport.enhancedSummary = transportData.summary
+                    if (transportData.options?.length) {
+                      transport.options = transportData.options.slice(0, 4)
+                    }
+                    operational.transportSource = transportData.source
+                    operational.transportFetchedAt = transportData.fetchedAt
+                  }
+                }
+
+                if (!Array.isArray(operational.pricing) || !operational.pricing.length) {
+                  const pricingData = await fetchPricingInsights({
+                    query: destinationName,
+                    language: ctx.language,
+                  })
+                  if (pricingData) {
+                    operational.pricing = pricingData.lines
+                    operational.pricingSource = pricingData.source
+                    operational.pricingFetchedAt = pricingData.fetchedAt
+
+                    if (pricingData.rating) {
+                      if (!slot.details.rating || typeof slot.details.rating !== 'object') {
+                        slot.details.rating = {}
+                      }
+                      const ratingObj = slot.details.rating as Record<string, any>
+                      if (pricingData.rating.score !== undefined) ratingObj.score = pricingData.rating.score
+                      if (pricingData.rating.reviewCount !== undefined) {
+                        ratingObj.reviewCount = pricingData.rating.reviewCount
+                      }
+                      if (pricingData.rating.platform) {
+                        ratingObj.platform = pricingData.rating.platform
+                      }
+                    }
+                  }
+                }
+              }
+
+              const coords =
+                slot.coordinates ||
+                slot.location?.coordinates ||
+                slot.details?.coordinates ||
+                null
+
+              const hasSummary =
+                typeof transport.enhancedSummary === 'string' && transport.enhancedSummary.trim()
+              const hasOptions = Array.isArray(transport.options) && transport.options.length > 0
+              const hasOperationalData =
+                (Array.isArray(operational.opening) && operational.opening.length > 0) ||
+                (Array.isArray(operational.pricing) && operational.pricing.length > 0) ||
+                (Array.isArray(operational.reminders) && operational.reminders.length > 0)
+              const hasRatingData =
+                slot.details.rating &&
+                typeof slot.details.rating === 'object' &&
+                (Number.isFinite(Number(slot.details.rating.score)) ||
+                  Number.isFinite(Number(slot.details.rating.reviewCount)))
+
+              if (hasSummary && hasOptions && hasOperationalData && hasRatingData) {
+                return
+              }
+
+              const nameCandidates = [
+                slot.title,
+                slot.activity,
+                slot.details?.name?.chinese,
+                slot.details?.name?.english,
+              ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+              const spotName = nameCandidates[0] || ''
+
+              const baseTransportData =
+                transport && Object.keys(transport).length
+                  ? JSON.stringify(transport, null, 2)
+                  : '无结构化交通数据'
+
+              const addressSummary = (() => {
+                const addr = slot.details?.address
+                if (!addr || typeof addr !== 'object') return ''
+                const parts = [
+                  addr.chinese,
+                  (addr as any).geocodedChinese,
+                  addr.english,
+                  (addr as any).geocodedEnglish,
+                  addr.local,
+                ]
+                  .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                  .filter(Boolean)
+                return parts.join(' / ')
+              })()
+
+              const systemPrompt = isEnglish
+                ? `You are a precise travel operations assistant. Given a location, produce practical guidance for visitors.
+If reliable data is missing, state that clearly and suggest a safe next step (e.g., "Check with the venue directly").
+
+Return ONLY JSON with this structure:
+{
+  "transport": {
+    "summary": "Short overview sentence (≤ 22 words). No bullets.",
+    "options": ["Option 1 (≤ 18 words)", "Option 2...", "..."]
+  },
+  "opening": ["Bullet about opening hours", "..."],
+  "pricing": ["Adult ticket...", "Child ticket...", "..."],
+  "rating": {
+    "score": 4.5,               // use null if unknown
+    "platform": "Tripadvisor",  // empty string if unknown
+    "reviewCount": 123          // use null if unknown
+  },
+  "reminders": [
+    "Check local transportation information",
+    "Check opening hours",
+    "Verify ticket prices (if applicable)",
+    "Confirm activity details in advance"
+  ]
+}
+
+All strings must be in English. Never fabricate precise numbers; approximate phrasing ("around", "approximately") is acceptable.`
+                : `你是一名严谨的行程助手。请基于给定地点，为旅客生成实用的到访提示。
+如信息缺失，务必明确指出并给出安全的下一步（例如「请向场馆确认」），不要自行杜撰。
+
+只输出 JSON，必须符合以下结构：
+{
+  "transport": {
+    "summary": "一句概述，≤18个汉字，不要使用项目符号。",
+    "options": ["方式1（≤18个汉字）", "方式2...", "..."]
+  },
+  "opening": ["开放时间提示1", "开放时间提示2"],
+  "pricing": ["成人票…", "儿童票…", "..."],
+  "rating": {
+    "score": 4.5,            // 若未知请使用 null
+    "platform": "平台名称",  // 若未知请留空字符串
+    "reviewCount": 123       // 若未知请使用 null
+  },
+  "reminders": [
+    "请查询当地交通信息",
+    "请查询开放时间",
+    "请查询门票价格（如适用）",
+    "建议提前查询活动信息"
+  ]
+}
+
+所有内容必须使用中文，可用「约/大约」等表达估算值，禁止编造精确数字。`
+
+              const contextLines = [
+                isEnglish ? `Destination: ${itinerary.destination || ''}` : `目的地：${itinerary.destination || ''}`,
+                isEnglish ? `Day theme: ${day.theme || ''}` : `当日主题：${day.theme || ''}`,
+                spotName ? (isEnglish ? `Spot: ${spotName}` : `地点：${spotName}`) : '',
+                addressSummary ? (isEnglish ? `Address hints: ${addressSummary}` : `地址提示：${addressSummary}`) : '',
+                coords ? (isEnglish ? `Coordinates: ${coords.lat}, ${coords.lng}` : `坐标：${coords.lat}，${coords.lng}`) : '',
+                isEnglish ? 'Existing transport data:' : '已有交通数据：',
+                baseTransportData,
+              ]
+                .filter(Boolean)
+                .join('\n')
+
+              const transportResponse = await llm.jsonFromLLM(systemPrompt, contextLines, {
+                temperature: 0.55,
+                max_tokens: isEnglish ? 360 : 420,
+                fallbackArrays: [],
+              })
+
+              if (!transportResponse || typeof transportResponse !== 'object') {
+                logger.warn('       ⚠️ 交通生成返回格式不正确')
+                return
+              }
+
+              const transportBlock = (transportResponse as any).transport || {}
+              const summaryRaw = transportBlock.summary
+              const optionsRaw = transportBlock.options
+              const openingRaw = (transportResponse as any).opening
+              const pricingRaw = (transportResponse as any).pricing
+              const ratingRaw = (transportResponse as any).rating
+              const remindersRaw = (transportResponse as any).reminders
+
+              const summary =
+                typeof summaryRaw === 'string'
+                  ? summaryRaw.replace(/^[•\-\s]+/, '').trim()
+                  : ''
+              const options = normalizeOptions(optionsRaw)
+
+              if (summary) {
+                transport.enhancedSummary = summary
+              }
+              if (options.length) {
+                transport.options = options
+              }
+
+              if (!slot.details.operational || typeof slot.details.operational !== 'object') {
+                slot.details.operational = {}
+              }
+
+              const normalizeStrings = (value: unknown, minLength = 0): string[] => {
+                if (!value) return []
+                if (Array.isArray(value)) {
+                  return value
+                    .map((item) =>
+                      typeof item === 'string' ? item.replace(/^[•\-\s]+/, '').trim() : ''
+                    )
+                    .filter((item) => item.length > minLength)
+                }
+                if (typeof value === 'string') {
+                  return value
+                    .split(/[\n\r]+/)
+                    .map((item) => item.replace(/^[•\-\s]+/, '').trim())
+                    .filter((item) => item.length > minLength)
+                }
+                return []
+              }
+
+              const openingLines = normalizeStrings(openingRaw)
+              if (openingLines.length) {
+                slot.details.operational.opening = openingLines
+              }
+
+              const pricingLines = normalizeStrings(pricingRaw)
+              if (pricingLines.length) {
+                slot.details.operational.pricing = pricingLines
+              }
+
+              const remindersLines = normalizeStrings(remindersRaw)
+              if (remindersLines.length >= 4) {
+                const canonicalReminders = isEnglish
+                  ? [
+                      'Check local transportation information',
+                      'Check opening hours',
+                      'Verify ticket prices (if applicable)',
+                      'Confirm activity details in advance',
+                    ]
+                  : ['请查询当地交通信息', '请查询开放时间', '请查询门票价格（如适用）', '建议提前查询活动信息']
+                const merged = new Set<string>(remindersLines)
+                canonicalReminders.forEach((item) => merged.add(item))
+                slot.details.operational.reminders = Array.from(merged)
+              }
+
+              if (ratingRaw && typeof ratingRaw === 'object') {
+                const score = Number((ratingRaw as any).score)
+                const reviewCount = Number((ratingRaw as any).reviewCount)
+                const platform = typeof (ratingRaw as any).platform === 'string' ? (ratingRaw as any).platform.trim() : ''
+
+                const ratingObj: any = {}
+                if (Number.isFinite(score)) ratingObj.score = score
+                if (Number.isFinite(reviewCount)) ratingObj.reviewCount = reviewCount
+                if (platform) ratingObj.platform = platform
+
+                if (Object.keys(ratingObj).length) {
+                  if (!slot.details.rating || typeof slot.details.rating !== 'object') {
+                    slot.details.rating = {}
+                  }
+                  Object.assign(slot.details.rating, ratingObj)
+                }
+              }
+            } catch (error) {
+              logger.warn('       ⚠️ 交通信息生成失败:', error)
+            }
+          })
+        )
+      }
+
+      result.days[i] = { ...day, timeSlots: [...day.timeSlots] }
+    }
+
+    return result
+  }
+
+  /**
    * 为所有时间段生成 Tips（并发，限制并发数）
    */
   private async generateTipsForAllSlots(
@@ -501,6 +1160,51 @@ CRITICAL REMINDER:
               culturalTips?: string
             }
 
+            const normalizeTipsString = (value: unknown, language: string): string | null => {
+              if (!value) return null
+              if (Array.isArray(value)) {
+                const list = value
+                  .map((item) => (typeof item === 'string' ? item.trim() : ''))
+                  .filter(Boolean)
+              if (list.length) {
+                  return list.map((item) => (item.startsWith('•') ? item : `• ${item}`)).join('\n')
+                }
+              }
+
+              if (typeof value === 'string') {
+                const trimmed = value.trim()
+                if (!trimmed) return null
+                const newlineNormalized = trimmed.replace(/\\n/g, '\n')
+                if (/^•\s?/m.test(newlineNormalized)) {
+                  return newlineNormalized
+                }
+
+                const segments = newlineNormalized
+                  .split(/[\n\r]+|[。！？!?.；;]+/)
+                  .map((segment) => segment.trim())
+                  .filter(Boolean)
+                  .slice(0, 3)
+
+                if (segments.length) {
+                  return segments
+                    .map((segment) => {
+                      const limited =
+                        language.startsWith('en') && segment.length > 60
+                          ? segment.slice(0, 57).trim() + '…'
+                          : !language.startsWith('en') && segment.length > 24
+                          ? segment.slice(0, 23).trim() + '…'
+                          : segment
+                      return `• ${limited}`
+                    })
+                    .join('\n')
+                }
+
+                return `• ${newlineNormalized}`
+              }
+
+              return null
+            }
+
             if (parsed) {
               // 安全地设置 recommendations
               if (!slot.details) slot.details = {}
@@ -508,11 +1212,13 @@ CRITICAL REMINDER:
                 slot.details.recommendations = {}
               }
 
-              if (parsed.outfitSuggestions) {
-                slot.details.recommendations.outfitSuggestions = parsed.outfitSuggestions
+              const formattedOutfit = normalizeTipsString(parsed.outfitSuggestions, ctx.language)
+              if (formattedOutfit) {
+                slot.details.recommendations.outfitSuggestions = formattedOutfit
               }
-              if (parsed.culturalTips) {
-                slot.details.recommendations.culturalTips = parsed.culturalTips
+              const formattedCulture = normalizeTipsString(parsed.culturalTips, ctx.language)
+              if (formattedCulture) {
+                slot.details.recommendations.culturalTips = formattedCulture
               }
             }
 

@@ -191,32 +191,69 @@ const countryCurrencyMap: Record<string, CurrencyInfo> = {
   'ZA': { code: 'ZAR', symbol: 'R', name: '南非兰特' },
 }
 
+const splitLocationTokens = (destination: string): string[] => {
+  if (!destination) return []
+
+  const cleaned = destination
+    .replace(/[()（）]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return []
+
+  const intermediate = cleaned
+    .split(/[·•|]/)
+    .flatMap(part => part.split(/[,，]/))
+    .flatMap(part => part.split(/、/))
+    .map(part => part.trim())
+    .filter(Boolean)
+
+  const tokens: string[] = []
+  intermediate.forEach(part => {
+    part.split('/').forEach(item => {
+      const token = item.trim()
+      if (token) tokens.push(token)
+    })
+  })
+
+  // 去重但保留顺序
+  return Array.from(new Set(tokens))
+}
+
 /**
  * 从目的地字符串中提取国家信息
  */
 export function extractCountryFromDestination(destination: string): string | null {
   if (!destination) return null
-  
+
   // 尝试从常见格式中提取：如 "北京 (中国)" 或 "Paris, France"
   const patterns = [
     /\(([^)]+)\)/, // 括号内的内容
     /,\s*([^,]+)$/, // 逗号后的内容
     /-\s*([^-]+)$/, // 横线后的内容
   ]
-  
+
   for (const pattern of patterns) {
     const match = destination.match(pattern)
     if (match && match[1]) {
       return match[1].trim()
     }
   }
-  
+
+  const tokens = splitLocationTokens(destination)
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const token = tokens[i]
+    if (countryCurrencyMap[token]) {
+      return token
+    }
+  }
+
   // 直接匹配国家名称
   const normalized = destination.trim()
   if (countryCurrencyMap[normalized]) {
     return normalized
   }
-  
+
   return null
 }
 
@@ -234,6 +271,13 @@ export function getCurrencyForDestination(destination: string): CurrencyInfo {
     return countryCurrencyMap[country]
   }
   
+  const tokens = splitLocationTokens(destination)
+  for (const token of tokens) {
+    if (countryCurrencyMap[token]) {
+      return countryCurrencyMap[token]
+    }
+  }
+
   // 2. 直接匹配整个字符串（可能是国家名称）
   const trimmed = destination.trim()
   if (countryCurrencyMap[trimmed]) {

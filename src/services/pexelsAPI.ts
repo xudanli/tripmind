@@ -84,6 +84,12 @@ const DEFAULT_HEADERS = () => ({
   Authorization: API_CONFIG.PEXELS_API_KEY || ''
 })
 
+const isLocalHttpOrigin = () => {
+  if (typeof window === 'undefined') return false
+  const origin = window.location.origin || ''
+  return origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')
+}
+
 const hasPexelsKey = () => {
   if (!API_CONFIG.PEXELS_API_KEY) {
     console.warn('[Pexels] API key 未配置，跳过视频检索。')
@@ -99,7 +105,12 @@ export async function searchPexelsVideos(
   keyword: string,
   options: { perPage?: number; orientation?: 'portrait' | 'landscape' | 'square' } = {}
 ): Promise<InspirationVideo[]> {
-  if (!hasPexelsKey()) return []
+  if (!hasPexelsKey() || isLocalHttpOrigin()) {
+    if (isLocalHttpOrigin()) {
+      console.info('[Pexels] 检测到本地开发环境，跳过 Pexels 视频检索以避免 CORS。')
+    }
+    return []
+  }
   const params = new URLSearchParams({
     query: keyword,
     per_page: String(options.perPage ?? 3),
@@ -154,14 +165,21 @@ function mapVideoToInspiration(video: PexelsVideo): InspirationVideo {
 
 export async function searchPexelsPhotos(
   keyword: string,
-  options: { perPage?: number; orientation?: 'portrait' | 'landscape' | 'square' } = {}
+  options: { per_page?: number; orientation?: 'portrait' | 'landscape' | 'squarish' } = {}
 ): Promise<PexelsPhoto[]> {
-  if (!hasPexelsKey()) return []
+  if (!hasPexelsKey() || isLocalHttpOrigin()) {
+    if (isLocalHttpOrigin()) {
+      console.info('[Pexels] 检测到本地开发环境，跳过 Pexels 图片检索以避免 CORS。')
+    }
+    return []
+  }
 
-  const orientation = options.orientation
+  const perPage = options.per_page ?? 10
+  const orientation =
+    options.orientation === 'squarish' ? 'square' : options.orientation
   const params = new URLSearchParams({
     query: keyword,
-    per_page: String(options.perPage ?? 10),
+    per_page: String(perPage),
     ...(orientation ? { orientation } : {})
   })
 

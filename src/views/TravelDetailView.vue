@@ -108,7 +108,7 @@
           class="sidebar-panel"
           :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
         >
-          <VisaGuide
+          <VisaGuide 
             v-if="visaInfo && destinationCountry"
             class="sidebar-block"
             :visa-info="visaInfo"
@@ -116,7 +116,7 @@
             :destination-name="destinationName"
           />
 
-          <TravelSidebar
+          <TravelSidebar 
             class="sidebar-block"
             :travel-id="travel?.id"
             :mode="travel?.mode || 'default'"
@@ -866,7 +866,7 @@ const getBudgetColor = () => {
     padding: 0 clamp(1rem, 3vw, 2rem);
     max-width: 100%;
   }
-
+  
   .sidebar-panel {
     position: static;
   }

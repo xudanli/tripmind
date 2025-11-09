@@ -56,11 +56,23 @@ npm run preview
 
 在项目根目录创建 `.env.local`，根据需要配置：
 ```
-VITE_DEEPSEEK_API_KEY=your_key_here
-VITE_UNSPLASH_ACCESS_KEY=your_key_here
+# LLM / 图像
+VITE_DEEPSEEK_API_KEY=your_deepseek_key
+VITE_UNSPLASH_ACCESS_KEY=your_unsplash_key
+VITE_PEXELS_API_KEY=your_pexels_key
+
+# 旅行数据（交通 / 开放时间 / 门票）
+VITE_GOOGLE_MAPS_API_KEY=your_google_maps_key
+VITE_TRIPADVISOR_RAPIDAPI_KEY=your_tripadvisor_key
+VITE_TRIPADVISOR_RAPIDAPI_HOST=travel-advisor.p.rapidapi.com
+VITE_GETYOURGUIDE_API_KEY=optional_getyourguide_key
+VITE_EVENTBRITE_API_TOKEN=your_eventbrite_token
+VITE_EVENTBRITE_API_URL=https://www.eventbriteapi.com
+VITE_MAPBOX_ACCESS_TOKEN=your_mapbox_token
+VITE_MAPBOX_API_URL=https://api.mapbox.com
 ```
 
-如使用自建代理或不同模型，参考 `src/services/deepseekAPI.ts`/`src/config/api.ts`。
+如使用自建代理或不同模型，请参考 `src/services/deepseekAPI.ts`、`src/services/locationInsights.ts` 与 `src/config/api.ts`。
 
 ## 📦 目录与关键文件
 

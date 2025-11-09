@@ -4,7 +4,6 @@
  */
 
 import { detectInspirationIntent } from '@/services/deepseekAPI'
-import type { ChatMessage } from '@/services/deepseekAPI'
 
 export interface ModeRecommendation {
   mode: 'planner' | 'seeker' | 'inspiration'
@@ -130,20 +129,19 @@ function getReasonForPlanner(intentType: string): string {
  * @param previousMessages 历史消息
  * @returns 是否应该切换模式
  */
+type ConversationMessage = {
+  content: string
+}
+
 export async function detectModeShift(
   currentMessage: string,
-  previousMessages: ChatMessage[],
+  previousMessages: ConversationMessage[],
   language: string = 'zh-CN'
 ): Promise<{
   shouldSwitch: boolean
   newMode?: 'planner' | 'seeker' | 'inspiration'
   reason?: string
 }> {
-  // 获取历史对话的意图
-  const previousIntent = previousMessages.length > 0 
-    ? previousMessages[0].content 
-    : ''
-  
   // 检测当前意图
   const currentIntent = await detectInspirationIntent(currentMessage, language)
   

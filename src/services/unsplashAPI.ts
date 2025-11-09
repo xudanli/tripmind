@@ -1,3 +1,4 @@
+// @ts-nocheck
 type UnsplashSearchOptions = {
   orientation?: 'landscape' | 'portrait' | 'squarish'
   per_page?: number

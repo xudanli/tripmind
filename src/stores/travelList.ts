@@ -17,6 +17,9 @@ export interface Travel {
   participants?: number // 同行人数
   budget?: number // 预算
   spent?: number // 已花费
+  destination?: string
+  currency?: string
+  country?: string
   data?: any // 存储具体的旅程数据
 }
 
@@ -71,13 +74,27 @@ export const useTravelListStore = defineStore('travelList', () => {
   const updateTravel = (id: string, updates: Partial<Travel>) => {
     const index = travelList.value.findIndex(t => t.id === id)
     if (index !== -1) {
-      travelList.value[index] = {
-        ...travelList.value[index],
-        ...updates,
+      const existing = travelList.value[index]
+      if (!existing) {
+        return null
+      }
+
+      const sanitizedUpdates = Object.entries(updates).reduce<Partial<Travel>>((acc, [key, value]) => {
+        if (value !== undefined) {
+          ;(acc as any)[key] = value
+        }
+        return acc
+      }, {})
+
+      const updatedTravel: Travel = {
+        ...existing,
+        ...sanitizedUpdates,
+        id: existing.id,
         updatedAt: new Date().toISOString()
       }
+      travelList.value[index] = updatedTravel
       saveToStorage()
-      return travelList.value[index]
+      return updatedTravel
     }
     return null
   }

@@ -161,7 +161,7 @@ export function clearExpiredCache(): void {
 /**
  * 清除所有POI搜索缓存
  */
-export function clearAllPOICache(): void {
+export function clearAllPOICache(): number {
   try {
     const keysToRemove: string[] = []
     

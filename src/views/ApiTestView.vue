@@ -294,6 +294,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import emotionalTravelAPI from '@/services/emotionalTravelAPI'

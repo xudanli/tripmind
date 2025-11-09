@@ -53,13 +53,15 @@ export function normalizeDays(
     for (let i = days.length; i < targetDays; i++) {
       const d = new Date(baseDate)
       d.setDate(baseDate.getDate() + i)
-      const stage = stages[i % stages.length]
+      const isEnglish = isEN(lang)
+      const rawStage = stages.length ? stages[i % stages.length] : undefined
+      const stage = rawStage || (isEnglish ? 'Flow' : '流动')
       
-      const theme = isEN(lang)
+      const theme = isEnglish
         ? `${stage}: ${stage === 'Summon' ? 'The Call' : stage}`
         : `${stage}：${stage === '召唤' ? '召唤之声' : stage}`
       
-      const mood = isEN(lang)
+      const mood = isEnglish
         ? (stage === 'Summon' ? 'exploration' : stage.toLowerCase())
         : (stage === '召唤' ? '探索' : stage)
 
@@ -69,26 +71,26 @@ export function normalizeDays(
 
       const slot = {
         time: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-        title: isEN(lang) 
+        title: isEnglish 
           ? `${stage} walk: breathe with the city` 
           : `${stage}时刻：与城市同频的步行`,
-        activity: baseSlot.activity || (isEN(lang) ? 'Exploration' : '探索'),
+        activity: baseSlot.activity || (isEnglish ? 'Exploration' : '探索'),
         location: baseSlot.location || destName,
         type: baseSlot.type || 'attraction',
-        category: baseSlot.category || (isEN(lang) ? 'Explore' : '探索'),
+        category: baseSlot.category || (isEnglish ? 'Explore' : '探索'),
         duration: baseSlot.duration || 120,
-        notes: baseSlot.notes || (isEN(lang)
+        notes: baseSlot.notes || (isEnglish
           ? `A gentle ${stage.toLowerCase()} session. Move slowly, notice textures, light and small sounds. Write down one sentence at the end.`
           : `一段关于「${stage}」的轻柔体验。放慢步伐，留意纹理、光影与细微声音。结束时写下一句感受。`),
-        localTip: baseSlot.localTip || (isEN(lang) ? 'Start early to avoid crowds' : '建议早些开始以避开人流'),
+        localTip: baseSlot.localTip || (isEnglish ? 'Start early to avoid crowds' : '建议早些开始以避开人流'),
         cost: baseSlot.cost ?? 0,
         coordinates: baseSlot.coordinates || { lat: 0, lng: 0 },
         internalTrack: baseSlot.internalTrack || {
-          question: isEN(lang) 
+          question: isEnglish 
             ? `What is ${stage.toLowerCase()} asking from me today?` 
             : `${stage}阶段：今天它向我提出了什么问题？`,
-          ritual: isEN(lang) ? 'Write one sentence after the activity' : '活动结束后写下一句感受',
-          reflection: isEN(lang) ? 'Notice body rhythm and breath' : '留意身体的节奏与呼吸',
+          ritual: isEnglish ? 'Write one sentence after the activity' : '活动结束后写下一句感受',
+          reflection: isEnglish ? 'Notice body rhythm and breath' : '留意身体的节奏与呼吸',
         },
         details: baseSlot.details || {
           name: { 
@@ -152,7 +154,7 @@ export function normalizeDays(
         date: toISO(d),
         theme,
         mood,
-        summary: isEN(lang) 
+        summary: isEnglish 
           ? `A ${stage.toLowerCase()} day continuing the journey in ${destName}.` 
           : `处于「${stage}」阶段，在${destName}延续你的节奏。`,
         psychologicalStage: stage,

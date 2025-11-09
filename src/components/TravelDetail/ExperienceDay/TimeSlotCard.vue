@@ -149,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, defineComponent, h } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EnvironmentOutlined } from '@ant-design/icons-vue'

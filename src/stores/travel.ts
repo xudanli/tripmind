@@ -911,10 +911,10 @@ export const useTravelStore = defineStore('travel', () => {
     pushGenerationLog('🚀 开始生成灵感旅程...')
     setLoading(true)
     setError(null)
+    const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
     
     try {
         const { detectInspirationIntent, generateInspirationJourney } = await import('@/services/deepseekAPI')
-      const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
       
       // 用户国家
       let userCountry: string | undefined = undefined

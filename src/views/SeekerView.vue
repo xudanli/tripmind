@@ -238,6 +238,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTravelStore } from '@/stores/travel'

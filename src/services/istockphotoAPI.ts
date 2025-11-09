@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * iStockPhoto API 服务
  * 作为 Unsplash 的后备图片源

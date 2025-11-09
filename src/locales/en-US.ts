@@ -129,7 +129,7 @@ export default {
     viewMap: '🗺️ View Map',
     timeline: '🕒 Itinerary',
     addNewDay: 'Add New Day',
-    discussion: '💬 Discussion (AI + Multi-user Collaboration)',
+    discussionTab: '💬 Discussion (AI + Multi-user Collaboration)',
     taskManagement: '📋 Task Management',
     budget: '💰 Budget Planning',
     aiOptimizeSavings: '🪄 AI Optimize for Savings',

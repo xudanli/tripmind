@@ -242,7 +242,7 @@ export function extractCountryFromDestination(destination: string): string | nul
 
   const tokens = splitLocationTokens(destination)
   for (let i = tokens.length - 1; i >= 0; i--) {
-    const token = tokens[i]
+    const token = tokens[i]!
     if (countryCurrencyMap[token]) {
       return token
     }

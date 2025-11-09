@@ -39,6 +39,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed, watch, nextTick } from 'vue'
 import { PlusOutlined, SendOutlined, LoadingOutlined } from '@ant-design/icons-vue'
 

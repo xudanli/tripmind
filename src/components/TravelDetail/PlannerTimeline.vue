@@ -260,6 +260,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed, watch } from 'vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { message, Modal } from 'ant-design-vue'

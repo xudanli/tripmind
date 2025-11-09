@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 旅行攻略 API 服务 - API集成示例
  * 

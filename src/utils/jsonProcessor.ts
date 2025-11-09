@@ -73,7 +73,7 @@ function truncateToBalanced(input: string): { slice: string; truncated: boolean 
   const len = input.length;
 
   for (let i = 0; i < len; i++) {
-    const ch = input[i];
+    const ch = input.charAt(i);
 
     if (inStr) {
       if (escape) { escape = false; continue; }
@@ -108,7 +108,7 @@ function repair(input: string): string {
   let numberStart = -1;
   
   for (let i = 0; i < input.length; i++) {
-    const ch = input[i];
+    const ch = input.charAt(i);
     
     // Handle numbers (outside strings)
     if (!inStr) {
@@ -116,11 +116,12 @@ function repair(input: string): string {
         inNumber = true;
         numberStart = i;
       } else if (inNumber) {
-        if (ch === '.' && i + 1 < input.length && /[0-9]/.test(input[i + 1])) {
+        const nextChar = input.charAt(i + 1)
+        if (ch === '.' && i + 1 < input.length && /[0-9]/.test(nextChar)) {
           // Valid decimal point with following digit
           out += ch;
           continue;
-        } else if (ch === '.' && (i + 1 >= input.length || !/[0-9]/.test(input[i + 1]))) {
+        } else if (ch === '.' && (i + 1 >= input.length || !/[0-9]/.test(nextChar))) {
           // Unterminated fractional number (e.g., "12." at end or before non-digit)
           // Remove the trailing dot or add 0
           out += '0';
@@ -172,7 +173,7 @@ function missingClosers(s: string): string {
   let inStr = false, esc = false;
   const stack: string[] = [];
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
+    const ch = s.charAt(i);
     if (inStr) {
       if (esc) { esc = false; continue; }
       if (ch === '\\') { esc = true; continue; }
@@ -195,7 +196,7 @@ function fixMissingCommas(s: string): string {
   let out = '';
   let inStr = false, esc = false;
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
+    const ch = s.charAt(i);
     out += ch;
 
     if (inStr) {
@@ -225,7 +226,7 @@ function fixMissingCommas(s: string): string {
 
 function skipWS(s: string, i: number): number {
   while (i < s.length) {
-    const ch = s[i]
+    const ch = s.charAt(i)
     if (ch === undefined || !/\s/.test(ch)) break
     i++
   }
@@ -233,7 +234,7 @@ function skipWS(s: string, i: number): number {
 }
 function rskipWS(s: string, i: number): number {
   while (i >= 0) {
-    const ch = s[i]
+    const ch = s.charAt(i)
     if (ch === undefined || !/\s/.test(ch)) break
     i--
   }

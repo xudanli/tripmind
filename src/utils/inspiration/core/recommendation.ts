@@ -30,7 +30,7 @@ export class RecommendationProcessor {
         ? (input as any).recommendations
         : []
     
-    return items
+    const normalized = items
       .filter(Boolean)
       .map(({ name, destination, country, reason, description, reasoning }: any) => ({
         name: name || destination || '',
@@ -38,8 +38,9 @@ export class RecommendationProcessor {
         reason: reason || description || '',
         reasoning: reasoning || '',
         description: description || reason || ''
-      }))
-      .filter(r => r.name && r.country)
+      })) as Recommendation[]
+
+    return normalized.filter((r): r is Recommendation => Boolean(r.name && r.country))
   }
 
   /**

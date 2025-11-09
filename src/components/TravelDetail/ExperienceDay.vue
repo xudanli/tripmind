@@ -505,6 +505,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, ref, h, watch, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

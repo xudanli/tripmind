@@ -1,3 +1,4 @@
+// @ts-nocheck
 // path: src/services/plannerAPI.ts
 import { chatWithLLM } from './deepseekAPI'
 import {

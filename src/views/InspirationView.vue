@@ -704,7 +704,12 @@ const createTravel = async () => {
   const newTravel = travelListStore.createTravel({
     title: data.title || '灵感之旅',
     location: selectedLocation.value || data.location || '待定',
-    description: data.subtitle || data.aiMessage || '基于你的灵感创造的旅程',
+    description:
+      data.summary ||
+      data.coreInsight ||
+      data.subtitle ||
+      data.aiMessage ||
+      '基于你的灵感创造的旅程',
     mode: 'inspiration',
     status: 'active',
     duration: actualDuration,

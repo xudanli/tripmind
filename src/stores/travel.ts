@@ -1012,7 +1012,23 @@ export const useTravelStore = defineStore('travel', () => {
         inspResp.locationCountries = inspResp.locationCountries || locationCountries
       }
       
+      if (inspResp) {
+        try {
+          // 仅在灵感模式下打印原始 JSON，方便排查
+          console.log('🧾 Inspiration raw response:', JSON.stringify(inspResp, null, 2))
+        } catch {
+          console.log('🧾 Inspiration raw response (object):', inspResp)
+        }
+      }
+
       const enrichedInspiration = await enrichInspirationMedia(inspResp, currentLanguage)
+      if (enrichedInspiration) {
+        try {
+          console.log('✨ Inspiration enriched data:', JSON.stringify(enrichedInspiration, null, 2))
+        } catch {
+          console.log('✨ Inspiration enriched data (object):', enrichedInspiration)
+        }
+      }
       setInspirationData(enrichedInspiration)
       setCurrentMode('inspiration')
       pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')

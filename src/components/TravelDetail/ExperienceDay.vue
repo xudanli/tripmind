@@ -293,6 +293,22 @@
             }}
           </div>
         </div>
+
+        <div class="edit-form-item">
+          <label class="edit-form-label">交通方式</label>
+          <a-select
+            v-model:value="editingData.transportModes"
+            mode="tags"
+            :options="transportModeOptions"
+            style="width: 100%"
+            :placeholder="'选择或输入交通方式（如：步行、地铁、包车）'"
+            :token-separators="[',','、',' ']"
+            :max-tag-count="6"
+          />
+          <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
+            支持多个交通方式，将在卡片中展示，未列出的方式可直接输入。
+          </div>
+        </div>
         
         <!-- Booking链接管理 -->
         <div class="edit-form-item">
@@ -533,6 +549,27 @@ import DayCard from './ExperienceDay/DayCard.vue'
 import TimeSlotCard from './ExperienceDay/TimeSlotCard.vue'
 import ImagePreviewModal from './ExperienceDay/ImagePreviewModal.vue'
 import { useItineraryModals, type PreviewMediaItem } from './ExperienceDay/useItineraryModals'
+
+const TRANSPORT_MODE_SUGGESTIONS = [
+  '步行',
+  '地铁',
+  '公交',
+  '出租车',
+  '网约车',
+  '自驾',
+  '包车',
+  '骑行',
+  '轮渡',
+  '缆车',
+  '徒步',
+  '班车',
+  '拼车',
+]
+
+const transportModeOptions = TRANSPORT_MODE_SUGGESTIONS.map(mode => ({
+  value: mode,
+  label: mode,
+}))
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -1128,6 +1165,31 @@ const getSlotCurrency = (slot: any): CurrencyInfo => {
   return getOverallCurrency()
 }
 
+const extractSlotDescription = (slot: any): string => {
+  const segments = new Set<string>()
+
+  const tryAdd = (value: unknown) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed) {
+        segments.add(trimmed)
+      }
+    }
+  }
+
+  tryAdd(slot.summary)
+  tryAdd(slot.description)
+  tryAdd(slot.narration)
+  tryAdd(slot.details?.transportation?.enhancedSummary)
+
+  const detailDescription = slot.details?.description
+  if (detailDescription && typeof detailDescription === 'object') {
+    Object.values(detailDescription).forEach(tryAdd)
+  }
+
+  return Array.from(segments).join('\n')
+}
+
 // 行程整体货币信息（用于总费用等全局显示）
 const getOverallCurrency = (): CurrencyInfo => {
   // 0. 明确的币种代码
@@ -1551,13 +1613,43 @@ const markImageError = (day: number, slotIndex: number, slot: any) => {
 
 // 打开编辑弹窗
 const handleEdit = (day: number, slotIndex: number, slot: any) => {
+  const key = getSlotKey(day, slotIndex, slot)
+  const payload = {
+    key,
+    day,
+    slotIndex,
+    slot
+  }
+  try {
+    console.log('🧾 [ExperienceDay] 活动节点明细:', JSON.stringify(payload, null, 2))
+  } catch {
+    console.log('🧾 [ExperienceDay] 活动节点对象:', payload)
+  }
+
   editingSlot.value = { day, slotIndex }
+
+  const descriptionText = extractSlotDescription(slot)
+  const reminderText = typeof slot.notes === 'string' ? slot.notes.trim() : ''
+
+  const notesPieces: string[] = []
+  if (descriptionText) notesPieces.push(descriptionText)
+  if (reminderText) {
+    // 避免重复添加描述
+    if (!descriptionText || !descriptionText.includes(reminderText)) {
+      notesPieces.push(reminderText)
+    }
+  }
+  const combinedNotes = notesPieces.join('\n')
+
   editingData.value = {
     title: slot.title || slot.activity || '',
-    notes: slot.notes || '',
+    notes: combinedNotes || reminderText || '',
     type: slot.type || slot.category || 'attraction',
     cost: slot.cost || null,
     bookingLinks: slot.bookingLinks || [],
+    transportModes: Array.isArray(slot.details?.transportation?.options)
+      ? slot.details.transportation.options.map((opt: any) => (typeof opt === 'string' ? opt : String(opt))).filter(Boolean)
+      : [],
   }
   editModalVisible.value = true
 }
@@ -1864,11 +1956,12 @@ const handleCancelEdit = () => {
   editModalVisible.value = false
   editingSlot.value = null
   editingData.value = {
-      title: '',
+    title: '',
     notes: '',
     type: 'attraction',
     cost: null,
     bookingLinks: [],
+    transportModes: [],
   }
 }
 
@@ -1893,6 +1986,37 @@ const handleSaveEdit = () => {
   slot.category = editingData.value.type
   slot.cost = editingData.value.cost
   slot.bookingLinks = editingData.value.bookingLinks || []
+
+  if (!slot.details) {
+    slot.details = {}
+  }
+
+  const transportModes = (editingData.value.transportModes || []).filter(Boolean).map((mode: any) =>
+    typeof mode === 'string' ? mode.trim() : String(mode)
+  )
+
+  if (transportModes.length) {
+    const summary = transportModes.map(getTransportModeLabel).join('、')
+    slot.details.transportation = {
+      ...(slot.details.transportation || {}),
+      options: transportModes,
+      enhancedSummary: summary || slot.details.transportation?.enhancedSummary || '',
+    }
+  } else if (slot.details.transportation) {
+    const { enhancedSummary, ...rest } = slot.details.transportation
+    const remainingSummary = enhancedSummary || ''
+    const cleanedTransport = {
+      ...rest,
+      ...(remainingSummary ? { enhancedSummary: remainingSummary } : {}),
+    }
+
+    if (Object.keys(cleanedTransport).length > 0) {
+      slot.details.transportation = cleanedTransport
+      delete slot.details.transportation.options
+    } else {
+      delete slot.details.transportation
+    }
+  }
   
   // 保存到 store
   if (travel.value) {
@@ -1948,6 +2072,11 @@ const getActivityTypeLabel = (type: string): string => {
     'transport': t('travelDetail.experienceDay.transport'),
   }
   return typeMap[type] || type
+}
+
+const getTransportModeLabel = (value: string): string => {
+  const option = transportModeOptions.find(opt => opt.value === value)
+  return option?.label || value
 }
 
 // 获取活动类型颜色

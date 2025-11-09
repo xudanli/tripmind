@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Configurable runtime options
-PORT="${PORT:-4173}"
+PORT="${PORT:-${DEVBOX_PORT:-${APP_PORT:-4173}}}"
 HOST="${HOST:-0.0.0.0}"
 SERVE_DIR="${SERVE_DIR:-dist}"
 SERVE_TOOL="${SERVE_TOOL:-serve}"   # Supported: serve | http-server

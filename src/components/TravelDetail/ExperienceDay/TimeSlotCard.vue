@@ -53,6 +53,14 @@
 
       <p v-if="summary" class="time-slot__summary">{{ summary }}</p>
 
+      <div v-if="narration" class="time-slot__narration">
+        <span class="time-slot__narration-icon">🎙️</span>
+        <span class="time-slot__narration-label">
+          {{ t('travelDetail.experienceDay.narrationLabel') || '导游寄语' }}：
+        </span>
+        <span>{{ narration }}</span>
+      </div>
+
       <div v-if="highlightCards.length" class="time-slot__highlights">
         <section
           v-for="(card, index) in highlightCards"
@@ -309,6 +317,11 @@ const chips = computed(() =>
 const transportInfo = computed<TransportInfo | null>(() =>
   buildTransportInfo(props.slot.details?.transportation, t)
 )
+
+const narration = computed(() => {
+  const value = props.slot?.narration || props.slot?.details?.narration
+  return typeof value === 'string' ? value.trim() : ''
+})
 
 const operationalInfo = computed(() => {
   const data = props.slot.details?.operational
@@ -731,6 +744,27 @@ const Chip = defineComponent({
   line-height: 1.7;
   color: #475569;
   letter-spacing: -0.01em;
+}
+
+.time-slot__narration {
+  margin: 12px 0 0;
+  display: flex;
+  background: linear-gradient(135deg, rgba(255, 245, 233, 0.9) 0%, rgba(255, 228, 196, 0.75) 100%);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #8b4513;
+  gap: 8px;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.time-slot__narration-icon {
+  font-size: 16px;
+  margin-top: 2px;
+}
+
+.time-slot__narration-label {
+  font-weight: 600;
 }
 
 .time-slot__highlights {

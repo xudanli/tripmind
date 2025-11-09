@@ -12,6 +12,7 @@ export interface EditingData {
   type: string
   cost: number | null
   bookingLinks: Array<{ name: string; url: string }>
+  transportModes: string[]
 }
 
 export interface SearchLocation {
@@ -43,6 +44,7 @@ export function useItineraryModals() {
     type: 'attraction',
     cost: null,
     bookingLinks: [],
+    transportModes: [],
   })
 
   // POI 搜索

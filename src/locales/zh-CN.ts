@@ -616,6 +616,7 @@ export default {
       updated: '更新',
       reviews: '条',
       clickToViewReviews: '点击查看评论',
+      narrationLabel: '导游寄语',
       seasonalTip: '季节提示',
       day: 'Day',
       activity: '活动',

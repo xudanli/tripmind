@@ -308,6 +308,7 @@ const heroJourneyBackground = computed(() => {
     data?.summary ||
     data?.aiMessage ||
     itineraryData.value?.summary ||
+    props.travel?.description ||
     ''
   )
 })

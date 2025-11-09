@@ -53,8 +53,25 @@ export const useTravelListStore = defineStore('travelList', () => {
   
   // 创建新旅程
   const createTravel = (travel: Omit<Travel, 'id' | 'createdAt' | 'updatedAt'>) => {
+    let initialDescription = travel.description
+    if (
+      (!initialDescription || !initialDescription.trim()) &&
+      travel.data &&
+      typeof travel.data === 'object'
+    ) {
+      const candidate: any = travel.data
+      initialDescription =
+        candidate.summary ||
+        candidate.coreInsight ||
+        candidate.narrative?.threshold ||
+        candidate.aiMessage ||
+        candidate.journeyBackground ||
+        travel.description
+    }
+
     const newTravel: Travel = {
       ...travel,
+      description: initialDescription || travel.description || '',
       id: generateId(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -85,6 +102,20 @@ export const useTravelListStore = defineStore('travelList', () => {
         }
         return acc
       }, {})
+
+      if (sanitizedUpdates.data && typeof sanitizedUpdates.data === 'object') {
+        const candidateData: any = sanitizedUpdates.data
+        const summaryText =
+          candidateData.summary ||
+          candidateData.coreInsight ||
+          candidateData.narrative?.threshold ||
+          candidateData.aiMessage ||
+          candidateData.journeyBackground ||
+          ''
+        if (summaryText && sanitizedUpdates.description === undefined) {
+          sanitizedUpdates.description = summaryText
+        }
+      }
 
       const updatedTravel: Travel = {
         ...existing,

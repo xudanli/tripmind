@@ -534,6 +534,7 @@ export default {
       updated: 'Updated',
       reviews: 'reviews',
       clickToViewReviews: 'Click to view reviews',
+      narrationLabel: 'Guide Notes',
       seasonalTip: 'Seasonal Tip',
       day: 'Day',
       activity: 'Activity',

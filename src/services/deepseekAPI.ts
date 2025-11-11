@@ -517,7 +517,7 @@ export {
   personaVoiceBank,
   getPersonaVoice,
   switchPersonaBasedOnEmotion,
-  generatePersonaRespoj sa
+  generatePersonaResponse,
   generatePsychologicalJourney,
   generateInspirationJourney
 } from './inspirationAPI'

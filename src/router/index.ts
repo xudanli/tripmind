@@ -37,6 +37,11 @@ const router = createRouter({
       component: () => import('../views/InspirationCatalogView.vue'),
     },
     {
+      path: '/journey/templates',
+      name: 'journey-templates',
+      component: () => import('../views/JourneyTemplateCatalogView.vue'),
+    },
+    {
       path: '/api-test',
       name: 'api-test',
       component: () => import('../views/ApiTestView.vue'),
@@ -50,6 +55,11 @@ const router = createRouter({
       path: '/travel/:id',
       name: 'travel-detail',
       component: () => import('../views/TravelDetailView.vue'),
+    },
+    {
+      path: '/journey/templates/:id',
+      name: 'journey-template',
+      component: () => import('../views/JourneyTemplateView.vue'),
     },
   ],
 })

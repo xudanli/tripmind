@@ -169,7 +169,7 @@ async function fetchGuidesFromAPI(
     const endpoint = `${baseURL}${API_CONFIG.ENDPOINTS.TRAVEL_GUIDES_SEARCH}`
     
     // 如果是本地开发环境且API不可用，直接返回空数组，避免错误
-    if (baseURL.includes('localhost') || baseURL.includes('127.0.0.1') || baseURL.includes(':8181')) {
+    if (baseURL.includes('localhost') || baseURL.includes('127.0.0.1') || baseURL.includes(':3000')) {
       // 静默失败，不抛出错误
       return []
     }

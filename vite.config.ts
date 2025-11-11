@@ -17,7 +17,7 @@ export default defineConfig({
   },
   define: {
     // 设置环境变量
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://localhost:8181'),
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://localhost:3000/api'),
     'import.meta.env.VITE_API_KEY': JSON.stringify('your_api_key_here'),
     'import.meta.env.VITE_APP_ENV': JSON.stringify('development'),
     'import.meta.env.VITE_DEBUG': JSON.stringify('true'),

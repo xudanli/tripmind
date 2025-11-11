@@ -282,8 +282,85 @@ const heroCoverImage = computed(() => {
   return 'https://source.unsplash.com/1600x450/?travel'
 })
 
+const preferredLocaleKeys = computed(() => {
+  const current = (locale.value || 'zh-CN').toLowerCase()
+  const keys = new Set<string>()
+  const push = (value?: string) => {
+    if (!value) return
+    const normalized = value.trim().toLowerCase()
+    if (normalized) keys.add(normalized)
+  }
+
+  push(current)
+  if (current.includes('-')) {
+    push(current.split('-')[0])
+  }
+  if (current === 'zh-cn') push('zh')
+  if (current === 'en-us') push('en')
+
+  // 常见兜底
+  push('zh-cn')
+  push('en-us')
+  push('zh')
+  push('en')
+
+  return Array.from(keys)
+})
+
+const findSafetyNotice = (data: any): string => {
+  const notices = data?.safetyNotices
+  if (notices && typeof notices === 'object') {
+    for (const key of preferredLocaleKeys.value) {
+      const value = notices[key]
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim()
+      }
+    }
+  }
+
+  if (typeof data?.safetyNotice === 'string' && data.safetyNotice.trim()) {
+    return data.safetyNotice.trim()
+  }
+
+  return ''
+}
+
+const heroItinerarySummary = computed(() => {
+  const data: any = travelData.value
+  const itinerary = itineraryData.value
+
+  const candidates = [
+    itinerary?.summary,
+    data?.summary,
+    data?.journeyBackground,
+    data?.aiMessage,
+    props.travel?.description
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
+    if (Array.isArray(candidate) && candidate.length) {
+      const merged = candidate
+        .map(item => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean)
+        .join(' ')
+      if (merged) return merged
+    }
+  }
+
+  return ''
+})
+
 const heroCoreInsight = computed(() => {
   const data: any = travelData.value
+  const safetyNotice = findSafetyNotice(data)
+
+  if (safetyNotice) {
+    return safetyNotice
+  }
+
   return (
     data?.coreInsight ||
     data?.narrative?.threshold ||
@@ -294,6 +371,9 @@ const heroCoreInsight = computed(() => {
 
 const heroSupportingText = computed(() => {
   const data: any = travelData.value
+  if (heroItinerarySummary.value) {
+    return heroItinerarySummary.value
+  }
   return (
     data?.narrative?.mirror ||
     data?.cognitiveTriggers?.questions?.[0] ||

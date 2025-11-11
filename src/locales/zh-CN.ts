@@ -66,7 +66,11 @@ export default {
       aiTravelPartnerSays: 'AI 旅行伙伴说：',
       createJourney: '创建旅程',
       viewMoreInspiration: '查看更多灵感',
-      selectLocationFirst: '请先选择一个推荐地点'
+      selectLocationFirst: '请先选择一个推荐地点',
+      generateDetailedItinerary: '生成详细行程',
+      chooseDestinationHint: '请选择一个心动的目的地后点击“生成详细行程”，我会补上所有细节。',
+      detailedJourneyRequired: '请先为选中的目的地生成详细行程',
+      candidatesReady: '候选目的地已生成，请选择想去的地点并继续生成详细行程。'
     }
   },
 
@@ -519,6 +523,10 @@ export default {
       stayPending: '停留时间待确认',
       weatherUnavailable: '天气信息待补充',
       transportUnavailable: '交通信息待更新',
+      transportDurationMinutes: '预计耗时约 {minutes} 分钟',
+      transportDistanceKm: '路程约 {distance} 公里',
+      transportFromPrevious: '从{origin}前往此处约 {minutes} 分钟',
+      transportPreviousStop: '上一站',
       prepSectionTitle: '行前准备',
       prepStayLabel: '停留时间',
       prepOutfitLabel: '着装建议',
@@ -616,7 +624,7 @@ export default {
       updated: '更新',
       reviews: '条',
       clickToViewReviews: '点击查看评论',
-      narrationLabel: '导游寄语',
+      narrationLabel: 'nara寄语',
       seasonalTip: '季节提示',
       day: 'Day',
       activity: '活动',
@@ -655,7 +663,10 @@ export default {
       addToItinerary: '添加到行程',
       viewDetails: '查看详情',
       noResults: '未找到相关结果',
+      noResultsDefault: '未找到相关结果，可以尝试切换类别或调整搜索位置',
+      noResultsRemote: '当前地点位于偏远或极地地区，附近几乎没有公开设施，可尝试选择最近的城市或缩小搜索范围',
       edit: '编辑',
+      activityDetailLabel: '活动亮点',
       delete: '删除',
       addActivity: '添加活动',
       confirmDelete: '确认删除',

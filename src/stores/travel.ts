@@ -228,6 +228,8 @@ export interface InspirationData {
   totalCost?: number
   summary?: string
   videos?: Record<string, InspirationVideo>
+  hasFullItinerary?: boolean
+  generationMode?: 'full' | 'candidates'
 }
 
 export interface ExperienceDay {
@@ -312,6 +314,10 @@ interface HighlightSource {
   scope: string
   scopeLabel?: string
   highlight: string | HighlightDetail
+}
+
+interface GenerateInspirationOptions {
+  selectedDestination?: string
 }
 
 const MAX_VIDEOS_PER_INSPIRATION = 6
@@ -527,10 +533,12 @@ export const useTravelStore = defineStore('travel', () => {
   })
 
   const inspirationData = ref<InspirationData | null>(null)
+  const inspirationSelectedDestination = ref<string | null>(null)
   const itineraryData = ref<ItineraryData | null>(null)
   const plannerItinerary = ref<PlannerItineraryResponse | null>(null)
   const plannerRhythmInsights = ref<PlannerRhythmInsights | null>(null)
   const plannerNotifications = ref<PlannerNotification[]>([])
+  const lastInspirationInput = ref<string>('')
   
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -904,15 +912,44 @@ export const useTravelStore = defineStore('travel', () => {
   }
 
   // 生成灵感内容
-  const generateInspiration = async (input: string) => {
+  const generateInspiration = async (input: string, options?: GenerateInspirationOptions) => {
     if (isRunning.value) return
     isRunning.value = true
     clearGenerationLogs()
-    pushGenerationLog('🚀 开始生成灵感旅程...')
+    const normalizedInput = safeStr(input)
+    const selectedDestinationCandidate = options?.selectedDestination?.trim()
+    const generationMode: 'full' | 'candidates' = selectedDestinationCandidate ? 'full' : 'candidates'
+    pushGenerationLog(
+      generationMode === 'full'
+        ? '🚀 开始生成灵感旅程详情...'
+        : '🚀 开始生成候选灵感目的地...'
+    )
     setLoading(true)
     setError(null)
     const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
+    let effectiveInput = normalizedInput
+    if (!effectiveInput && selectedDestinationCandidate) {
+      effectiveInput = lastInspirationInput.value
+    }
+    if (!effectiveInput) {
+      const warningMessage = currentLanguage.startsWith('en')
+        ? 'Please describe what kind of inspiration you need.'
+        : '请先描述你想要的灵感方向。'
+      setError(warningMessage)
+      pushGenerationLog('⚠️ 未提供有效的灵感输入', 'warn')
+      setLoading(false)
+      isRunning.value = false
+      return
+    }
+
+    lastInspirationInput.value = effectiveInput
+    if (generationMode === 'candidates') {
+      inspirationSelectedDestination.value = null
+    } else if (selectedDestinationCandidate) {
+      inspirationSelectedDestination.value = selectedDestinationCandidate
+    }
     
+    let autoDestinationAfterRun: string | null = null
     try {
         const { detectInspirationIntent, generateInspirationJourney } = await import('@/services/deepseekAPI')
       
@@ -967,9 +1004,11 @@ export const useTravelStore = defineStore('travel', () => {
         
         visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode) || []
 
-        const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) =>
-          safeStr(input).includes(country.name)
-        ) as any
+        const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) => {
+          if (safeStr(effectiveInput).includes(country.name)) return true
+          if (selectedDestinationCandidate && selectedDestinationCandidate.includes(country.name)) return true
+          return false
+        }) as any
         if (destCountryInfo) {
           visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode) || null
         }
@@ -977,20 +1016,26 @@ export const useTravelStore = defineStore('travel', () => {
       
       // Intent
       pushGenerationLog('🧭 正在识别旅行意图...')
-      const intent = await detectInspirationIntent(input, currentLanguage)
+      const intent = await detectInspirationIntent(effectiveInput, currentLanguage)
 
       // Gen
-      pushGenerationLog('📡 正在生成灵感旅程细节...')
+      pushGenerationLog(
+        generationMode === 'full'
+          ? '📡 正在生成灵感旅程细节...'
+          : '📡 正在生成候选目的地及旅程框架...'
+      )
       const inspResp = await generateInspirationJourney(
-        input,
+        effectiveInput,
         currentLanguage,
         userCountry,
-        undefined,
+        selectedDestinationCandidate,
         userNationality,
         userPermanentResidency,
         heldVisas,
         visaFreeDestinations,
-        visaInfoSummary
+        visaInfoSummary,
+        undefined,
+        generationMode
       )
       pushGenerationLog(`✅ 灵感旅程生成完成：候选地点 ${Array.isArray(inspResp?.locations) ? inspResp.locations.length : 0} 个`)
 
@@ -1020,7 +1065,7 @@ export const useTravelStore = defineStore('travel', () => {
           console.log('🧾 Inspiration raw response (object):', inspResp)
         }
       }
-
+      
       const enrichedInspiration = await enrichInspirationMedia(inspResp, currentLanguage)
       if (enrichedInspiration) {
         try {
@@ -1031,6 +1076,63 @@ export const useTravelStore = defineStore('travel', () => {
       }
       setInspirationData(enrichedInspiration)
       setCurrentMode('inspiration')
+      const hasDetailedSlots =
+        Array.isArray(enrichedInspiration?.days) &&
+        enrichedInspiration.days.length > 0 &&
+        enrichedInspiration.days.every(
+          (day: any) => Array.isArray(day?.timeSlots) && day.timeSlots.length > 0
+        )
+
+      if (generationMode === 'full') {
+        inspirationSelectedDestination.value =
+          selectedDestinationCandidate ||
+          enrichedInspiration.destination ||
+          enrichedInspiration.location ||
+          (enrichedInspiration.locations && enrichedInspiration.locations.length > 0
+            ? enrichedInspiration.locations[0]
+            : null) ||
+          null
+      } else if (!inspirationSelectedDestination.value && enrichedInspiration.locations?.length) {
+        const firstLocation = enrichedInspiration.locations[0]
+        if (firstLocation) {
+          inspirationSelectedDestination.value = firstLocation
+        }
+      }
+
+      if (generationMode === 'candidates' && !hasDetailedSlots) {
+        const candidateList = Array.isArray(enrichedInspiration.locations)
+          ? enrichedInspiration.locations
+          : []
+    const resolvedDestination =
+          selectedDestinationCandidate ||
+          safeStr(enrichedInspiration.destination) ||
+          safeStr(enrichedInspiration.location) ||
+          (candidateList.length === 1 ? candidateList[0] : '')
+
+        if (resolvedDestination) {
+          if (candidateList.length <= 1) {
+            inspirationSelectedDestination.value = resolvedDestination
+            autoDestinationAfterRun = resolvedDestination
+            pushGenerationLog(
+              `🔁 自动为目的地 "${resolvedDestination}" 生成详细行程...`
+            )
+          } else {
+        // 如果候选列表里包含用户输入的目的地，自动选中那一个
+        const matchedFromInput = candidateList.find((candidate) =>
+          effectiveInput.includes(candidate)
+        )
+        if (matchedFromInput) {
+          inspirationSelectedDestination.value = matchedFromInput
+          autoDestinationAfterRun = matchedFromInput
+          pushGenerationLog(
+            `🔁 识别到输入中的目的地 "${matchedFromInput}"，正在自动生成详细行程...`
+          )
+        } else {
+          pushGenerationLog('ℹ️ 检测到多个候选目的地，请先挑选后再生成详细行程。', 'warn')
+        }
+          }
+        }
+      }
       pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
     } catch (err) {
       console.error('生成灵感内容失败，尝试使用本地灵感库回退:', err)
@@ -1043,6 +1145,7 @@ export const useTravelStore = defineStore('travel', () => {
           const enrichedLocal = await enrichInspirationMedia(localData, currentLanguage)
           setInspirationData(enrichedLocal)
           setCurrentMode('inspiration')
+          inspirationSelectedDestination.value = fallback
           pushGenerationLog('✅ 已加载本地灵感库的备用推荐')
         } else {
           setError('生成灵感内容失败，请重试')
@@ -1054,10 +1157,32 @@ export const useTravelStore = defineStore('travel', () => {
       setLoading(false)
       isRunning.value = false
       pushGenerationLog('🏁 生成流程结束')
+      if (autoDestinationAfterRun) {
+        const nextDestination = autoDestinationAfterRun
+        autoDestinationAfterRun = null
+        setTimeout(() => {
+          generateInspirationForDestination(nextDestination).catch((error) => {
+            console.error('自动生成详细行程失败:', error)
+            pushGenerationLog('⚠️ 自动生成详细行程失败，请手动重试', 'warn')
+          })
+        })
+      }
     }
   }
 
   // 提交反馈（静默失败）
+  const generateInspirationForDestination = async (destination: string) => {
+    const baseInput = lastInspirationInput.value
+    const normalizedDestination = safeStr(destination)
+    if (!baseInput) {
+      throw new Error('缺少原始灵感输入，请先输入灵感需求。')
+    }
+    if (!normalizedDestination) {
+      throw new Error('需要提供有效的目的地。')
+    }
+    return generateInspiration(baseInput, { selectedDestination: normalizedDestination })
+  }
+
   const submitFeedback = async (feedback: string, rating: number) => {
     try {
       const feedbackData = {
@@ -1116,6 +1241,7 @@ export const useTravelStore = defineStore('travel', () => {
       duration: ''
     }
     inspirationData.value = null
+    inspirationSelectedDestination.value = null
     itineraryData.value = null
     plannerItinerary.value = null
     updatePlannerInsights(null)
@@ -1123,13 +1249,15 @@ export const useTravelStore = defineStore('travel', () => {
     error.value = null
     currentMode.value = null
     clearGenerationLogs()
+    lastInspirationInput.value = ''
   }
 
-  return {
+  const storeApi = {
     // State
     plannerData,
     moodData,
     inspirationData,
+    inspirationSelectedDestination,
     itineraryData,
     plannerItinerary,
     plannerRhythmInsights,
@@ -1150,6 +1278,7 @@ export const useTravelStore = defineStore('travel', () => {
     clearGenerationLogs,
     generateItinerary,
     generateInspiration,
+    generateInspirationForDestination,
     generatePsychologicalJourney,
     getLocalInspirationDestinations,
     submitFeedback,
@@ -1159,6 +1288,16 @@ export const useTravelStore = defineStore('travel', () => {
     dismissPlannerNotification,
     dispose // 手动释放订阅（路由切换/注销场景）
   }
+
+  if (typeof window !== 'undefined') {
+    try {
+      ;(window as any).__travelStore = storeApi
+    } catch (err) {
+      console.warn('无法在 window 上挂载 __travelStore:', err)
+    }
+  }
+
+  return storeApi
 })
 
 // -------------------- Utils --------------------

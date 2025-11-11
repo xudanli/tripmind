@@ -219,6 +219,67 @@ export async function generateTravelSummary(
 }
 
 /**
+ * 生成目的地安全提示/注意事项
+ */
+export async function generateTravelSafetyNotice({
+  destination,
+  summary = '',
+  highlights = '',
+  language = 'zh-CN',
+}: {
+  destination: string
+  summary?: string
+  highlights?: string
+  language?: string
+}): Promise<string> {
+  const normalizedDestination = destination.trim()
+  const isEnglish = language.toLowerCase().startsWith('en')
+
+  const systemPrompt = isEnglish
+    ? `You are a seasoned travel safety consultant. Provide concise, practical safety guidance tailored to the given destination and trip summary. Respond with a single paragraph (max 2 sentences, ≤ 80 words). Focus on weather, terrain, local regulations, required gear, and emergency precautions. Avoid generic advice; be destination-specific.`
+    : `你是一名资深旅行安全顾问。请根据目的地与行程摘要，提供精炼、实用的安全提示。用一段话回复（不超过2句话、80字以内），重点覆盖天气、地形、当地规定、装备要求与紧急应对，避免空泛泛的提醒。`
+
+  const contextSegments = [
+    summary?.trim(),
+    highlights?.trim(),
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  const userPrompt = isEnglish
+    ? `Destination: ${normalizedDestination || 'Unknown'}
+
+Trip Context:
+${contextSegments || 'No additional trip context provided.'}
+
+Please provide destination-specific safety guidance.`
+    : `目的地：${normalizedDestination || '未知目的地'}
+
+行程背景：
+${contextSegments || '无额外行程摘要。'}
+
+请给出目的地相关的旅行安全提示。`
+
+  try {
+    const response = await chatWithLLM(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      {
+        temperature: 0.5,
+        max_tokens: isEnglish ? 220 : 200,
+      }
+    )
+
+    return response ? response.trim() : ''
+  } catch (error) {
+    console.error('Failed to generate travel safety notice:', error)
+    return ''
+  }
+}
+
+/**
  * 生成 Planner 模式的详细行程
  */
 export async function generatePlannerItinerary(params: {
@@ -456,7 +517,7 @@ export {
   personaVoiceBank,
   getPersonaVoice,
   switchPersonaBasedOnEmotion,
-  generatePersonaResponse,
+  generatePersonaRespoj sa
   generatePsychologicalJourney,
   generateInspirationJourney
 } from './inspirationAPI'

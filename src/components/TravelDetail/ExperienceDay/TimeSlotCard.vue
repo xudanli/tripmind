@@ -6,8 +6,8 @@
         <div class="time-slot__title-group">
           <h4 class="time-slot__title">{{ slot.title || slot.activity }}</h4>
           <p v-if="slot.details?.name?.english" class="time-slot__subtitle">{{ slot.details.name.english }}</p>
-          <p v-if="slot.location" class="time-slot__location">
-            <environment-outlined /> {{ slot.location }}
+          <p v-if="locationDisplay" class="time-slot__location">
+            <environment-outlined /> {{ locationDisplay }}
           </p>
           <p v-if="slotTypeMeta" class="time-slot__type">
             <span class="time-slot__type-icon">{{ slotTypeMeta.icon }}</span>
@@ -56,47 +56,13 @@
       <div v-if="narration" class="time-slot__narration">
         <span class="time-slot__narration-icon">🎙️</span>
         <span class="time-slot__narration-label">
-          {{ t('travelDetail.experienceDay.narrationLabel') || '导游寄语' }}：
-        </span>
-        <span>{{ narration }}</span>
-      </div>
-
-      <div v-if="highlightCards.length" class="time-slot__highlights">
-        <section
-          v-for="(card, index) in highlightCards"
-          :key="index"
-          class="time-slot__highlight-card"
-        >
-          <header class="time-slot__highlight-header">
-            <span class="time-slot__highlight-icon">{{ card.icon }}</span>
-            <span class="time-slot__highlight-title">{{ card.title }}</span>
-          </header>
-          <ul v-if="card.lines && card.lines.length" class="time-slot__highlight-lines">
-            <li v-for="(line, lineIndex) in card.lines" :key="lineIndex">
-              {{ line }}
-            </li>
-          </ul>
-          <div v-if="card.subscribeUrl" class="time-slot__highlight-action">
-            <a-button
-              type="link"
-              size="small"
-              class="time-slot__highlight-btn"
-              :href="card.subscribeUrl"
-              target="_blank"
-              rel="noopener"
-            >
-              {{ t('travelDetail.experienceDay.eventsSubscribeLabel') }}
-            </a-button>
-          </div>
-          <footer v-if="card.source" class="time-slot__highlight-footer">
-            <span>
-              {{ t('travelDetail.experienceDay.sourceLabel') }} {{ card.source }}
-              <template v-if="card.updatedAt">
-                · {{ t('travelDetail.experienceDay.updatedAtLabel') }} {{ card.updatedAt }}
-              </template>
+          {{
+            t('travelDetail.experienceDay.activityDetailLabel') ||
+              t('travelDetail.experienceDay.activity') ||
+              '活动'
+          }}：
             </span>
-          </footer>
-        </section>
+        <span>{{ narration }}</span>
       </div>
 
       <div v-if="internalPreview" class="time-slot__internal">
@@ -170,8 +136,6 @@ import {
   getInternalPreview,
   isTransportOrAccommodation,
   buildTransportInfo,
-  formatOpeningHours,
-  buildPricing,
   type TransportInfo,
 } from './slotFormatters'
 
@@ -250,15 +214,6 @@ const TYPE_MAPPINGS: Record<string, { icon: string; zh: string; en: string }> = 
   performance: { icon: '🎭', zh: '演出活动', en: 'Performance' },
 }
 
-interface HighlightCard {
-  icon: string
-  title: string
-  lines: string[]
-  source?: string
-  updatedAt?: string
-  subscribeUrl?: string
-}
-
 const normalizeTypeValue = (value: unknown): string[] => {
   if (!value) return []
   if (typeof value === 'string') return [value.trim()]
@@ -304,7 +259,41 @@ const resolveSlotType = (slot: Record<string, any>) => {
 }
 
 const slotTypeMeta = computed(() => resolveSlotType(props.slot))
-const summary = computed(() => getActivitySummary(props.slot, t))
+const summary = computed(() => {
+  const parts: string[] = []
+  const seen = new Set<string>()
+
+  const pushUnique = (value?: string | null) => {
+    if (!value || typeof value !== 'string') return
+    const normalized = value.replace(/\s+/g, ' ').trim()
+    if (!normalized) return
+    const key = normalized.toLowerCase().replace(/[，。\.、!！?？\s]+/g, ' ')
+    if (seen.has(key)) return
+    seen.add(key)
+    parts.push(normalized)
+  }
+
+  pushUnique(getActivitySummary(props.slot, t))
+
+  const scenic =
+    typeof props.slot.details?.description?.scenicIntro === 'string'
+      ? props.slot.details.description.scenicIntro
+      : ''
+  pushUnique(scenic)
+
+  if (Array.isArray(props.slot?.details?.description?.highlights)) {
+    props.slot.details.description.highlights
+      .map((item: unknown) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean)
+      .slice(0, 2)
+      .forEach(pushUnique)
+  }
+
+  if (!parts.length) return ''
+  if (parts.length === 1) return parts[0]
+  return parts.join(' ')
+})
+
 const internalPreview = computed(() => getInternalPreview(props.slot))
 const rawNotes = computed(() => buildNotes(props.slot))
 const chips = computed(() =>
@@ -319,111 +308,42 @@ const transportInfo = computed<TransportInfo | null>(() =>
 )
 
 const narration = computed(() => {
-  const value = props.slot?.narration || props.slot?.details?.narration
-  return typeof value === 'string' ? value.trim() : ''
-})
+  const parts: string[] = []
+  const seen = new Set<string>()
 
-const operationalInfo = computed(() => {
-  const data = props.slot.details?.operational
-  if (!data || typeof data !== 'object') return {}
-  const record = data as Record<string, any>
-  return {
-    opening: Array.isArray(record.opening) ? record.opening : undefined,
-    openingSource: record.openingSource,
-    openingFetchedAt: record.openingFetchedAt,
-    pricing: Array.isArray(record.pricing) ? record.pricing : undefined,
-    pricingSource: record.pricingSource,
-    pricingFetchedAt: record.pricingFetchedAt,
-    reminders: Array.isArray(record.reminders) ? record.reminders : undefined,
-    remindersSource: record.remindersSource,
-    remindersFetchedAt: record.remindersFetchedAt,
-    transportSource: record.transportSource,
-    transportFetchedAt: record.transportFetchedAt,
-    events: Array.isArray(record.events) ? record.events : undefined,
-    eventsSource: record.eventsSource,
-    eventsFetchedAt: record.eventsFetchedAt,
-    eventsSubscribeUrl: typeof record.eventsSubscribeUrl === 'string' ? record.eventsSubscribeUrl : '',
-  }
-})
-
-const openingLines = computed(() => {
-  const ops = operationalInfo.value
-  if (Array.isArray(ops.opening) && ops.opening.length) {
-    return ops.opening
-  }
-  const fallback = formatOpeningHours(props.slot.details?.openingHours?.hours || '')
-  if (fallback) return [fallback]
-  return [t('travelDetail.experienceDay.openingFallback')]
-})
-
-const currencyLabel = computed(() => {
-  const info =
-    props.currency ||
-    {
-      code: 'CNY',
-      symbol: '¥',
-      name: '人民币',
-    }
-  if (info.symbol) {
-    return `${info.symbol}${info.code || ''}`.trim()
-  }
-  return info.code || info.name || 'CNY'
-})
-
-const pricingLines = computed(() => {
-  const ops = operationalInfo.value
-  if (Array.isArray(ops.pricing) && ops.pricing.length) {
-    return ops.pricing
-  }
-  if (!props.slot.details?.pricing) return []
-  const formatted = buildPricing(
-    props.slot.details.pricing,
-    props.currency || { code: 'CNY', symbol: '¥', name: '人民币' },
-    t
-  )
-  return formatted
-    ? [formatted]
-    : [
-        t('travelDetail.experienceDay.pricingFallback', {
-          currency: currencyLabel.value,
-        }),
-      ]
-})
-
-const eventLines = computed(() => {
-  const ops = operationalInfo.value
-  if (Array.isArray(ops.events) && ops.events.length) {
-    return ops.events
-  }
-  return []
-})
-
-const eventSubscribeUrl = computed(() => operationalInfo.value.eventsSubscribeUrl || '')
-
-const reminderLines = computed(() => {
-  const ops = operationalInfo.value
-  if (Array.isArray(ops.reminders) && ops.reminders.length) {
-    return ops.reminders
+  const pushUnique = (value?: string | null) => {
+    if (!value || typeof value !== 'string') return
+    const normalized = value.replace(/\s+/g, ' ').trim()
+    if (!normalized) return
+    const key = normalized.toLowerCase().replace(/[，。\.、!！?？\s]+/g, ' ')
+    if (seen.has(key)) return
+    seen.add(key)
+    parts.push(normalized)
   }
 
-  const lines: string[] = []
-  rawNotes.value.forEach((note) => {
-    const lower = note.toLowerCase()
-    if (
-      note.includes('请查询当地交通信息') ||
-      lower.includes('check local transportation')
-    ) {
-      note
-        .replace(/。/g, '；')
-        .split(/；|;|\n|\r/)
-        .map((item) => item.replace(/^[•·\-\d、.]+\s*/, '').trim())
-        .filter(Boolean)
-        .forEach((item) => lines.push(item))
-    }
-  })
+  pushUnique(props.slot?.activity)
+  pushUnique(props.slot?.localTip)
 
-  return Array.from(new Set(lines))
+  const fallback = props.slot?.narration || props.slot?.details?.narration
+  if (!parts.length) {
+    pushUnique(fallback)
+  }
+
+  return parts.join(' ')
 })
+
+const sanitizeLocation = (value?: string | null): string => {
+  if (!value || typeof value !== 'string') return ''
+  let sanitized = value.trim()
+  if (!sanitized) return ''
+  // Remove trailing “目的地”或“目的地中心”等兜底字段
+  sanitized = sanitized.replace(/[,，·]\s*目的地(?:\s*中心)?$/i, '')
+  sanitized = sanitized.replace(/\s*目的地(?:\s*中心)?$/i, '')
+  sanitized = sanitized.replace(/\s+/g, ' ').trim()
+  return sanitized
+}
+
+const locationDisplay = computed(() => sanitizeLocation(props.slot?.location))
 
 const notes = computed(() =>
   rawNotes.value.filter((note) => {
@@ -434,96 +354,6 @@ const notes = computed(() =>
     )
   })
 )
-
-const highlightCards = computed<HighlightCard[]>(() => {
-  if (import.meta.env.MODE !== 'production') {
-    console.groupCollapsed(
-      `[TimeSlotCard] Generated details for ${props.slot.title || props.slot.activity || 'slot'}`
-    )
-    console.log('Operational details:', props.slot.details?.operational)
-    console.log('Transportation details:', props.slot.details?.transportation)
-    console.log('Rating details:', props.slot.details?.rating)
-    console.log('Festival events:', operationalInfo.value.events)
-    console.groupEnd()
-  }
-
-  const cards: HighlightCard[] = []
-
-  const transport = transportInfo.value
-  if (transport && (transport.summary || transport.items.length)) {
-    const lines: string[] = []
-    if (transport.summary) lines.push(transport.summary)
-    if (transport.items.length) lines.push(...transport.items.slice(0, 2))
-    cards.push({
-      icon: '🚌',
-      title: t('travelDetail.experienceDay.transportation'),
-      lines,
-      source: operationalInfo.value.transportSource,
-      updatedAt: operationalInfo.value.transportFetchedAt,
-    })
-  }
-
-  if (openingLines.value.length) {
-    cards.push({
-      icon: '🕘',
-      title: t('travelDetail.experienceDay.openingHours'),
-      lines: openingLines.value,
-      source: operationalInfo.value.openingSource,
-      updatedAt: operationalInfo.value.openingFetchedAt,
-    })
-  }
-
-  if (pricingLines.value.length) {
-    cards.push({
-      icon: '💵',
-      title: t('travelDetail.experienceDay.pricingDetails'),
-      lines: pricingLines.value,
-      source: operationalInfo.value.pricingSource,
-      updatedAt: operationalInfo.value.pricingFetchedAt,
-    })
-  }
-
-  if (eventLines.value.length) {
-    cards.push({
-      icon: '📅',
-      title: t('travelDetail.experienceDay.festivalLabel'),
-      lines: eventLines.value,
-      source: operationalInfo.value.eventsSource,
-      updatedAt: operationalInfo.value.eventsFetchedAt,
-      subscribeUrl: eventSubscribeUrl.value,
-    })
-  }
-
-  const rating = props.slot.details?.rating
-  if (rating?.score) {
-    const score = Number(rating.score)
-    const lines = [`${score.toFixed(1)} / 5`]
-    if (rating.reviewCount) {
-      lines.push(
-        t('travelDetail.experienceDay.ratingReviewCount', {
-          count: rating.reviewCount,
-        })
-      )
-    }
-    cards.push({
-      icon: '⭐',
-      title: t('travelDetail.experienceDay.ratingLabel'),
-      lines,
-    })
-  }
-
-  if (reminderLines.value.length) {
-    cards.push({
-      icon: '⚠️',
-      title: t('travelDetail.experienceDay.reminderLabel'),
-      lines: reminderLines.value,
-      source: operationalInfo.value.remindersSource,
-      updatedAt: operationalInfo.value.remindersFetchedAt,
-    })
-  }
-
-  return cards
-})
 
 const needsBooking = computed(() => {
   const rec = props.slot?.details?.recommendations || {}
@@ -765,58 +595,7 @@ const Chip = defineComponent({
 
 .time-slot__narration-label {
   font-weight: 600;
-}
-
-.time-slot__highlights {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-}
-
-.time-slot__highlight-card {
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(248, 250, 252, 0.85);
-  border-radius: 14px;
-  padding: 12px 14px;
-  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.08);
-}
-
-.time-slot__highlight-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: #0f172a;
-  margin-bottom: 8px;
-}
-
-.time-slot__highlight-icon {
-  font-size: 16px;
-}
-
-.time-slot__highlight-lines {
-  margin: 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: #475569;
-  font-size: 13px;
-}
-
-.time-slot__highlight-action {
-  margin-top: 6px;
-}
-
-.time-slot__highlight-btn {
-  padding: 0;
-  font-size: 12px;
-}
-
-.time-slot__highlight-footer {
-  margin-top: 6px;
-  font-size: 11px;
-  color: #64748b;
+  
 }
 
 .time-slot__internal {

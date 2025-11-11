@@ -250,16 +250,7 @@
             :placeholder="t('travelDetail.experienceDay.activityName')"
           />
         </div>
-        
-        <div class="edit-form-item">
-          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityDescription') }}</label>
-          <a-textarea
-            v-model:value="editingData.notes" 
-            :placeholder="t('travelDetail.experienceDay.activityDescription')"
-            :auto-size="{ minRows: 3, maxRows: 6 }"
-          />
-        </div>
-        
+
         <div class="edit-form-item">
           <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityType') }}</label>
           <a-select 
@@ -293,23 +284,6 @@
             }}
           </div>
         </div>
-
-        <div class="edit-form-item">
-          <label class="edit-form-label">交通方式</label>
-          <a-select
-            v-model:value="editingData.transportModes"
-            mode="tags"
-            :options="transportModeOptions"
-            style="width: 100%"
-            :placeholder="'选择或输入交通方式（如：步行、地铁、包车）'"
-            :token-separators="[',','、',' ']"
-            :max-tag-count="6"
-          />
-          <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
-            支持多个交通方式，将在卡片中展示，未列出的方式可直接输入。
-          </div>
-        </div>
-        
         <!-- Booking链接管理 -->
         <div class="edit-form-item">
           <div class="booking-links-header">
@@ -503,7 +477,7 @@
         <!-- 无结果 -->
         <div v-if="!searching && searchResults.length === 0 && hasSearched" class="no-results">
           <a-empty 
-            :description="t('travelDetail.experienceDay.noResults') || '未找到相关结果'"
+            :description="noResultsDescription"
           />
         </div>
       </div>
@@ -549,27 +523,12 @@ import DayCard from './ExperienceDay/DayCard.vue'
 import TimeSlotCard from './ExperienceDay/TimeSlotCard.vue'
 import ImagePreviewModal from './ExperienceDay/ImagePreviewModal.vue'
 import { useItineraryModals, type PreviewMediaItem } from './ExperienceDay/useItineraryModals'
+import { getActivitySummary as formatSlotSummary } from './ExperienceDay/slotFormatters'
+import { buildPreparationTasks } from '@/utils/preparationChecklist'
+import { fetchTransportInsights, type MapboxCoordinates } from '@/services/locationInsights'
+import { TRANSPORT_MODE_OPTIONS, normalizeTransportModes } from '@/utils/transportModes'
 
-const TRANSPORT_MODE_SUGGESTIONS = [
-  '步行',
-  '地铁',
-  '公交',
-  '出租车',
-  '网约车',
-  '自驾',
-  '包车',
-  '骑行',
-  '轮渡',
-  '缆车',
-  '徒步',
-  '班车',
-  '拼车',
-]
-
-const transportModeOptions = TRANSPORT_MODE_SUGGESTIONS.map(mode => ({
-  value: mode,
-  label: mode,
-}))
+const transportModeOptions = TRANSPORT_MODE_OPTIONS
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -669,18 +628,88 @@ const shouldShowChineseOnly = computed(() => {
 })
 
 // 核心哲学语句
-const coreInsight = computed(() => {
-  return travel.value?.data?.coreInsight || 
-         travel.value?.data?.narrative?.threshold ||
-         travel.value?.data?.narrative?.stillness ||
-         t('travelDetail.experienceDay.defaultCoreInsight')
+const extractPrimarySlot = (): any | null => {
+  const day = itineraryData.value?.days?.[0]
+  if (!day || !Array.isArray(day.timeSlots)) return null
+  return day.timeSlots.find((slot: any) => slot && typeof slot === 'object') || null
+}
+
+const preferredSafetyLocaleKeys = computed(() => {
+  const current = (locale.value || 'zh-CN').toLowerCase()
+  const keys = new Set<string>()
+  const push = (value?: string) => {
+    if (!value) return
+    const normalized = value.trim().toLowerCase()
+    if (normalized) keys.add(normalized)
+  }
+
+  push(current)
+  if (current.includes('-')) {
+    push(current.split('-')[0])
+  }
+  if (current === 'zh-cn') push('zh')
+  if (current === 'en-us') push('en')
+
+  push('zh-cn')
+  push('en-us')
+  push('zh')
+  push('en')
+
+  return Array.from(keys)
 })
 
-// 支持文本
+const safetyNoticeText = computed(() => {
+  const data: any = travel.value?.data
+  if (!data) return ''
+
+  const notices = data.safetyNotices
+  if (notices && typeof notices === 'object' && !Array.isArray(notices)) {
+    for (const key of preferredSafetyLocaleKeys.value) {
+      const value = notices[key]
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim()
+      }
+    }
+  }
+
+  if (typeof data.safetyNotice === 'string' && data.safetyNotice.trim()) {
+    return data.safetyNotice.trim()
+  }
+
+  return ''
+})
+
+const coreInsight = computed(() => {
+  const data: any = travel.value?.data
+  if (safetyNoticeText.value) {
+    return safetyNoticeText.value
+  }
+  return (
+    data?.coreInsight ||
+    data?.narrative?.threshold ||
+    data?.narrative?.stillness ||
+    t('travelDetail.experienceDay.defaultCoreInsight')
+  )
+})
+
 const supportingText = computed(() => {
-  return travel.value?.data?.narrative?.mirror ||
-         travel.value?.data?.cognitiveTriggers?.questions?.[0] ||
-         t('travelDetail.experienceDay.defaultSupportingText')
+  const slot = extractPrimarySlot()
+  if (slot?.summary && typeof slot.summary === 'string' && slot.summary.trim()) {
+    return slot.summary.trim()
+  }
+  if (itineraryData.value?.summary && typeof itineraryData.value.summary === 'string') {
+    return itineraryData.value.summary.trim()
+  }
+  const fallback =
+    travel.value?.data?.narrative?.mirror ||
+    (Array.isArray(travel.value?.data?.journeyBackground)
+      ? travel.value?.data?.journeyBackground.join(' ')
+      : travel.value?.data?.journeyBackground) ||
+    travel.value?.data?.aiMessage ||
+    travel.value?.description ||
+    ''
+
+  return fallback || t('travelDetail.experienceDay.defaultSupportingText')
 })
 
 // 底部描述段落
@@ -723,12 +752,22 @@ const itineraryDays = computed(() => {
   }))
 })
 
+const primaryDay = computed(() => {
+  if (!itineraryDays.value.length) return null
+  return itineraryDays.value[0] || null
+})
+
+const primarySlot = computed(() => {
+  return extractPrimarySlot()
+})
+
 // 活动图片存储
 const activityImages = ref<Map<string, string>>(new Map())
 const activityMediaList = ref<Map<string, PreviewMediaItem[]>>(new Map()) // 存储每个活动的多媒体（图片/视频）
 const activityVideoCache = ref<Map<string, InspirationVideo | null>>(new Map())
 const imageLoading = ref<Set<string>>(new Set())
 const imageErrors = ref<Set<string>>(new Set())
+const preparationTasksAppliedKey = ref<string | null>(null)
 
 const createImageItem = (url: string): PreviewMediaItem => ({
   type: 'image',
@@ -1045,6 +1084,146 @@ const loadAllActivityImages = async () => {
   console.log(`✅ 图片加载完成，成功加载 ${activityImages.value.size} 张图片`)
 }
 
+const INVALID_DESTINATION_PATTERN = /(未指定目的地|待定|unknown|not specified|tbd)/i
+
+const getPrimaryDestinationName = (): string => {
+  const itineraryDest =
+    itineraryData.value?.destination ||
+    travel.value?.data?.selectedLocation ||
+    travel.value?.location ||
+    travel.value?.data?.location ||
+    ''
+
+  if (itineraryDest && !INVALID_DESTINATION_PATTERN.test(itineraryDest)) {
+    return itineraryDest
+  }
+
+  const slot = primarySlot.value
+  const slotCandidates = [
+    slot?.details?.name?.chinese,
+    slot?.details?.name?.english,
+    slot?.details?.address?.chinese,
+    slot?.details?.address?.english,
+    slot?.location,
+    slot?.title,
+    slot?.activity,
+  ]
+
+  const candidate = slotCandidates.find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  )
+
+  if (candidate && !INVALID_DESTINATION_PATTERN.test(candidate)) {
+    return candidate
+  }
+
+  return itineraryDest
+}
+
+const buildPreparationKey = (travelId: string, destinationName: string): string => {
+  const normalized = encodeURIComponent(destinationName.trim().toLowerCase())
+  return `${travelId}::${normalized || 'unknown'}`
+}
+
+const ensurePreparationTasks = () => {
+  const travelId = travel.value?.id
+  if (!travelId) return
+
+  const itinerary = itineraryData.value
+  if (!itinerary || !Array.isArray(itinerary.days) || itinerary.days.length === 0) return
+
+  const destinationName = getPrimaryDestinationName()
+  if (!destinationName || INVALID_DESTINATION_PATTERN.test(destinationName)) return
+
+  const key = buildPreparationKey(travelId, destinationName)
+  if (preparationTasksAppliedKey.value === key) {
+    return
+  }
+
+  const language = locale.value || 'zh-CN'
+  const generatedTasks = buildPreparationTasks({
+    destinationName,
+    rawDestination: itinerary.destination,
+    country: travel.value?.data?.currentCountry || itinerary.country || null,
+    locale: language,
+    firstSlot: primarySlot.value,
+  })
+
+  if (!generatedTasks.length) {
+    preparationTasksAppliedKey.value = key
+    return
+  }
+
+  const travelEntry = travelListStore.getTravel(travelId)
+  if (!travelEntry) {
+    return
+  }
+
+  const existingTasks: any[] = Array.isArray(travelEntry.data?.tasks)
+    ? [...travelEntry.data.tasks]
+    : []
+  const existingKeys = new Set(
+    existingTasks
+      .map(task => (task?.autoKey || task?.metaKey || task?.id || '') as string)
+      .filter(Boolean)
+  )
+
+  const existingTaskMap = new Map(
+    existingTasks
+      .filter(task => task?.autoKey)
+      .map(task => [String(task.autoKey), task])
+  )
+
+  let tasksUpdated = false
+
+  generatedTasks.forEach(generated => {
+    const existing = existingTaskMap.get(generated.key)
+    if (existing) {
+      const hasLinks =
+        Array.isArray(existing.links) && existing.links.some((link: any) => link?.url)
+      if (!hasLinks && generated.links && generated.links.length) {
+        existing.links = generated.links
+        tasksUpdated = true
+      }
+      if (
+        typeof existing.title === 'string' &&
+        existing.title.trim() !== generated.title.trim()
+      ) {
+        existing.title = generated.title.trim()
+        tasksUpdated = true
+      }
+    }
+  })
+
+  const tasksToAdd = generatedTasks.filter(task => !existingKeys.has(task.key))
+
+  const now = Date.now()
+  const preparedTasks = tasksToAdd.map((task, index) => ({
+    id: `task_auto_${task.key}_${now + index}`,
+    title: task.title,
+    completed: false,
+    createdAt: now + index,
+    autoGenerated: true,
+    autoKey: task.key,
+    category: task.category,
+    destination: task.destinationLabel,
+    links: task.links,
+  }))
+
+  if (preparedTasks.length || tasksUpdated) {
+    const updatedData = {
+      ...travelEntry.data,
+      tasks: [...preparedTasks, ...existingTasks],
+    }
+
+    travelListStore.updateTravel(travelId, {
+      data: updatedData,
+    })
+  }
+
+  preparationTasksAppliedKey.value = key
+}
+
 // 监听行程数据变化，重新加载图片
 watch(
   [() => itineraryDays.value, () => travel.value?.id, () => destination.value],
@@ -1066,6 +1245,20 @@ watch(
     }
   },
   { deep: true, immediate: true }
+)
+
+watch(
+  [
+    () => travel.value?.id,
+    () => travel.value?.updatedAt,
+    () => itineraryData.value?.destination,
+    () => itineraryData.value?.summary,
+    () => itineraryDays.value.length,
+  ],
+  () => {
+    ensurePreparationTasks()
+  },
+  { immediate: true }
 )
 
 // 组件挂载时加载图片
@@ -1491,6 +1684,42 @@ const getSearchLocationCurrency = computed(() => {
   }
 })
 
+const searchLocationLatitude = computed(() => {
+  const slot = currentSearchContext.value?.slot
+  const slotCoords = slot ? getSlotCoords(slot) : null
+  if (slotCoords && typeof slotCoords.lat === 'number' && !Number.isNaN(slotCoords.lat)) {
+    return slotCoords.lat
+  }
+  const locCoords = searchLocation.value?.coordinates
+  if (locCoords && typeof locCoords.lat === 'number' && !Number.isNaN(locCoords.lat)) {
+    return locCoords.lat
+  }
+  return null
+})
+
+const isRemoteSearchLocation = computed(() => {
+  const text = `${searchLocation.value?.name || ''} ${searchLocation.value?.address || ''}`.toLowerCase()
+  const remoteKeywords = ['南极', '北极', '极地', 'antarctic', 'arctic', '无人区', 'polar', '冰原', '冰川', 'ocean', 'sea', 'desert']
+  const keywordMatched = remoteKeywords.some((keyword) => text.includes(keyword.toLowerCase()))
+  const lat = searchLocationLatitude.value
+  const isExtremeLatitude = typeof lat === 'number' && Math.abs(lat) >= 60
+  return keywordMatched || isExtremeLatitude
+})
+
+const noResultsDescription = computed(() => {
+  if (isRemoteSearchLocation.value) {
+    return (
+      t('travelDetail.experienceDay.noResultsRemote') ||
+      '当前地点位于偏远或极地地区，附近几乎没有公开设施，可尝试选择最近的城市或缩小搜索范围。'
+    )
+  }
+  return (
+    t('travelDetail.experienceDay.noResultsDefault') ||
+    t('travelDetail.experienceDay.noResults') ||
+    '未找到相关结果，可以尝试切换类别或调整搜索位置。'
+  )
+})
+
 interface LocationNameInfo {
   local?: string
   english?: string
@@ -1641,15 +1870,15 @@ const handleEdit = (day: number, slotIndex: number, slot: any) => {
   }
   const combinedNotes = notesPieces.join('\n')
 
+  const existingTransportModes = normalizeTransportModes(slot.details?.transportation?.options as any)
+
   editingData.value = {
     title: slot.title || slot.activity || '',
     notes: combinedNotes || reminderText || '',
     type: slot.type || slot.category || 'attraction',
     cost: slot.cost || null,
     bookingLinks: slot.bookingLinks || [],
-    transportModes: Array.isArray(slot.details?.transportation?.options)
-      ? slot.details.transportation.options.map((opt: any) => (typeof opt === 'string' ? opt : String(opt))).filter(Boolean)
-      : [],
+    transportModes: existingTransportModes,
   }
   editModalVisible.value = true
 }
@@ -1678,8 +1907,10 @@ const handleDeleteSlot = (day: number, slotIndex: number) => {
     content: t('travelDetail.experienceDay.confirmDeleteContent') || `确定要删除活动"${slot.title || slot.activity || '未命名活动'}"吗？`,
     okText: t('travelDetail.experienceDay.confirm') || '确定',
     cancelText: t('travelDetail.experienceDay.cancel') || '取消',
-    onOk: () => {
+    onOk: async () => {
       itineraryData.value.days[dayIndex].timeSlots.splice(slotIndex, 1)
+
+      await recalculateTransportAfterChange(dayIndex, slotIndex)
       
       // 保存到 store
       if (travel.value) {
@@ -1690,6 +1921,152 @@ const handleDeleteSlot = (day: number, slotIndex: number) => {
       }
     }
   })
+}
+
+const recalculateTransportAfterChange = async (dayIndex: number, startSlotIndex: number) => {
+  const days = itineraryData.value?.days
+  if (!days || !days[dayIndex]) return
+  const language = locale.value || 'zh-CN'
+  const dayData = days[dayIndex]
+  if (!Array.isArray(dayData.timeSlots)) return
+
+  for (let idx = startSlotIndex; idx < dayData.timeSlots.length; idx++) {
+    const slot = dayData.timeSlots[idx]
+    if (!slot) continue
+
+    const previousSlot = findPreviousSlot(dayIndex, idx)
+    const previousLabel = getSlotLabel(previousSlot)
+    const originLabel =
+      previousLabel || destination.value || travel.value?.location || ''
+    const destinationLabel = getSlotLabel(slot)
+    if (!destinationLabel) continue
+
+    const originCoords = getSlotCoords(previousSlot) || undefined
+    const destinationCoords = getSlotCoords(slot) || undefined
+
+    try {
+      const transportData = await fetchTransportInsights({
+        origin: originLabel || destination.value || '',
+        destination: destinationLabel,
+        language,
+        originCoords,
+        destinationCoords,
+      })
+
+      if (!slot.details || typeof slot.details !== 'object') slot.details = {}
+      if (!slot.details.transportation || typeof slot.details.transportation !== 'object') {
+        slot.details.transportation = {}
+      }
+      const transport = slot.details.transportation as Record<string, any>
+
+      if (!slot.details.operational || typeof slot.details.operational !== 'object') {
+        slot.details.operational = {}
+      }
+      const operational = slot.details.operational as Record<string, any>
+
+      if (transportData) {
+        if (transportData.summary) {
+          transport.enhancedSummary = transportData.summary
+        }
+        const normalizedModes = normalizeTransportModes(transportData.options as any)
+        if (normalizedModes.length) {
+          transport.options = normalizedModes
+        } else {
+          delete transport.options
+        }
+
+        transport.metrics = {
+          ...(transport.metrics || {}),
+          estimatedMinutes: transportData.bestDurationMinutes ?? null,
+          distanceKm: transportData.distanceKm ?? null,
+          bestLabel: transportData.bestLabel ?? null,
+          originLabel: previousLabel || null,
+          destinationLabel,
+          originCoords: transportData.originCoords ?? null,
+          destinationCoords: transportData.destinationCoords ?? null,
+        }
+
+        operational.transportSource = transportData.source
+        operational.transportFetchedAt = transportData.fetchedAt
+        if (transportData.distanceKm !== undefined) {
+          operational.transportDistanceKm = transportData.distanceKm
+        }
+        if (transportData.bestDurationMinutes !== undefined) {
+          operational.transportDurationMinutes = transportData.bestDurationMinutes
+        }
+      } else {
+        if (transport.metrics) {
+          transport.metrics.originLabel = previousLabel || null
+          transport.metrics.estimatedMinutes = null
+          transport.metrics.distanceKm = null
+        }
+        delete transport.enhancedSummary
+        delete transport.options
+      }
+    } catch (error) {
+      console.warn('[ExperienceDay] Failed to refresh transport after deletion:', error)
+    }
+  }
+}
+
+const findPreviousSlot = (dayIndex: number, slotIndex: number): any | null => {
+  const days = itineraryData.value?.days
+  if (!days) return null
+
+  const currentDay = days[dayIndex]
+  if (currentDay?.timeSlots && slotIndex > 0) {
+    const prev = currentDay.timeSlots[slotIndex - 1]
+    if (prev) return prev
+  }
+
+  for (let prevDayIndex = dayIndex - 1; prevDayIndex >= 0; prevDayIndex--) {
+    const prevDay = days[prevDayIndex]
+    if (prevDay?.timeSlots && prevDay.timeSlots.length) {
+      return prevDay.timeSlots[prevDay.timeSlots.length - 1]
+    }
+  }
+  return null
+}
+
+const getSlotLabel = (slot: any): string => {
+  if (!slot) return ''
+  const name = slot.details?.name
+  const candidates = [
+    typeof name?.chinese === 'string' ? name.chinese : '',
+    typeof name?.english === 'string' ? name.english : '',
+    typeof slot.location === 'string' ? slot.location : '',
+    typeof slot.title === 'string' ? slot.title : '',
+    typeof slot.activity === 'string' ? slot.activity : '',
+  ]
+  return candidates.find((value) => value && value.trim().length > 0)?.trim() || ''
+}
+
+const toNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null
+  const num = Number(value)
+  return Number.isFinite(num) ? num : null
+}
+
+const getSlotCoords = (slot: any): MapboxCoordinates | null => {
+  if (!slot) return null
+  const geo = slot.details?.geo
+  const geoLat = toNumber(geo?.lat)
+  const geoLng = toNumber(geo?.lng)
+  if (geoLat !== null && geoLng !== null) return { lat: geoLat, lng: geoLng }
+
+  const coords = Array.isArray(slot?.coordinates) ? slot.coordinates : null
+  if (coords && coords.length >= 2) {
+    const lat = toNumber(coords[0])
+    const lng = toNumber(coords[1])
+    if (lat !== null && lng !== null) return { lat, lng }
+  }
+
+  const detailsCoords = slot.details?.coordinates
+  const detailsLat = toNumber(detailsCoords?.lat)
+  const detailsLng = toNumber(detailsCoords?.lng)
+  if (detailsLat !== null && detailsLng !== null) return { lat: detailsLat, lng: detailsLng }
+
+  return null
 }
 
 // 添加活动
@@ -1761,12 +2138,11 @@ const openSearchModal = async (day: number, slotIndex: number, slot: any) => {
   // 设置搜索位置
   const locationName = slot.details?.name?.chinese || slot.details?.name?.english || slot.location || slot.title || '当前位置'
   const locationAddress = slot.details?.address?.chinese || slot.details?.address?.english || slot.location
-  const coordinates = slot.coordinates ? { lat: slot.coordinates.lat, lng: slot.coordinates.lng } : undefined
-  
+  const slotCoords = getSlotCoords(slot)
   searchLocation.value = {
     name: locationName,
     address: locationAddress,
-    coordinates
+    coordinates: slotCoords || undefined
   }
   
   // 重置搜索状态
@@ -1809,7 +2185,7 @@ const performSearch = async () => {
     
     if (results.length === 0) {
       console.warn(`⚠️ [UI] 未找到结果，类别: ${selectedSearchCategory.value}`)
-      message.info('未找到相关结果，请尝试其他类别或位置')
+      message.info(noResultsDescription.value)
     }
   } catch (error) {
     console.error('❌ [UI] 搜索失败:', error)
@@ -1956,7 +2332,7 @@ const handleCancelEdit = () => {
   editModalVisible.value = false
   editingSlot.value = null
   editingData.value = {
-    title: '',
+      title: '',
     notes: '',
     type: 'attraction',
     cost: null,
@@ -1966,7 +2342,7 @@ const handleCancelEdit = () => {
 }
 
 // 保存编辑
-const handleSaveEdit = () => {
+const handleSaveEdit = async () => {
   if (!editingSlot.value || !itineraryData.value?.days) return
   
   const day = editingSlot.value.day
@@ -1981,7 +2357,6 @@ const handleSaveEdit = () => {
   // 更新数据
   slot.title = editingData.value.title
   slot.activity = editingData.value.title
-  slot.notes = editingData.value.notes
   slot.type = editingData.value.type
   slot.category = editingData.value.type
   slot.cost = editingData.value.cost
@@ -1991,33 +2366,6 @@ const handleSaveEdit = () => {
     slot.details = {}
   }
 
-  const transportModes = (editingData.value.transportModes || []).filter(Boolean).map((mode: any) =>
-    typeof mode === 'string' ? mode.trim() : String(mode)
-  )
-
-  if (transportModes.length) {
-    const summary = transportModes.map(getTransportModeLabel).join('、')
-    slot.details.transportation = {
-      ...(slot.details.transportation || {}),
-      options: transportModes,
-      enhancedSummary: summary || slot.details.transportation?.enhancedSummary || '',
-    }
-  } else if (slot.details.transportation) {
-    const { enhancedSummary, ...rest } = slot.details.transportation
-    const remainingSummary = enhancedSummary || ''
-    const cleanedTransport = {
-      ...rest,
-      ...(remainingSummary ? { enhancedSummary: remainingSummary } : {}),
-    }
-
-    if (Object.keys(cleanedTransport).length > 0) {
-      slot.details.transportation = cleanedTransport
-      delete slot.details.transportation.options
-    } else {
-      delete slot.details.transportation
-    }
-  }
-  
   // 保存到 store
   if (travel.value) {
     travelListStore.updateTravel(travel.value.id, {
@@ -2569,16 +2917,36 @@ const formatDate = (date: string | Date): string => {
 // 获取每日行程摘要（优先级：summary > 其他描述）
 const getDaySummary = (day: any): string | null => {
   if (!day) return null
-  
-  // 优先使用 summary 字段（每日摘要）
-  if (day.summary && day.summary.trim()) {
-    return day.summary.trim()
+
+  const summaryCandidates: Array<string | null | undefined> = [
+    day.summary,
+    day.details?.summary,
+    day.details?.overview,
+    day.details?.narrative?.stageIntro,
+    day.details?.narrative?.overview,
+    day.details?.narrative?.callToAdventure,
+    day.coreInsight,
+  ]
+
+  for (const candidate of summaryCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim()
+    }
   }
-  
-  // 如果没有 summary，尝试从第一个活动获取描述作为备选
-  // 但这不应该优先，因为这是活动描述而不是每日摘要
-  // 这里保留作为兜底，但优先显示每日的 summary
-  
+
+  const firstSlot =
+    Array.isArray(day.timeSlots) && day.timeSlots.length > 0 ? day.timeSlots[0] : null
+  if (firstSlot) {
+    const slotSummary = formatSlotSummary(firstSlot, t)
+    if (slotSummary && slotSummary.trim()) {
+      return slotSummary.trim()
+    }
+    const scenicIntro = firstSlot.details?.description?.scenicIntro
+    if (typeof scenicIntro === 'string' && scenicIntro.trim()) {
+      return scenicIntro.trim()
+    }
+  }
+
   return null
 }
 

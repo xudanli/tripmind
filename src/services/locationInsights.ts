@@ -3,11 +3,18 @@ import { API_CONFIG } from '@/config/api'
 
 type LanguageCode = string
 
+export type MapboxCoordinates = { lat: number; lng: number }
+
 export interface TransportInsights {
   summary: string
   options: string[]
   source: string
   fetchedAt: string
+  bestDurationMinutes?: number
+  bestLabel?: string
+  distanceKm?: number
+  originCoords?: MapboxCoordinates
+  destinationCoords?: MapboxCoordinates
 }
 
 export interface OpeningInsights {
@@ -26,8 +33,6 @@ export interface PricingInsights {
     platform?: string
   }
 }
-
-const isBrowser = typeof window !== 'undefined'
 
 const formatISODate = () => new Date().toISOString().split('T')[0]
 
@@ -228,18 +233,20 @@ const haversineDistanceKm = (a: MapboxCoordinates, b: MapboxCoordinates) => {
 async function fetchMapboxDirections(
   origin: string,
   destination: string,
-  language: LanguageCode
+  language: LanguageCode,
+  originCoordsOverride?: MapboxCoordinates | null,
+  destinationCoordsOverride?: MapboxCoordinates | null
 ): Promise<TransportInsights | null> {
   if (!API_CONFIG.MAPBOX_ACCESS_TOKEN) return null
   const lang = normalizeMapboxLanguage(language)
   try {
-    const [originCoords, destCoords] = await Promise.all([
-      geocodeMapbox(origin, lang),
-      geocodeMapbox(destination, lang),
+    const [originCoordsResolved, destCoordsResolved] = await Promise.all([
+      originCoordsOverride ? Promise.resolve(originCoordsOverride) : geocodeMapbox(origin, lang),
+      destinationCoordsOverride ? Promise.resolve(destinationCoordsOverride) : geocodeMapbox(destination, lang),
     ])
-    if (!originCoords || !destCoords) return null
+    if (!originCoordsResolved || !destCoordsResolved) return null
 
-    const straightDistanceKm = haversineDistanceKm(originCoords, destCoords)
+    const straightDistanceKm = haversineDistanceKm(originCoordsResolved, destCoordsResolved)
 
     const profiles: Array<{ key: string; labelZh: string; labelEn: string }> =
       straightDistanceKm > 60
@@ -258,7 +265,7 @@ async function fetchMapboxDirections(
     for (const profile of profiles) {
       try {
         const response = await fetch(
-          `${API_CONFIG.MAPBOX_API_URL}/directions/v5/mapbox/${profile.key}/${originCoords.lng},${originCoords.lat};${destCoords.lng},${destCoords.lat}?alternatives=true&steps=true&overview=false&language=${lang}&access_token=${API_CONFIG.MAPBOX_ACCESS_TOKEN}`
+          `${API_CONFIG.MAPBOX_API_URL}/directions/v5/mapbox/${profile.key}/${originCoordsResolved.lng},${originCoordsResolved.lat};${destCoordsResolved.lng},${destCoordsResolved.lat}?alternatives=true&steps=true&overview=false&language=${lang}&access_token=${API_CONFIG.MAPBOX_ACCESS_TOKEN}`
         )
         if (!response.ok) continue
         const data = await response.json()
@@ -315,6 +322,11 @@ async function fetchMapboxDirections(
       options: Array.from(new Set(options)).slice(0, 4),
       source: 'Mapbox Directions',
       fetchedAt: formatISODate(),
+      bestDurationMinutes: Number.isFinite(bestDuration) ? bestDuration : undefined,
+      bestLabel: bestLabel || undefined,
+      distanceKm: Number.isFinite(minDistanceKm) ? Number(minDistanceKm.toFixed(1)) : undefined,
+      originCoords: originCoordsResolved,
+      destinationCoords: destCoordsResolved,
     }
     if (import.meta.env.DEV) {
       console.info('[TransportInsights] Mapbox success', {
@@ -337,8 +349,10 @@ export async function fetchTransportInsights(options: {
   origin: string
   destination: string
   language: LanguageCode
+  originCoords?: MapboxCoordinates | null
+  destinationCoords?: MapboxCoordinates | null
 }): Promise<TransportInsights | null> {
-  const { origin, destination, language } = options
+  const { origin, destination, language, originCoords, destinationCoords } = options
   if (!origin || !destination) {
     if (import.meta.env.DEV) {
       console.info('[TransportInsights] skipped: missing origin or destination', { origin, destination })
@@ -350,7 +364,13 @@ export async function fetchTransportInsights(options: {
   // const googleResult = await fetchGoogleDirections(origin, destination, language)
   // if (googleResult) return googleResult
 
-  const mapboxResult = await fetchMapboxDirections(origin, destination, language)
+  const mapboxResult = await fetchMapboxDirections(
+    origin,
+    destination,
+    language,
+    originCoords || undefined,
+    destinationCoords || undefined
+  )
   if (mapboxResult) return mapboxResult
 
   if (import.meta.env.DEV) {

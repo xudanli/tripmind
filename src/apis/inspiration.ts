@@ -66,7 +66,8 @@ export async function generateInspirationJourney(
   heldVisas?: string[],
   visaFreeDestinations?: string[],
   visaInfoSummary?: string | null,
-  transportPreference?: 'public_transit_and_walking' | 'driving_and_walking'
+  transportPreference?: 'public_transit_and_walking' | 'driving_and_walking',
+  mode: 'full' | 'candidates' = 'full'
 ): Promise<any> {
   const logger = new LoggingAdapter(false)
   
@@ -75,6 +76,7 @@ export async function generateInspirationJourney(
   logger.log(`📝 输入: ${input.substring(0, 100)}${input.length > 100 ? '...' : ''}`)
   logger.log(`🌍 语言: ${language}`)
   logger.log(`📍 目的地: ${selectedDestination || '未指定'}`)
+  logger.log(`🎯 生成模式: ${mode}`)
   
   try {
     const intentService = createIntentService({ logger })
@@ -115,22 +117,28 @@ export async function generateInspirationJourney(
       intent,
       ctx,
       selectedDestination,
-      userRequestedDays: userRequestedDays || null
+      userRequestedDays: userRequestedDays || null,
+      mode
     })
     logger.log(`   ✅ 旅程生成完成，共 ${itinerary.days?.length || 0} 天`)
 
-    // 5. 校验
-    logger.log('📊 步骤 5/5: 校验行程...')
-    const validation = validateInspirationItinerary(itinerary)
-    if (!validation.ok) {
-      logger.warn('⚠️ 行程校验失败:', validation.error)
-      // 不抛出错误，返回可用部分
+    let finalItinerary = itinerary
+    if (mode === 'full') {
+      // 5. 校验
+      logger.log('📊 步骤 5/5: 校验行程...')
+      const validation = validateInspirationItinerary(itinerary)
+      if (!validation.ok) {
+        logger.warn('⚠️ 行程校验失败:', validation.error)
+        // 不抛出错误，返回可用部分
+      } else {
+        logger.log('   ✅ 行程校验通过')
+      }
+      finalItinerary = validation.fixed || itinerary
     } else {
-      logger.log('   ✅ 行程校验通过')
+      logger.log('📊 候选模式：跳过详细校验，直接返回框架结果')
     }
 
     // 6. 从 Itinerary 生成 highlights（如果不存在）
-    const finalItinerary = validation.fixed || itinerary
     let result: any = { ...finalItinerary }
     
     // 如果缺少 highlights，从 psychologicalFlow 或 days 中提取
@@ -164,7 +172,15 @@ export async function generateInspirationJourney(
       logger.log(`   ✅ 生成了 ${result.highlights.length} 个体验亮点`)
     }
     
-    // 7. 返回修复后的结果
+    // 7. 返回修复后的结果，并标记生成模式
+    const hasDetailedSlots =
+      Array.isArray(result.days) &&
+      result.days.length > 0 &&
+      result.days.every(
+        (day: any) => Array.isArray(day?.timeSlots) && day.timeSlots.length > 0
+      )
+    result.hasFullItinerary = mode === 'full' && hasDetailedSlots
+    result.generationMode = mode
     logger.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
     return result
   } catch (error: any) {

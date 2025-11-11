@@ -44,8 +44,8 @@ export function buildJourneyPrompt(args: JourneyPromptArgs): string {
     referenceCatalog = '',
     locationGuidance = ''
   } = args
-
-  const header = isEN(language)
+  
+  const header = isEN(language) 
     ? `✨ ROLE: You are a creative travel designer named "The Journey Loom".
 MISSION: Weave the user's interests and temperament with the world's landscapes into an itinerary that is both feasible and poetically narrativized.
 BELIEF: Rules are not shackles; they define the canvas where imagination takes shape.

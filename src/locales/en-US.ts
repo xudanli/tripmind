@@ -66,7 +66,11 @@ export default {
       aiTravelPartnerSays: 'AI Travel Partner Says:',
       createJourney: 'Create Journey',
       viewMoreInspiration: 'View More Inspiration',
-      selectLocationFirst: 'Please select a recommended location first'
+      selectLocationFirst: 'Please select a recommended location first',
+      generateDetailedItinerary: 'Generate Detailed Itinerary',
+      chooseDestinationHint: 'Pick a destination and click "Generate Detailed Itinerary" to fill in the details.',
+      detailedJourneyRequired: 'Please generate the detailed itinerary before creating the journey',
+      candidatesReady: 'Candidate destinations ready. Choose one you love and generate the detailed itinerary.'
     }
   },
 
@@ -480,6 +484,10 @@ export default {
       stayPending: 'Stay time pending',
       weatherUnavailable: 'Weather update pending',
       transportUnavailable: 'Transport info pending',
+      transportDurationMinutes: 'Travel time ~{minutes} min',
+      transportDistanceKm: 'Distance ~{distance} km',
+      transportFromPrevious: 'From {origin} to this stop ~{minutes} min',
+      transportPreviousStop: 'previous stop',
       prepSectionTitle: 'Before you go',
       prepStayLabel: 'Stay time',
       prepOutfitLabel: 'What to wear',
@@ -568,7 +576,10 @@ export default {
       addToItinerary: 'Add to Itinerary',
       viewDetails: 'View Details',
       noResults: 'No results found',
+      noResultsDefault: 'No nearby places were found. Try switching the category or adjusting the location.',
+      noResultsRemote: 'This spot is in a very remote or polar region, so public facilities are scarce. Consider searching the nearest town or widening the search radius.',
       edit: 'Edit',
+      activityDetailLabel: 'Activity Highlights',
       delete: 'Delete',
       addActivity: 'Add Activity',
       confirmDelete: 'Confirm Delete',

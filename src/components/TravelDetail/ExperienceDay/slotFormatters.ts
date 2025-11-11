@@ -25,6 +25,9 @@ export interface SlotChips {
 export interface TransportInfo {
   summary: string | null
   items: string[]
+  originLabel?: string | null
+  durationMinutes?: number | null
+  distanceKm?: number | null
 }
 
 export const formatReviewCount = (count: number): string => {
@@ -41,6 +44,10 @@ export const getActivitySummary = (slot: any, t: TranslateFn): string | null => 
   if (!slot) return null
   if (slot.summary && slot.summary.trim()) {
     return slot.summary.trim()
+  }
+  const scenicIntro = slot.details?.description?.scenicIntro
+  if (typeof scenicIntro === 'string' && scenicIntro.trim()) {
+    return scenicIntro.trim()
   }
   if (slot.notes && slot.notes.trim()) {
     return slot.notes.trim()
@@ -201,7 +208,43 @@ export const buildTransportInfo = (transport: any, t: TranslateFn): TransportInf
       ? transport.enhancedSummary.trim()
       : ''
 
-  const items = Array.isArray(transport.options)
+  const metaItems: string[] = []
+  const metrics = transport.metrics || {}
+
+  const estimatedMinutes = Number(metrics?.estimatedMinutes ?? metrics?.durationMinutes)
+  if (Number.isFinite(estimatedMinutes) && estimatedMinutes > 0) {
+    const originLabel =
+      typeof metrics?.originLabel === 'string' && metrics.originLabel.trim()
+        ? metrics.originLabel.trim()
+        : t('travelDetail.experienceDay.transportPreviousStop')
+
+    metaItems.push(
+      t('travelDetail.experienceDay.transportFromPrevious', {
+        origin: originLabel,
+        minutes: Math.round(estimatedMinutes),
+      })
+    )
+  }
+
+  const distanceKm = Number(metrics?.distanceKm)
+  if (Number.isFinite(distanceKm) && distanceKm > 0) {
+    const formattedDistance = distanceKm >= 10 ? distanceKm.toFixed(1) : distanceKm.toFixed(2)
+    metaItems.push(
+      t('travelDetail.experienceDay.transportDistanceKm', {
+        distance: formattedDistance,
+      })
+    )
+  }
+
+  const bestLabel =
+    typeof metrics?.bestLabel === 'string' && metrics.bestLabel.trim()
+      ? metrics.bestLabel.trim()
+      : ''
+  if (bestLabel) {
+    metaItems.push(bestLabel)
+  }
+
+  const optionItems = Array.isArray(transport.options)
     ? transport.options
         .map((item: any) =>
           typeof item === 'string' ? item.replace(/^•\s*/, '').trim() : ''
@@ -209,10 +252,22 @@ export const buildTransportInfo = (transport: any, t: TranslateFn): TransportInf
         .filter(Boolean)
     : []
 
-  if (summary || items.length) {
+  const combinedItems = [...metaItems, ...optionItems]
+
+  if (summary || combinedItems.length) {
     return {
       summary: summary || null,
-      items,
+      items: combinedItems,
+      originLabel:
+        typeof metrics?.originLabel === 'string' && metrics.originLabel.trim()
+          ? metrics.originLabel.trim()
+          : null,
+      durationMinutes:
+        Number.isFinite(estimatedMinutes) && estimatedMinutes > 0
+          ? Math.round(Number(estimatedMinutes))
+          : null,
+      distanceKm:
+        Number.isFinite(distanceKm) && distanceKm > 0 ? Number(distanceKm.toFixed(2)) : null,
     }
   }
 

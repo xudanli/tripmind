@@ -19,6 +19,8 @@ export interface DayDetailsPromptArgs {
     language: string
     previousDays?: any[]
     transportPreference?: 'public_transit_and_walking' | 'driving_and_walking'
+    allowArrivalSlot?: boolean
+    highAltitude?: boolean
   }
 }
 
@@ -30,11 +32,29 @@ import { buildLanguageRequirementBlock, buildJSONCompletenessRequirement, buildT
 export function buildDayDetailsPrompt(args: DayDetailsPromptArgs): { system: string; user: string } {
   const { dayIndex, baseDay, context } = args
   const isEnglish = context.language.startsWith('en')
+  const allowArrivalSlot = !!context.allowArrivalSlot
+  const isHighAltitude = !!context.highAltitude
 
   const languageRequirement = buildLanguageRequirementBlock(
     context.language,
     ['title', 'activity', 'notes', 'localTip', 'internalTrack.question', 'internalTrack.ritual', 'internalTrack.reflection', 'transportation descriptions']
   )
+
+  const arrivalInstruction = (() => {
+    if (allowArrivalSlot) {
+      if (isEnglish) {
+        return isHighAltitude
+          ? `Day 1: describe arrival via the nearest airport/high-speed hub, baggage claim, transfers, check-in, **and altitude acclimatization tips** (hydrate, slow pace, buffer overnight if needed).`
+          : `Day 1: describe arrival via the nearest airport/high-speed hub, baggage claim, transfers, and check-in. The destination is not high-altitude—do **not** mention acclimatization.`
+      }
+      return isHighAltitude
+        ? `第 1 天：描写抵达最近机场/高铁、提取行李、衔接交通与入住，并加入循序渐进的高原适应提示（补水、放缓行动、必要时增加过夜缓冲）。`
+        : `第 1 天：描写抵达最近机场/高铁、提取行李、衔接交通与入住。目的地不属于高海拔地区，请不要写“高原适应”相关内容。`
+    }
+    return isEnglish
+      ? `Later days: **do not** create new airport/high-speed arrival slots; begin directly with in-destination transfers or experiences.`
+      : `后续天数：不要再写机场/高铁抵达节点，直接安排目的地内的交通衔接或体验。`
+  })()
 
   const systemPrompt = isEnglish
     ? `你是一位名为“地旅织图师”的智能旅行行程设计师。你的任务是：根据用户输入的主题、情绪、心理阶段与目的地，为一天生成富有叙事性且真实地理精确的行程规划，平衡创意、地理真实性与心理契合度。
@@ -54,6 +74,9 @@ For Day ${dayIndex}:
 - Experience Inspiration: leverage GETYOURGUIDE official catalog (rewrite in your own words)
 - Places/F&B/Hotels Ratings: sourced from TRIPADVISOR (rewrite in original wording)
 - Geospatial Data: rely on MAPBOX precise coordinates and administrative hierarchy
+
+Arrival Guidance:
+- ${arrivalInstruction}
 
 ${context.previousDays && context.previousDays.length > 0 
   ? `If prior days exist, reference them:\n${context.previousDays.map((d, i) => `Day ${i + 1}: ${d.timeSlots?.map((s: any) => s.location).filter(Boolean).join(', ') || 'None'}`).join('\n')}`
@@ -98,7 +121,6 @@ ${context.previousDays && context.previousDays.length > 0
 - Each timeSlot is a narrative node mirroring the day's emotional stage.
 - Use guide-style voice with sensory verbs (see/listen/taste/touch/feel/think).
 - Prioritize sustainable travel, local authenticity, and grounded experiences.
-- Include the arrival/acclimatization sequence in the first slot when relevant (nearest airport/high-speed hub, altitude tips).
 
 Return JSON only.`
     : `你是一位名为「地旅织图师」的智能旅行行程设计师。你的任务是：根据用户输入的主题、情绪、心理阶段与目的地，为一天生成富有叙事性且真实地理精确的行程规划，在创意、地理真实性与心理契合度三者之间取得平衡。
@@ -118,6 +140,9 @@ ${languageRequirement}
 - 体验活动灵感：参考 GETYOURGUIDE 官方项目（需用自己的中文表达重写）
 - 景点、酒店、餐厅与评分：参考 TRIPADVISOR 官方数据（中文原创描述）
 - 地理位置：使用 MAPBOX 的真实经纬度与行政层级数据
+
+到达节点指引：
+- ${arrivalInstruction}
 
 ${context.previousDays && context.previousDays.length > 0 
   ? `若存在前几天的行程，请引用：\n${context.previousDays.map((d, i) => `第${i + 1}天：${d.timeSlots?.map((s: any) => s.location).filter(Boolean).join('、') || '无'}`).join('\n')}`
@@ -162,7 +187,6 @@ ${context.previousDays && context.previousDays.length > 0
 - 每个 timeSlot 都是心理阶段的故事节点。
 - 使用导游语气与情绪语言（例：“当你走上老城坡道，阳光就像记忆一样落在石阶上”）。
 - 优先推荐可持续、在地、具象的体验。
-- 首个时段须涵盖抵达最近机场/高铁及高原适应提示（如适用）。
 
 仅返回 JSON。`
 

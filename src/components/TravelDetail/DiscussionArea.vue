@@ -382,9 +382,9 @@ const detectItineraryInfo = (content: string): any | null => {
       const timeIndex = content.indexOf(timeMatch[0])
       if (timeIndex !== -1) {
         const afterTime = content.substring(timeIndex + timeMatch[0].length).trim()
-    const activityMatch = afterTime.match(/^[^，。！？\n]+/)
+        const activityMatch = afterTime.match(/^[^，。！？\n]+/)
     if (activityMatch?.[0]) {
-      activityName = activityMatch[0].trim()
+          activityName = activityMatch[0].trim()
         }
       }
     }

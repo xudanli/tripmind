@@ -1,5 +1,17 @@
 <template>
-  <a-card v-if="visaInfo" class="visa-guide-card" :bordered="false">
+  <!-- 开发环境调试信息 -->
+  <a-card v-if="isDev && props.visaInfo && !validVisaInfo" class="visa-guide-card" :bordered="false" style="border: 2px solid red;">
+    <template #title>
+      <span style="color: red;">⚠️ 签证信息验证失败</span>
+    </template>
+    <div style="font-size: 12px; color: #666;">
+      <p>接收到的签证信息：</p>
+      <pre style="background: #f5f5f5; padding: 8px; border-radius: 4px; overflow: auto;">{{ JSON.stringify(props.visaInfo, null, 2) }}</pre>
+      <p style="margin-top: 8px; color: red;">请检查控制台日志了解验证失败的原因</p>
+    </div>
+  </a-card>
+
+  <a-card v-if="validVisaInfo" class="visa-guide-card" :bordered="false">
     <template #title>
       <span style="display: flex; align-items: center; gap: 8px;">
         <span>✈️</span>
@@ -15,22 +27,22 @@
         </div>
         <div class="status-text">
           <div class="status-title">{{ visaStatusTitle }}</div>
-          <div class="status-detail">{{ visaInfo.description || getDefaultDescription() }}</div>
+          <div class="status-detail">{{ validVisaInfo.description || getDefaultDescription() }}</div>
         </div>
       </div>
       
-      <div v-if="visaInfo.duration" class="visa-duration">
+      <div v-if="validVisaInfo.duration" class="visa-duration">
         <span class="duration-label">停留期限：</span>
-        <span class="duration-value">{{ visaInfo.duration }}天</span>
+        <span class="duration-value">{{ validVisaInfo.duration }}天</span>
       </div>
       
       <!-- 免签情况 -->
-      <div v-if="visaInfo.visaType === 'visa-free'" class="visa-actions">
+      <div v-if="validVisaInfo.visaType === 'visa-free'" class="visa-actions">
         <a-alert
           type="success"
           show-icon
           message="✅ 免签入境"
-          :description="`恭喜！您前往${visaInfo.destinationName}无需提前申请签证，可以直接入境。${visaInfo.duration ? `停留期限：${visaInfo.duration}天。` : ''}`"
+          :description="`恭喜！您前往${validVisaInfo.destinationName}无需提前申请签证，可以直接入境。${validVisaInfo.duration ? `停留期限：${validVisaInfo.duration}天。` : ''}`"
         >
         </a-alert>
         <div class="action-tips">
@@ -45,18 +57,18 @@
       </div>
       
       <!-- 需要提前申请签证 -->
-      <div v-else-if="visaInfo.visaType === 'visa-required'" class="visa-actions">
+      <div v-else-if="validVisaInfo.visaType === 'visa-required'" class="visa-actions">
         <a-alert
           type="warning"
           show-icon
-          :message="`${visaInfo.destinationName}对${visaInfo.applicableTo}需要提前申请签证`"
+          :message="`${validVisaInfo.destinationName}对${validVisaInfo.applicableTo}需要提前申请签证`"
           :description="`建议提前${getRecommendedDays()}天申请签证，以确保出行顺利。`"
         >
         </a-alert>
-        <div v-if="visaInfo.applicationUrl" class="visa-application-link">
+        <div v-if="validVisaInfo.applicationUrl" class="visa-application-link">
           <a-button 
             type="primary" 
-            :href="visaInfo.applicationUrl" 
+            :href="validVisaInfo.applicationUrl" 
             target="_blank"
             rel="noopener noreferrer"
             class="application-btn"
@@ -76,7 +88,7 @@
       </div>
       
       <!-- 电子签证 -->
-      <div v-else-if="visaInfo.visaType === 'e-visa'" class="visa-actions">
+      <div v-else-if="validVisaInfo.visaType === 'e-visa'" class="visa-actions">
         <a-alert
           type="info"
           show-icon
@@ -84,10 +96,10 @@
           :description="`您可以在线申请电子签证，通常处理时间较快。建议提前申请以确保出行顺利。`"
         >
         </a-alert>
-        <div v-if="visaInfo.applicationUrl" class="visa-application-link">
+        <div v-if="validVisaInfo.applicationUrl" class="visa-application-link">
           <a-button 
             type="primary" 
-            :href="visaInfo.applicationUrl" 
+            :href="validVisaInfo.applicationUrl" 
             target="_blank"
             rel="noopener noreferrer"
             class="application-btn"
@@ -107,7 +119,7 @@
       </div>
       
       <!-- 落地签 -->
-      <div v-else-if="visaInfo.visaType === 'visa-on-arrival'" class="visa-actions">
+      <div v-else-if="validVisaInfo.visaType === 'visa-on-arrival'" class="visa-actions">
         <a-alert
           type="success"
           show-icon
@@ -134,6 +146,7 @@ import { computed } from 'vue'
 import { CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons-vue'
 import { useI18n } from 'vue-i18n'
 import type { VisaInfo } from '@/config/visa'
+import { isValidVisaInfo } from '@/config/visa'
 
 const { t } = useI18n()
 
@@ -149,20 +162,55 @@ const props = withDefaults(defineProps<Props>(), {
   destinationName: ''
 })
 
+// 校验签证信息
+const validVisaInfo = computed(() => {
+  if (!props.visaInfo) {
+    console.log('⚠️ VisaGuide: props.visaInfo 为空')
+    return null
+  }
+  
+  console.log('🔍 VisaGuide: 接收到签证信息，开始验证:', {
+    destinationCountry: props.visaInfo.destinationCountry,
+    destinationName: props.visaInfo.destinationName,
+    visaType: props.visaInfo.visaType,
+    applicableTo: props.visaInfo.applicableTo,
+    hasDescription: !!props.visaInfo.description,
+    hasDuration: props.visaInfo.duration !== undefined,
+    hasApplicationUrl: !!props.visaInfo.applicationUrl
+  })
+  
+  if (!isValidVisaInfo(props.visaInfo)) {
+    console.warn('⚠️ VisaGuide: 接收到无效的签证信息', props.visaInfo)
+    console.warn('⚠️ VisaGuide: 验证失败，检查字段:', {
+      hasDestinationCountry: !!props.visaInfo.destinationCountry,
+      hasDestinationName: !!props.visaInfo.destinationName,
+      hasVisaType: !!props.visaInfo.visaType,
+      hasApplicableTo: !!props.visaInfo.applicableTo,
+      visaTypeValue: props.visaInfo.visaType,
+      visaTypeValid: ['visa-free', 'visa-on-arrival', 'e-visa', 'visa-required', 'permanent-resident-benefit'].includes(props.visaInfo.visaType)
+    })
+    return null
+  }
+  
+  console.log('✅ VisaGuide: 签证信息验证通过')
+  return props.visaInfo
+})
+
 const isVisaFree = computed(() => {
-  return props.visaInfo?.visaType === 'visa-free'
+  return validVisaInfo.value?.visaType === 'visa-free'
 })
 
 const visaStatusClass = computed(() => {
+  if (!validVisaInfo.value) return 'visa-required'
   if (isVisaFree.value) return 'visa-free'
-  if (props.visaInfo?.visaType === 'visa-on-arrival' || props.visaInfo?.visaType === 'e-visa') {
+  if (validVisaInfo.value.visaType === 'visa-on-arrival' || validVisaInfo.value.visaType === 'e-visa') {
     return 'visa-convenient'
   }
   return 'visa-required'
 })
 
 const visaStatusTitle = computed(() => {
-  if (!props.visaInfo) return ''
+  if (!validVisaInfo.value) return ''
   
   const typeMap: Record<string, string> = {
     'visa-free': '✅ 免签入境',
@@ -172,12 +220,12 @@ const visaStatusTitle = computed(() => {
     'permanent-resident-benefit': '🪪 永久居民便利政策'
   }
   
-  return typeMap[props.visaInfo.visaType] || '签证信息'
+  return typeMap[validVisaInfo.value.visaType] || '签证信息'
 })
 
 const getDefaultDescription = () => {
-  if (!props.visaInfo) return ''
-  return `${props.visaInfo.destinationName}对${props.visaInfo.applicableTo}${props.visaInfo.visaType === 'visa-free' ? '免签入境' : '需要签证'}`
+  if (!validVisaInfo.value) return ''
+  return `${validVisaInfo.value.destinationName}对${validVisaInfo.value.applicableTo}${validVisaInfo.value.visaType === 'visa-free' ? '免签入境' : '需要签证'}`
 }
 
 const getRecommendedDays = () => {

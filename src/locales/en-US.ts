@@ -587,7 +587,27 @@ export default {
       confirm: 'Confirm',
       deleteSuccess: 'Activity deleted',
       addSuccess: 'Activity added',
-      newActivity: 'New Activity'
+      newActivity: 'New Activity',
+      // Persona Profile & Journey Design
+      personaJourney: 'Persona Profile & Journey Design',
+      personaProfile: 'Persona Profile',
+      personaType: 'Type',
+      motivation: 'Motivation',
+      dominantEmotion: 'Dominant Emotion',
+      travelRhythm: 'Travel Rhythm',
+      socialPreference: 'Social Preference',
+      cognitiveNeed: 'Cognitive Need',
+      foodPreference: 'Food Preference',
+      journeyDesign: 'Journey Design',
+      coreInsight: 'Core Insight',
+      psychologicalFlow: 'Psychological Flow',
+      symbolicElements: 'Symbolic Elements',
+      recommendedRhythm: 'Recommended Rhythm',
+      socialMode: 'Social Mode',
+      defaultInspirationTitle: 'Meeting Yourself in the Wind',
+      defaultCoreInsight: 'True freedom is finding inner balance between rising and falling',
+      defaultSupportingText: 'When letting go is seen, perspective becomes lighter, and trust draws closer.',
+      defaultSource: 'Official Data'
     },
     bookingInfo: {
       title: 'Booking Information',

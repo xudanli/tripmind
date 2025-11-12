@@ -85,82 +85,6 @@
       </div>
     </section>
 
-    <!-- 人格画像和旅程设计 -->
-    <section v-if="personaProfile || journeyDesign" class="persona-journey-section">
-      <h3 class="section-title">{{ t('travelDetail.experienceDay.personaJourney') || '人格画像与旅程设计' }}</h3>
-      
-      <!-- 人格画像 -->
-      <div v-if="personaProfile" class="persona-profile-card">
-        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.personaProfile') || '人格画像' }}</h4>
-        <div class="persona-details">
-          <div v-if="personaProfile.type" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.personaType') || '类型' }}：</span>
-            {{ personaProfile.type }}
-          </div>
-          <div v-if="personaProfile.motivation" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.motivation') || '动机' }}：</span>
-            {{ personaProfile.motivation }}
-            <span v-if="personaProfile.motivation_detail">（{{ personaProfile.motivation_detail }}）</span>
-          </div>
-          <div v-if="personaProfile.dominantEmotion" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.dominantEmotion') || '主导情绪' }}：</span>
-            {{ personaProfile.dominantEmotion }}
-            <span v-if="personaProfile.desiredEmotion"> → {{ personaProfile.desiredEmotion }}</span>
-          </div>
-          <div v-if="personaProfile.travelRhythm" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.travelRhythm') || '旅行节奏' }}：</span>
-            {{ personaProfile.travelRhythm }}
-          </div>
-          <div v-if="personaProfile.socialPreference" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.socialPreference') || '社交偏好' }}：</span>
-            {{ personaProfile.socialPreference }}
-          </div>
-          <div v-if="personaProfile.cognitiveNeed" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.cognitiveNeed') || '认知需求' }}：</span>
-            {{ personaProfile.cognitiveNeed }}
-          </div>
-          <div v-if="personaProfile.foodPreference" class="persona-item">
-            <span class="persona-label">{{ t('travelDetail.experienceDay.foodPreference') || '美食偏好' }}：</span>
-            {{ personaProfile.foodPreference }}
-          </div>
-        </div>
-      </div>
-      
-      <!-- 旅程设计 -->
-      <div v-if="journeyDesign" class="journey-design-card">
-        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.journeyDesign') || '旅程设计' }}</h4>
-        <div class="journey-details">
-          <div v-if="journeyDesign.coreInsight" class="journey-item">
-            <span class="journey-label">{{ t('travelDetail.experienceDay.coreInsight') || '核心洞察' }}：</span>
-            <p class="journey-text">{{ journeyDesign.coreInsight }}</p>
-          </div>
-          <div v-if="journeyDesign.psychologicalFlow && journeyDesign.psychologicalFlow.length" class="journey-item">
-            <span class="journey-label">{{ t('travelDetail.experienceDay.psychologicalFlow') || '心理流程' }}：</span>
-            <div class="journey-flow">
-              <span v-for="(flow, idx) in journeyDesign.psychologicalFlow" :key="idx" class="flow-item">
-                {{ flow }}<span v-if="idx < journeyDesign.psychologicalFlow.length - 1"> → </span>
-              </span>
-            </div>
-          </div>
-          <div v-if="journeyDesign.symbolicElements && journeyDesign.symbolicElements.length" class="journey-item">
-            <span class="journey-label">{{ t('travelDetail.experienceDay.symbolicElements') || '象征元素' }}：</span>
-            <div class="journey-symbols">
-              <a-tag v-for="(element, idx) in journeyDesign.symbolicElements" :key="idx" color="purple">
-                {{ element }}
-              </a-tag>
-            </div>
-          </div>
-          <div v-if="journeyDesign.recommendedRhythm" class="journey-item">
-            <span class="journey-label">{{ t('travelDetail.experienceDay.recommendedRhythm') || '推荐节奏' }}：</span>
-            {{ journeyDesign.recommendedRhythm }}
-          </div>
-          <div v-if="journeyDesign.socialMode" class="journey-item">
-            <span class="journey-label">{{ t('travelDetail.experienceDay.socialMode') || '社交模式' }}：</span>
-            {{ journeyDesign.socialMode }}
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- 认知触发器和疗愈设计 -->
     <section v-if="cognitiveTriggers || healingDesign" class="cognitive-healing-section">
@@ -250,7 +174,7 @@
             :placeholder="t('travelDetail.experienceDay.activityName')"
           />
         </div>
-
+        
         <div class="edit-form-item">
           <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityType') }}</label>
           <a-select 
@@ -1274,16 +1198,6 @@ onMounted(() => {
 // 心理流程阶段
 const mentalFlowStages = computed(() => {
   return travel.value?.data?.mentalFlowStages || null
-})
-
-// 人格画像
-const personaProfile = computed(() => {
-  return travel.value?.data?.personaProfile || null
-})
-
-// 旅程设计
-const journeyDesign = computed(() => {
-  return travel.value?.data?.journeyDesign || null
 })
 
 // 认知触发器
@@ -2365,7 +2279,7 @@ const handleSaveEdit = async () => {
   if (!slot.details) {
     slot.details = {}
   }
-
+  
   // 保存到 store
   if (travel.value) {
     travelListStore.updateTravel(travel.value.id, {
@@ -2917,7 +2831,7 @@ const formatDate = (date: string | Date): string => {
 // 获取每日行程摘要（优先级：summary > 其他描述）
 const getDaySummary = (day: any): string | null => {
   if (!day) return null
-
+  
   const summaryCandidates: Array<string | null | undefined> = [
     day.summary,
     day.details?.summary,
@@ -2946,7 +2860,7 @@ const getDaySummary = (day: any): string | null => {
       return scenicIntro.trim()
     }
   }
-
+  
   return null
 }
 
@@ -4952,82 +4866,6 @@ const getVisaActionTips = (visaType: string): any => {
 
 .stage-activities li {
   margin-bottom: 0.25rem;
-}
-
-/* 人格画像和旅程设计样式 */
-.persona-journey-section {
-  margin-top: 3rem;
-  padding: 2rem;
-  background: #fafafa;
-  border-radius: 8px;
-}
-
-.persona-profile-card,
-.journey-design-card {
-  margin-bottom: 2rem;
-  padding: 1.5rem;
-  background: white;
-  border-radius: 8px;
-  border: 1px solid #e8e8e8;
-}
-
-.persona-profile-card:last-child,
-.journey-design-card:last-child {
-  margin-bottom: 0;
-}
-
-.subsection-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #722ed1;
-}
-
-.persona-details,
-.journey-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.persona-item,
-.journey-item {
-  color: #555;
-  line-height: 1.6;
-}
-
-.persona-label,
-.journey-label {
-  font-weight: 600;
-  color: #666;
-  margin-right: 0.5rem;
-}
-
-.journey-text {
-  margin-top: 0.5rem;
-  color: #555;
-  line-height: 1.6;
-}
-
-.journey-flow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-
-.flow-item {
-  color: #555;
-  font-size: 0.95rem;
-}
-
-.journey-symbols {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
 }
 
 /* 认知和疗愈样式 */

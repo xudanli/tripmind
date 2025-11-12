@@ -328,17 +328,68 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
 }
 
 /**
+ * 校验签证信息是否有效
+ * @param visaInfo 签证信息对象
+ * @returns 是否有效
+ */
+export function isValidVisaInfo(visaInfo: any): visaInfo is VisaInfo {
+  if (!visaInfo || typeof visaInfo !== 'object') {
+    return false
+  }
+  
+  // 检查必要字段
+  if (!visaInfo.destinationCountry || typeof visaInfo.destinationCountry !== 'string') {
+    return false
+  }
+  
+  if (!visaInfo.destinationName || typeof visaInfo.destinationName !== 'string') {
+    return false
+  }
+  
+  if (!visaInfo.visaType || typeof visaInfo.visaType !== 'string') {
+    return false
+  }
+  
+  // 校验 visaType 是否为有效值
+  const validVisaTypes: VisaType[] = ['visa-free', 'visa-on-arrival', 'e-visa', 'visa-required', 'permanent-resident-benefit']
+  if (!validVisaTypes.includes(visaInfo.visaType)) {
+    return false
+  }
+  
+  if (!visaInfo.applicableTo || typeof visaInfo.applicableTo !== 'string') {
+    return false
+  }
+  
+  // duration 是可选的，但如果存在必须是数字
+  if (visaInfo.duration !== undefined && (typeof visaInfo.duration !== 'number' || visaInfo.duration < 0)) {
+    return false
+  }
+  
+  // applicationUrl 是可选的，但如果存在必须是字符串
+  if (visaInfo.applicationUrl !== undefined && typeof visaInfo.applicationUrl !== 'string') {
+    return false
+  }
+  
+  return true
+}
+
+/**
  * 获取签证信息
  * @param destinationCountry 目的地国家代码
  * @param nationalityCode 用户国籍代码（如 'CN'）
  * @param permanentResidencyCode 用户永久居民身份国家代码（如 'US'）
- * @returns 签证信息数组
+ * @returns 签证信息数组（已校验）
  */
 export function getVisaInfo(
   destinationCountry: string,
   nationalityCode?: string | null,
   permanentResidencyCode?: string | null
 ): VisaInfo[] {
+  if (!destinationCountry || typeof destinationCountry !== 'string') {
+    console.warn('⚠️ getVisaInfo: 无效的目的地国家代码', destinationCountry)
+    return []
+  }
+  
   const destinationVisaInfo = VISA_INFO[destinationCountry]
   if (!destinationVisaInfo) {
     return []
@@ -350,13 +401,29 @@ export function getVisaInfo(
   if (permanentResidencyCode) {
     const prKey = `${permanentResidencyCode}-PR`
     if (destinationVisaInfo[prKey]) {
-      results.push(...destinationVisaInfo[prKey])
+      const prInfos = destinationVisaInfo[prKey]
+      // 校验并过滤无效数据
+      prInfos.forEach(info => {
+        if (isValidVisaInfo(info)) {
+          results.push(info)
+        } else {
+          console.warn('⚠️ getVisaInfo: 发现无效的永久居民签证信息', info)
+        }
+      })
     }
   }
   
   // 检查国籍（如果没有永久居民身份或永久居民身份未提供便利）
   if (nationalityCode && destinationVisaInfo[nationalityCode]) {
-    results.push(...destinationVisaInfo[nationalityCode])
+    const nationalityInfos = destinationVisaInfo[nationalityCode]
+    // 校验并过滤无效数据
+    nationalityInfos.forEach(info => {
+      if (isValidVisaInfo(info)) {
+        results.push(info)
+      } else {
+        console.warn('⚠️ getVisaInfo: 发现无效的国籍签证信息', info)
+      }
+    })
   }
   
   return results
@@ -445,5 +512,375 @@ export function getVisaFreeDestinations(
   })
   
   return destinations
+}
+
+/**
+ * 签证联盟定义
+ * 用于识别多目的地行程是否只需要一个签证
+ */
+export const VISA_UNIONS: Record<string, {
+  name: string
+  countries: string[]
+  visaName: string
+  description: string
+}> = {
+  'schengen': {
+    name: '申根区',
+    countries: [
+      'AT', // 奥地利
+      'BE', // 比利时
+      'CZ', // 捷克
+      'DK', // 丹麦
+      'EE', // 爱沙尼亚
+      'FI', // 芬兰
+      'FR', // 法国
+      'DE', // 德国
+      'GR', // 希腊
+      'HU', // 匈牙利
+      'IS', // 冰岛
+      'IT', // 意大利
+      'LV', // 拉脱维亚
+      'LI', // 列支敦士登
+      'LT', // 立陶宛
+      'LU', // 卢森堡
+      'MT', // 马耳他
+      'NL', // 荷兰
+      'NO', // 挪威
+      'PL', // 波兰
+      'PT', // 葡萄牙
+      'SK', // 斯洛伐克
+      'SI', // 斯洛文尼亚
+      'ES', // 西班牙
+      'SE', // 瑞典
+      'CH', // 瑞士
+    ],
+    visaName: '申根签证',
+    description: '申根区国家之间可以自由通行，只需一个申根签证即可访问所有申根国家'
+  },
+  'asean': {
+    name: '东盟',
+    countries: [
+      'TH', // 泰国
+      'SG', // 新加坡
+      'MY', // 马来西亚
+      'ID', // 印度尼西亚
+      'PH', // 菲律宾
+      'VN', // 越南
+      'KH', // 柬埔寨
+      'LA', // 老挝
+      'MM', // 缅甸
+      'BN', // 文莱
+    ],
+    visaName: '东盟签证（部分国家有互免政策）',
+    description: '东盟国家之间部分有互免签证政策，但并非所有国家都互免，需要分别查询'
+  },
+  'gcc': {
+    name: '海湾合作委员会',
+    countries: [
+      'AE', // 阿联酋
+      'SA', // 沙特阿拉伯
+      'KW', // 科威特
+      'QA', // 卡塔尔
+      'BH', // 巴林
+      'OM', // 阿曼
+    ],
+    visaName: 'GCC签证（部分国家有互免政策）',
+    description: 'GCC国家之间部分有互免签证政策，但并非所有国家都互免'
+  }
+}
+
+/**
+ * 多目的地签证需求分析结果
+ */
+export interface MultiDestinationVisaResult {
+  // 所有目的地国家代码
+  allCountries: string[]
+  // 按签证联盟分组的目的地
+  groupedByUnion: Record<string, {
+    unionName: string
+    countries: string[]
+    visaName: string
+    description: string
+    needsVisa: boolean
+    visaInfo?: VisaInfo[]
+  }>
+  // 不属于任何联盟的目的地
+  standaloneCountries: string[]
+  // 综合建议
+  summary: string
+  // 需要的签证列表
+  requiredVisas: Array<{
+    type: 'union' | 'standalone'
+    name: string
+    countries: string[]
+    visaInfo?: VisaInfo[]
+    description: string
+  }>
+}
+
+/**
+ * 分析多目的地行程的签证需求
+ * @param countryCodes 目的地国家代码数组
+ * @param nationalityCode 用户国籍代码
+ * @param permanentResidencyCode 用户永久居民身份国家代码
+ * @returns 签证需求分析结果
+ */
+export function analyzeMultiDestinationVisa(
+  countryCodes: string[],
+  nationalityCode?: string | null,
+  permanentResidencyCode?: string | null
+): MultiDestinationVisaResult {
+  // 去重
+  const uniqueCountries = Array.from(new Set(countryCodes))
+  
+  const groupedByUnion: Record<string, {
+    unionName: string
+    countries: string[]
+    visaName: string
+    description: string
+    needsVisa: boolean
+    visaInfo?: VisaInfo[]
+  }> = {}
+  
+  const standaloneCountries: string[] = []
+  
+  // 检查每个国家属于哪个联盟
+  for (const countryCode of uniqueCountries) {
+    let found = false
+    
+    for (const [unionKey, union] of Object.entries(VISA_UNIONS)) {
+      if (union.countries.includes(countryCode)) {
+        if (!groupedByUnion[unionKey]) {
+          groupedByUnion[unionKey] = {
+            unionName: union.name,
+            countries: [],
+            visaName: union.visaName,
+            description: union.description,
+            needsVisa: false,
+            visaInfo: []
+          }
+        }
+        groupedByUnion[unionKey].countries.push(countryCode)
+        found = true
+        break
+      }
+    }
+    
+    if (!found) {
+      standaloneCountries.push(countryCode)
+    }
+  }
+  
+  // 检查每个联盟是否需要签证
+  const requiredVisas: Array<{
+    type: 'union' | 'standalone'
+    name: string
+    countries: string[]
+    visaInfo?: VisaInfo[]
+    description: string
+  }> = []
+  
+  // 处理联盟
+  for (const [unionKey, group] of Object.entries(groupedByUnion)) {
+    // 对于申根区，如果所有国家都需要签证，则只需要一个申根签证
+    if (unionKey === 'schengen') {
+      // 检查是否所有申根国家都需要签证（不是免签或落地签）
+      const needsVisa = group.countries.some(country => {
+        const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+        if (visaInfos.length === 0) return true // 没有数据，假设需要签证
+        return visaInfos.some(info => info.visaType === 'visa-required')
+      })
+      
+      group.needsVisa = needsVisa
+      
+      if (needsVisa) {
+        // 获取第一个需要签证的国家的签证信息作为参考
+        for (const country of group.countries) {
+          const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+          const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
+          if (requiredVisa) {
+            group.visaInfo = [requiredVisa]
+            break
+          }
+        }
+        
+        requiredVisas.push({
+          type: 'union',
+          name: group.visaName,
+          countries: group.countries,
+          visaInfo: group.visaInfo,
+          description: `访问${group.countries.length}个${group.unionName}国家，只需一个${group.visaName}即可。${group.description}`
+        })
+      }
+    } else {
+      // 对于其他联盟（如东盟），需要分别检查每个国家
+      for (const country of group.countries) {
+        const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+        const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
+        
+        if (requiredVisa) {
+          requiredVisas.push({
+            type: 'standalone',
+            name: `${requiredVisa.destinationName}签证`,
+            countries: [country],
+            visaInfo: [requiredVisa],
+            description: `需要申请${requiredVisa.destinationName}签证`
+          })
+        }
+      }
+    }
+  }
+  
+  // 处理独立国家
+  for (const country of standaloneCountries) {
+    const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+    const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
+    
+    if (requiredVisa) {
+      requiredVisas.push({
+        type: 'standalone',
+        name: `${requiredVisa.destinationName}签证`,
+        countries: [country],
+        visaInfo: [requiredVisa],
+        description: `需要申请${requiredVisa.destinationName}签证`
+      })
+    }
+  }
+  
+  // 生成综合建议
+  let summary = ''
+  if (requiredVisas.length === 0) {
+    summary = '✅ 所有目的地对您都是免签或落地签，无需提前申请签证！'
+  } else if (requiredVisas.length === 1) {
+    const visa = requiredVisas[0]
+    if (visa && visa.type === 'union') {
+      summary = `✅ 好消息！您访问的${visa.countries.length}个国家都属于${visa.name}，只需申请一个${visa.name}即可。`
+    } else if (visa) {
+      summary = `⚠️ 您需要申请${visa.name}。`
+    }
+  } else {
+    const unionVisas = requiredVisas.filter(v => v.type === 'union')
+    const standaloneVisas = requiredVisas.filter(v => v.type === 'standalone')
+    
+    if (unionVisas.length > 0 && unionVisas[0]) {
+      summary += `✅ 您访问的${unionVisas[0].countries.length}个${unionVisas[0].name}国家只需一个${unionVisas[0].name}。`
+    }
+    if (standaloneVisas.length > 0) {
+      summary += ` 另外，您还需要申请${standaloneVisas.length}个独立国家的签证：${standaloneVisas.map(v => v.name).join('、')}。`
+    }
+  }
+  
+  return {
+    allCountries: uniqueCountries,
+    groupedByUnion,
+    standaloneCountries,
+    summary,
+    requiredVisas
+  }
+}
+
+/**
+ * 从行程数据中提取所有目的地国家代码
+ * @param travelData 行程数据
+ * @returns 国家代码数组
+ */
+export function extractAllDestinationCountries(travelData: any): string[] {
+  const countries: string[] = []
+  
+  // 从主目的地提取
+  if (travelData?.location) {
+    const code = extractCountryCodeFromString(travelData.location)
+    if (code) countries.push(code)
+  }
+  
+  if (travelData?.destination) {
+    const code = extractCountryCodeFromString(travelData.destination)
+    if (code) countries.push(code)
+  }
+  
+  // 从 days 数组中提取
+  if (travelData?.days && Array.isArray(travelData.days)) {
+    for (const day of travelData.days) {
+      if (day.location) {
+        const code = extractCountryCodeFromString(day.location)
+        if (code) countries.push(code)
+      }
+      
+      // 从 timeSlots 中提取
+      if (day.timeSlots && Array.isArray(day.timeSlots)) {
+        for (const slot of day.timeSlots) {
+          if (slot.location) {
+            const code = extractCountryCodeFromString(slot.location)
+            if (code) countries.push(code)
+          }
+        }
+      }
+    }
+  }
+  
+  // 从 itineraryData 中提取
+  if (travelData?.itineraryData?.itinerary && Array.isArray(travelData.itineraryData.itinerary)) {
+    for (const day of travelData.itineraryData.itinerary) {
+      if (day.activities && Array.isArray(day.activities)) {
+        for (const activity of day.activities) {
+          if (activity.location) {
+            const code = extractCountryCodeFromString(activity.location)
+            if (code) countries.push(code)
+          }
+        }
+      }
+    }
+  }
+  
+  return Array.from(new Set(countries))
+}
+
+/**
+ * 从字符串中提取国家代码（辅助函数）
+ */
+function extractCountryCodeFromString(str: string): string | null {
+  if (!str) return null
+  
+  const strLower = str.toLowerCase()
+  
+  // 国家别名映射
+  const countryAliases: Record<string, string[]> = {
+    'US': ['alaska', '阿拉斯加', 'fairbanks', '费尔班克斯', 'usa', 'united states', '美国', 'america'],
+    'JP': ['japan', '日本'],
+    'KR': ['korea', 'south korea', '韩国'],
+    'TH': ['thailand', '泰国'],
+    'SG': ['singapore', '新加坡'],
+    'MY': ['malaysia', '马来西亚'],
+    'ID': ['indonesia', '印尼'],
+    'PH': ['philippines', '菲律宾'],
+    'VN': ['vietnam', '越南'],
+    'AU': ['australia', '澳大利亚'],
+    'CA': ['canada', '加拿大'],
+    'NZ': ['new zealand', '新西兰'],
+    'GB': ['united kingdom', 'uk', '英国', 'britain'],
+    'FR': ['france', '法国'],
+    'DE': ['germany', '德国'],
+    'IT': ['italy', '意大利'],
+    'ES': ['spain', '西班牙'],
+    'FI': ['finland', '芬兰'],
+    'IS': ['iceland', '冰岛', 'reykjavik', '雷克雅未克'],
+    'TW': ['taiwan', '台湾'],
+    'HK': ['hong kong', '香港'],
+    'MO': ['macau', 'macao', '澳门'],
+    'AT': ['austria', '奥地利'],
+    'BE': ['belgium', '比利时'],
+    'CH': ['switzerland', '瑞士'],
+    'NL': ['netherlands', '荷兰'],
+    'PT': ['portugal', '葡萄牙'],
+    'GR': ['greece', '希腊'],
+  }
+  
+  // 遍历所有已知的国家代码
+  for (const [code, aliases] of Object.entries(countryAliases)) {
+    if (strLower.includes(code.toLowerCase())) return code
+    if (aliases.some(alias => strLower.includes(alias.toLowerCase()))) return code
+  }
+  
+  return null
 }
 

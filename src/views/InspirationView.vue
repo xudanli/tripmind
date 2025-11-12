@@ -21,6 +21,18 @@
         <a-tag color="processing">{{ currentCountryDisplay }}</a-tag>
         <a-tag color="cyan">{{ currentLanguageDisplay }}</a-tag>
       </div>
+      
+      <!-- 目录页链接 -->
+      <a-button
+        @click="router.push('/inspiration/catalog')"
+        class="catalog-button"
+        type="default"
+      >
+        <template #icon>
+          <unordered-list-outlined />
+        </template>
+        浏览目录
+      </a-button>
     </div>
 
     <!-- 主要内容 -->
@@ -286,7 +298,8 @@ import { getUserProfileOrDefault, type UserProfileConfig } from '@/config/userPr
 const { t, locale } = useI18n()
 import {
   ArrowLeftOutlined,
-  BulbOutlined
+  BulbOutlined,
+  UnorderedListOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -678,6 +691,18 @@ const exploreMore = () => {
 }
 
 .back-button:hover {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.catalog-button {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: white !important;
+  margin-left: 1rem;
+}
+
+.catalog-button:hover {
   background: rgba(255, 255, 255, 0.3) !important;
   border-color: rgba(255, 255, 255, 0.5) !important;
 }

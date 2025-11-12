@@ -674,7 +674,23 @@ export default {
       confirm: '确定',
       deleteSuccess: '活动已删除',
       addSuccess: '活动已添加',
-      newActivity: '新活动'
+      newActivity: '新活动',
+      // 人格画像与旅程设计
+      personaJourney: '人格画像与旅程设计',
+      personaProfile: '人格画像',
+      personaType: '类型',
+      motivation: '动机',
+      dominantEmotion: '主导情绪',
+      travelRhythm: '旅行节奏',
+      socialPreference: '社交偏好',
+      cognitiveNeed: '认知需求',
+      foodPreference: '美食偏好',
+      journeyDesign: '旅程设计',
+      coreInsight: '核心洞察',
+      psychologicalFlow: '心理流程',
+      symbolicElements: '象征元素',
+      recommendedRhythm: '推荐节奏',
+      socialMode: '社交模式'
     },
     bookingInfo: {
       title: '订票信息',

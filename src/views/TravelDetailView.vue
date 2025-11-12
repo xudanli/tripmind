@@ -108,6 +108,38 @@
           class="sidebar-panel"
           :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
         >
+          <!-- 人格画像与旅程设计（仅灵感模式显示） -->
+          <PersonaJourneySidebar 
+            v-if="travel?.mode === 'inspiration'"
+            class="sidebar-block"
+          />
+
+          <!-- 多目的地签证分析 -->
+          <MultiDestinationVisaAnalysis 
+            :analysis="multiDestinationVisaAnalysis"
+            class="sidebar-block"
+            :show-for-single-country="true"
+          />
+
+          <!-- 调试信息（开发环境） -->
+          <a-card v-if="isDev" class="sidebar-block" title="🔍 签证信息调试">
+            <div style="font-size: 12px; line-height: 1.6;">
+              <p><strong>travel.value:</strong> {{ travel ? '存在' : '不存在' }}</p>
+              <p><strong>travel.location:</strong> {{ travel?.location || '无' }}</p>
+              <p><strong>travel.destination:</strong> {{ travel?.destination || '无' }}</p>
+              <p><strong>目的地国家代码:</strong> {{ destinationCountry || '未获取' }}</p>
+              <p><strong>目的地名称:</strong> {{ destinationName || '未获取' }}</p>
+              <p><strong>签证信息:</strong> {{ visaInfo ? '已获取' : '未获取' }}</p>
+              <p v-if="visaInfo"><strong>签证类型:</strong> {{ visaInfo.visaType }}</p>
+              <p v-if="visaInfo"><strong>适用对象:</strong> {{ visaInfo.applicableTo }}</p>
+              <p v-if="visaInfo"><strong>目的地国家:</strong> {{ visaInfo.destinationCountry }}</p>
+              <p v-if="visaInfo"><strong>目的地名称:</strong> {{ visaInfo.destinationName }}</p>
+              <p v-if="multiDestinationVisaAnalysis"><strong>多目的地国家:</strong> {{ multiDestinationVisaAnalysis.allCountries.join('、') }}</p>
+              <p><strong>显示条件:</strong> visaInfo={{ !!visaInfo }}, destinationCountry={{ !!destinationCountry }}</p>
+            </div>
+          </a-card>
+
+          <!-- 签证指引（单目的地详细签证信息） -->
           <VisaGuide 
             v-if="visaInfo && destinationCountry"
             class="sidebar-block"
@@ -115,6 +147,20 @@
             :destination-country="destinationCountry"
             :destination-name="destinationName"
           />
+
+          <!-- 即使没有 visaInfo，也显示一个提示 -->
+          <a-card v-if="destinationCountry && !visaInfo" class="sidebar-block" title="✈️ 签证指引">
+            <a-alert
+              type="info"
+              show-icon
+              message="签证信息查询中"
+              description="正在查询该目的地的签证信息，请稍候..."
+            />
+            <div style="margin-top: 12px; font-size: 12px; color: #666;">
+              <p>目的地：{{ destinationName || destinationCountry }}</p>
+              <p>提示：如果长时间未显示，可能是签证数据库中暂无该国家的信息，或需要设置您的国籍信息。</p>
+            </div>
+          </a-card>
 
           <TravelSidebar 
             class="sidebar-block"
@@ -149,8 +195,10 @@ import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
 import PlannerOverview from '@/components/TravelDetail/PlannerOverview.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
+import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
+import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
-import { getVisaInfo } from '@/config/visa'
+import { getVisaInfo, analyzeMultiDestinationVisa, extractAllDestinationCountries } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 
 const { t } = useI18n()
@@ -169,6 +217,9 @@ const { plannerItinerary: plannerItineraryRef } = storeToRefs(travelStore)
 
 const travel = ref<Travel | null>(null)
 const shouldShowSidebar = computed(() => Boolean(travel.value))
+
+// 开发环境标识
+const isDev = !import.meta.env.PROD
 
 const plannerItineraryData = computed(() => {
   if (plannerItineraryRef.value?.days?.length) {
@@ -234,27 +285,55 @@ const extractCountryCodeFromDestination = (destStr: string): string | null => {
 
 // 提取目的地国家代码
 const destinationCountry = computed(() => {
-  if (!travel.value) return null
+  if (!travel.value) {
+    console.log('⚠️ TravelDetailView destinationCountry: travel.value 为空')
+    return null
+  }
   
   // 尝试从不同数据源提取目的地
   const data = travel.value.data as any
   
+  console.log('🔍 TravelDetailView 提取目的地国家代码:', {
+    location: travel.value.location,
+    destination: travel.value.destination,
+    hasData: !!data,
+    itineraryDestination: data?.itineraryData?.destination,
+    hasDays: !!data?.days
+  })
+  
+  // 0. 优先使用多目的地分析结果（如果已识别出国家）
+  const multiAnalysis = multiDestinationVisaAnalysis.value
+  if (multiAnalysis && multiAnalysis.allCountries.length > 0) {
+    const firstCountry = multiAnalysis.allCountries[0]
+    console.log('✅ 从多目的地分析结果获取国家代码:', firstCountry)
+    return firstCountry
+  }
+  
   // 1. 从 location 字段提取（优先级最高，因为可能被用户或AI更新）
   if (travel.value.location) {
     const countryCode = extractCountryCodeFromDestination(travel.value.location)
-    if (countryCode) return countryCode
+    if (countryCode) {
+      console.log('✅ 从 location 字段提取到国家代码:', countryCode)
+      return countryCode
+    }
   }
   
   // 2. 从 destination 字段提取
   if (travel.value.destination) {
     const countryCode = extractCountryCodeFromDestination(travel.value.destination)
-    if (countryCode) return countryCode
+    if (countryCode) {
+      console.log('✅ 从 destination 字段提取到国家代码:', countryCode)
+      return countryCode
+    }
   }
   
   // 3. 从 itineraryData 或 plannerItinerary 中提取
   if (data?.itineraryData?.destination) {
     const countryCode = extractCountryCodeFromDestination(data.itineraryData.destination)
-    if (countryCode) return countryCode
+    if (countryCode) {
+      console.log('✅ 从 itineraryData.destination 提取到国家代码:', countryCode)
+      return countryCode
+    }
   }
   
   // 4. 从 days 数组中的 locations 提取
@@ -262,11 +341,31 @@ const destinationCountry = computed(() => {
     for (const day of data.days) {
       if (day.location) {
         const countryCode = extractCountryCodeFromDestination(day.location)
-        if (countryCode) return countryCode
+        if (countryCode) {
+          console.log('✅ 从 days[].location 提取到国家代码:', countryCode)
+          return countryCode
+        }
       }
     }
   }
   
+  // 5. 尝试使用 extractAllDestinationCountries 作为最后手段
+  try {
+    const allCountries = extractAllDestinationCountries({
+      location: travel.value.location,
+      destination: travel.value.destination,
+      days: data?.days,
+      itineraryData: data?.itineraryData
+    })
+    if (allCountries.length > 0) {
+      console.log('✅ 从 extractAllDestinationCountries 获取国家代码:', allCountries[0])
+      return allCountries[0]
+    }
+  } catch (e) {
+    console.warn('⚠️ extractAllDestinationCountries 调用失败:', e)
+  }
+  
+  console.log('⚠️ TravelDetailView 未能提取到目的地国家代码')
   return null
 })
 
@@ -277,7 +376,27 @@ const destinationName = computed(() => {
   return country?.name || ''
 })
 
-// 获取签证信息
+// 分析多目的地签证需求
+const multiDestinationVisaAnalysis = computed(() => {
+  if (!travel.value) return null
+  
+  const data = travel.value.data as any
+  const allCountries = extractAllDestinationCountries({
+    location: travel.value.location,
+    destination: travel.value.destination,
+    days: data?.days,
+    itineraryData: data?.itineraryData
+  })
+  
+  if (allCountries.length === 0) return null
+  
+  const nationalityCode = getUserNationalityCode()
+  const permanentResidencyCode = getUserPermanentResidencyCode()
+  
+  return analyzeMultiDestinationVisa(allCountries, nationalityCode || null, permanentResidencyCode || null)
+})
+
+// 获取签证信息（支持单目的地和多目的地）
 const visaInfo = computed(() => {
   const countryCode = destinationCountry.value
   if (!countryCode) {
@@ -285,26 +404,67 @@ const visaInfo = computed(() => {
     return null
   }
   
+  // 如果有多目的地分析结果，优先使用多目的地分析
+  const multiAnalysis = multiDestinationVisaAnalysis.value
+  if (multiAnalysis && multiAnalysis.allCountries.length > 1) {
+    console.log('🌍 TravelDetailView 检测到多目的地行程:', multiAnalysis.allCountries)
+    console.log('📋 多目的地签证分析结果:', multiAnalysis)
+    
+    // 如果有申根区国家，返回申根签证信息
+    if (multiAnalysis.requiredVisas.length > 0) {
+      const schengenVisa = multiAnalysis.requiredVisas.find(v => v.name.includes('申根'))
+      if (schengenVisa && schengenVisa.visaInfo && schengenVisa.visaInfo.length > 0) {
+        return schengenVisa.visaInfo[0]
+      }
+      // 否则返回第一个需要的签证信息
+      if (multiAnalysis.requiredVisas[0]?.visaInfo && multiAnalysis.requiredVisas[0].visaInfo.length > 0) {
+        return multiAnalysis.requiredVisas[0].visaInfo[0]
+      }
+    }
+  }
+  
   const nationalityCode = getUserNationalityCode()
   const permanentResidencyCode = getUserPermanentResidencyCode()
   
   console.log('🔍 TravelDetailView 签证信息查询:', {
     destinationCountry: countryCode,
-    nationalityCode,
-    permanentResidencyCode
+    nationalityCode: nationalityCode || '未设置',
+    permanentResidencyCode: permanentResidencyCode || '未设置',
+    travelLocation: travel.value?.location,
+    travelDestination: travel.value?.destination
   })
   
   // 即使没有国籍信息，也尝试查询（可能数据库中有默认数据）
   const visaInfos = getVisaInfo(countryCode, nationalityCode || null, permanentResidencyCode || null)
-  console.log('📋 TravelDetailView 查询到的签证信息:', visaInfos)
+  console.log('📋 TravelDetailView 查询到的签证信息数量:', visaInfos.length, visaInfos)
   
   if (visaInfos.length === 0) {
-    console.log('⚠️ TravelDetailView 未找到签证信息')
+    console.warn('⚠️ TravelDetailView 未找到签证信息，可能原因：', {
+      destinationCountry: countryCode,
+      nationalityCode: nationalityCode || '未设置',
+      permanentResidencyCode: permanentResidencyCode || '未设置',
+      hint: '请检查签证数据库（src/config/visa.ts）中是否有该国家的签证信息'
+    })
     return null
   }
   
-  // 返回第一个签证信息（通常是主要的）
-  return visaInfos[0]
+  // 返回第一个签证信息（通常是主要的），getVisaInfo 已经校验过数据
+  const firstVisaInfo = visaInfos[0]
+  
+  // 再次校验确保数据有效
+  if (!firstVisaInfo || !firstVisaInfo.destinationCountry || !firstVisaInfo.visaType) {
+    console.warn('⚠️ TravelDetailView 签证信息校验失败:', firstVisaInfo)
+    return null
+  }
+  
+  console.log('✅ TravelDetailView 签证信息验证通过:', {
+    destinationCountry: firstVisaInfo.destinationCountry,
+    destinationName: firstVisaInfo.destinationName,
+    visaType: firstVisaInfo.visaType,
+    applicableTo: firstVisaInfo.applicableTo
+  })
+  
+  return firstVisaInfo
 })
 
 

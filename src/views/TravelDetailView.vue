@@ -1,5 +1,5 @@
 <template>
-  <div class="container" :class="{ 'inspiration-container': travel?.mode === 'inspiration' }">
+  <div class="container" :class="{ 'inspiration-container': travel?.mode === 'inspiration' || travel?.mode === 'classic' }">
     <!-- 加载状态或数据不存在 -->
     <div v-if="travel === null || travel === undefined" class="loading-container">
       <a-spin size="large" />
@@ -29,7 +29,7 @@
     />
 
     <InspirationHero
-      v-else-if="travel?.mode === 'inspiration'"
+      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
       :travel="travel"
     />
 
@@ -41,12 +41,12 @@
     />
 
     <!-- 主要内容区域 -->
-    <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' }">
+    <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' || travel?.mode === 'classic' }">
       <div
         class="content-layout"
-        :class="{
+          :class="{
           'with-sidebar': shouldShowSidebar,
-          'inspiration-layout': travel?.mode === 'inspiration'
+          'inspiration-layout': travel?.mode === 'inspiration' || travel?.mode === 'classic'
         }"
       >
         <section class="primary-panel">
@@ -59,8 +59,8 @@
           <!-- Seeker 模式：心情笔记 -->
           <SeekerMoodNotes v-else-if="travel?.mode === 'seeker'" />
 
-          <!-- Inspiration 模式：体验日 -->
-          <template v-else-if="travel?.mode === 'inspiration'">
+          <!-- Inspiration 或 Classic 模式：体验日 -->
+          <template v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'">
             <ExperienceDay />
           </template>
 
@@ -106,23 +106,23 @@
         <aside
           v-if="shouldShowSidebar"
           class="sidebar-panel"
-          :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' }"
+          :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' || travel?.mode === 'classic' }"
         >
-          <!-- 人格画像与旅程设计（仅灵感模式显示） -->
+          <!-- 人格画像与旅程设计（灵感模式和经典模式显示） -->
           <PersonaJourneySidebar 
-            v-if="travel?.mode === 'inspiration'"
+            v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
             class="sidebar-block"
           />
 
-          <!-- 多目的地签证分析 -->
-          <MultiDestinationVisaAnalysis 
+          <!-- 多目的地签证分析（已隐藏） -->
+          <!-- <MultiDestinationVisaAnalysis 
             :analysis="multiDestinationVisaAnalysis"
             class="sidebar-block"
             :show-for-single-country="true"
-          />
+          /> -->
 
-          <!-- 调试信息（开发环境） -->
-          <a-card v-if="isDev" class="sidebar-block" title="🔍 签证信息调试">
+          <!-- 调试信息（开发环境，已隐藏） -->
+          <!-- <a-card v-if="isDev" class="sidebar-block" title="🔍 签证信息调试">
             <div style="font-size: 12px; line-height: 1.6;">
               <p><strong>travel.value:</strong> {{ travel ? '存在' : '不存在' }}</p>
               <p><strong>travel.location:</strong> {{ travel?.location || '无' }}</p>
@@ -137,7 +137,7 @@
               <p v-if="multiDestinationVisaAnalysis"><strong>多目的地国家:</strong> {{ multiDestinationVisaAnalysis.allCountries.join('、') }}</p>
               <p><strong>显示条件:</strong> visaInfo={{ !!visaInfo }}, destinationCountry={{ !!destinationCountry }}</p>
             </div>
-          </a-card>
+          </a-card> -->
 
           <!-- 签证指引（单目的地详细签证信息） -->
           <VisaGuide 
@@ -153,12 +153,17 @@
             <a-alert
               type="info"
               show-icon
-              message="签证信息查询中"
-              description="正在查询该目的地的签证信息，请稍候..."
+              message="需要设置个人信息以获取签证信息"
+              :description="getVisaInfoHint()"
             />
             <div style="margin-top: 12px; font-size: 12px; color: #666;">
-              <p>目的地：{{ destinationName || destinationCountry }}</p>
-              <p>提示：如果长时间未显示，可能是签证数据库中暂无该国家的信息，或需要设置您的国籍信息。</p>
+              <p><strong>目的地：</strong>{{ destinationName || destinationCountry }}</p>
+              <p style="margin-top: 8px;"><strong>提示：</strong></p>
+              <ul style="margin: 4px 0 0 0; padding-left: 20px;">
+                <li>请前往个人设置页面设置您的国籍信息</li>
+                <li>如果您持有永久居民身份，也可以设置永久居民身份信息</li>
+                <li>设置完成后，系统将根据您的身份提供准确的签证信息</li>
+              </ul>
             </div>
           </a-card>
 
@@ -180,6 +185,7 @@
 <script setup lang="ts">
 // @ts-nocheck
 import { ref, computed, onMounted, watch } from 'vue'
+import type { VisaInfo } from '@/config/visa'
 import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
@@ -233,7 +239,19 @@ const plannerItineraryData = computed(() => {
 const extractCountryCodeFromDestination = (destStr: string): string | null => {
   if (!destStr) return null
   
+  // 处理特殊分隔符格式（如："埃及・开罗・阿斯旺・卢克索・红海"）
+  // 先尝试从第一个分隔符前提取（通常是国家名）
+  const separators = ['・', '·', '|', '|', '/', '-', '→', '→']
+  let primaryText = destStr
+  for (const sep of separators) {
+    if (destStr.includes(sep)) {
+      primaryText = destStr.split(sep)[0].trim()
+      break
+    }
+  }
+  
   const destLower = destStr.toLowerCase()
+  const primaryLower = primaryText.toLowerCase()
   
   // 国家别名映射（地名、常见英文名称等）
   const countryAliases: Record<string, string[]> = {
@@ -256,6 +274,7 @@ const extractCountryCodeFromDestination = (destStr: string): string | null => {
     'ES': ['spain', '西班牙'],
     'FI': ['finland', '芬兰'],
     'IS': ['iceland', '冰岛', 'reykjavik', '雷克雅未克'],
+    'EG': ['egypt', '埃及', 'cairo', '开罗', 'aswan', '阿斯旺', 'luxor', '卢克索', '红海', 'red sea'],
     'TW': ['taiwan', '台湾'],
     'HK': ['hong kong', '香港'],
     'MO': ['macau', 'macao', '澳门']
@@ -263,23 +282,37 @@ const extractCountryCodeFromDestination = (destStr: string): string | null => {
   
   // 遍历PRESET_COUNTRIES，匹配国家名称或代码
   for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
-    // 1. 匹配国家名称（中文）
+    // 1. 优先匹配第一个分隔符前的文本（通常是国家名）
+    if (primaryLower.includes(country.name.toLowerCase())) {
+      console.log(`✅ extractCountryCodeFromDestination: 从主文本 "${primaryText}" 匹配到国家 "${country.name}" (${code})`)
+      return code
+    }
+    
+    // 2. 匹配完整字符串中的国家名称（中文）
     if (destLower.includes(country.name.toLowerCase())) {
+      console.log(`✅ extractCountryCodeFromDestination: 从完整文本匹配到国家 "${country.name}" (${code})`)
       return code
     }
     
-    // 2. 匹配国家代码
-    if (destLower.includes(code.toLowerCase())) {
+    // 3. 匹配国家代码
+    if (destLower.includes(code.toLowerCase()) || primaryLower.includes(code.toLowerCase())) {
+      console.log(`✅ extractCountryCodeFromDestination: 匹配到国家代码 ${code}`)
       return code
     }
     
-    // 3. 匹配别名
+    // 4. 匹配别名（优先检查主文本）
     const aliases = countryAliases[code] || []
+    if (aliases.some(alias => primaryLower.includes(alias.toLowerCase()))) {
+      console.log(`✅ extractCountryCodeFromDestination: 从主文本别名匹配到 ${code}`)
+      return code
+    }
     if (aliases.some(alias => destLower.includes(alias.toLowerCase()))) {
+      console.log(`✅ extractCountryCodeFromDestination: 从完整文本别名匹配到 ${code}`)
       return code
     }
   }
   
+  console.log(`⚠️ extractCountryCodeFromDestination: 未能从 "${destStr}" 提取国家代码`)
   return null
 }
 
@@ -344,9 +377,9 @@ const destinationCountry = computed(() => {
         if (countryCode) {
           console.log('✅ 从 days[].location 提取到国家代码:', countryCode)
           return countryCode
-        }
       }
     }
+  }
   }
   
   // 5. 尝试使用 extractAllDestinationCountries 作为最后手段
@@ -365,7 +398,11 @@ const destinationCountry = computed(() => {
     console.warn('⚠️ extractAllDestinationCountries 调用失败:', e)
   }
   
-  console.log('⚠️ TravelDetailView 未能提取到目的地国家代码')
+  // 这是正常情况，某些旅程可能没有明确的国家信息
+  // 只在开发环境显示详细信息
+  if (import.meta.env.DEV) {
+    console.log('ℹ️ TravelDetailView 未能提取到目的地国家代码（这可能是正常的，如果旅程数据中没有明确的国家信息）')
+  }
   return null
 })
 
@@ -396,12 +433,17 @@ const multiDestinationVisaAnalysis = computed(() => {
   return analyzeMultiDestinationVisa(allCountries, nationalityCode || null, permanentResidencyCode || null)
 })
 
-// 获取签证信息（支持单目的地和多目的地）
-const visaInfo = computed(() => {
+// 获取签证信息（支持单目的地和多目的地，支持异步）
+const visaInfo = ref<VisaInfo | null>(null)
+const visaInfoLoading = ref(false)
+
+// 加载签证信息
+const loadVisaInfo = async () => {
   const countryCode = destinationCountry.value
   if (!countryCode) {
     console.log('⚠️ TravelDetailView 签证信息：无法获取目的地国家代码')
-    return null
+    visaInfo.value = null
+    return
   }
   
   // 如果有多目的地分析结果，优先使用多目的地分析
@@ -414,11 +456,13 @@ const visaInfo = computed(() => {
     if (multiAnalysis.requiredVisas.length > 0) {
       const schengenVisa = multiAnalysis.requiredVisas.find(v => v.name.includes('申根'))
       if (schengenVisa && schengenVisa.visaInfo && schengenVisa.visaInfo.length > 0) {
-        return schengenVisa.visaInfo[0]
+        visaInfo.value = schengenVisa.visaInfo[0]
+        return
       }
       // 否则返回第一个需要的签证信息
       if (multiAnalysis.requiredVisas[0]?.visaInfo && multiAnalysis.requiredVisas[0].visaInfo.length > 0) {
-        return multiAnalysis.requiredVisas[0].visaInfo[0]
+        visaInfo.value = multiAnalysis.requiredVisas[0].visaInfo[0]
+        return
       }
     }
   }
@@ -434,38 +478,53 @@ const visaInfo = computed(() => {
     travelDestination: travel.value?.destination
   })
   
+  visaInfoLoading.value = true
+  try {
   // 即使没有国籍信息，也尝试查询（可能数据库中有默认数据）
-  const visaInfos = getVisaInfo(countryCode, nationalityCode || null, permanentResidencyCode || null)
-  console.log('📋 TravelDetailView 查询到的签证信息数量:', visaInfos.length, visaInfos)
+    const visaInfos = await getVisaInfo(countryCode, nationalityCode || null, permanentResidencyCode || null)
+    console.log('📋 TravelDetailView 查询到的签证信息数量:', visaInfos.length, visaInfos)
   
   if (visaInfos.length === 0) {
-    console.warn('⚠️ TravelDetailView 未找到签证信息，可能原因：', {
-      destinationCountry: countryCode,
-      nationalityCode: nationalityCode || '未设置',
-      permanentResidencyCode: permanentResidencyCode || '未设置',
-      hint: '请检查签证数据库（src/config/visa.ts）中是否有该国家的签证信息'
+      console.warn('⚠️ TravelDetailView 未找到签证信息，可能原因：', {
+        destinationCountry: countryCode,
+        nationalityCode: nationalityCode || '未设置',
+        permanentResidencyCode: permanentResidencyCode || '未设置',
+        hint: '请检查签证数据库（src/config/visa.ts）中是否有该国家的签证信息'
+      })
+      visaInfo.value = null
+      return
+  }
+  
+    // 返回第一个签证信息（通常是主要的），getVisaInfo 已经校验过数据
+    const firstVisaInfo = visaInfos[0]
+    
+    // 再次校验确保数据有效
+    if (!firstVisaInfo || !firstVisaInfo.destinationCountry || !firstVisaInfo.visaType) {
+      console.warn('⚠️ TravelDetailView 签证信息校验失败:', firstVisaInfo)
+      visaInfo.value = null
+      return
+    }
+    
+    console.log('✅ TravelDetailView 签证信息验证通过:', {
+      destinationCountry: firstVisaInfo.destinationCountry,
+      destinationName: firstVisaInfo.destinationName,
+      visaType: firstVisaInfo.visaType,
+      applicableTo: firstVisaInfo.applicableTo
     })
-    return null
+    
+    visaInfo.value = firstVisaInfo
+  } catch (error) {
+    console.error('❌ TravelDetailView 获取签证信息失败:', error)
+    visaInfo.value = null
+  } finally {
+    visaInfoLoading.value = false
   }
-  
-  // 返回第一个签证信息（通常是主要的），getVisaInfo 已经校验过数据
-  const firstVisaInfo = visaInfos[0]
-  
-  // 再次校验确保数据有效
-  if (!firstVisaInfo || !firstVisaInfo.destinationCountry || !firstVisaInfo.visaType) {
-    console.warn('⚠️ TravelDetailView 签证信息校验失败:', firstVisaInfo)
-    return null
-  }
-  
-  console.log('✅ TravelDetailView 签证信息验证通过:', {
-    destinationCountry: firstVisaInfo.destinationCountry,
-    destinationName: firstVisaInfo.destinationName,
-    visaType: firstVisaInfo.visaType,
-    applicableTo: firstVisaInfo.applicableTo
-  })
-  
-  return firstVisaInfo
-})
+}
+
+// 监听目的地国家变化，重新加载签证信息
+watch([destinationCountry, multiDestinationVisaAnalysis], () => {
+  loadVisaInfo()
+}, { immediate: true })
 
 
 // 加载旅程数据
@@ -476,9 +535,15 @@ onMounted(() => {
   console.log('Loaded travel:', travel.value)
   console.log('Travel mode:', travel.value?.mode)
   
-  // 修复Inspiration模式的滚动问题
+  // 输出原始 JSON 数据到控制台
+  if (travel.value) {
+    console.log('📋 原始 Travel 数据 (JSON):', JSON.stringify(travel.value, null, 2))
+    console.log('📋 原始 Travel.data 数据 (JSON):', JSON.stringify(travel.value.data, null, 2))
+  }
+  
+  // 修复Inspiration和Classic模式的滚动问题
   const fixScroll = () => {
-    if (travel.value?.mode === 'inspiration') {
+    if (travel.value?.mode === 'inspiration' || travel.value?.mode === 'classic') {
       // 强制设置body和html的滚动属性
       const body = document.body
       const html = document.documentElement
@@ -589,7 +654,7 @@ onMounted(() => {
   
   // 监听窗口大小变化，重新修复滚动
   window.addEventListener('resize', () => {
-    if (travel.value?.mode === 'inspiration') {
+    if (travel.value?.mode === 'inspiration' || travel.value?.mode === 'classic') {
       setTimeout(() => {
         fixScroll()
       }, 100)
@@ -603,8 +668,8 @@ onMounted(() => {
     console.warn('⚠️ 旅程数据缺少 mode 字段，使用默认模式')
   } else {
     console.log('✅ 旅程模式:', travel.value.mode)
-    if (travel.value.mode === 'inspiration') {
-      console.log('✅ 这是灵感模式，应该显示 ExperienceDay（已集成封面设计），隐藏右侧面板')
+    if (travel.value.mode === 'inspiration' || travel.value.mode === 'classic') {
+      console.log('✅ 这是灵感/经典模式，应该显示 ExperienceDay（已集成封面设计）')
     }
   }
   
@@ -753,6 +818,26 @@ const getBudgetColor = () => {
   if (percent < 50) return '#52c41a'
   if (percent < 80) return '#faad14'
   return '#ff4d4f'
+}
+
+// 获取签证信息提示
+const getVisaInfoHint = () => {
+  const nationalityCode = getUserNationalityCode()
+  const permanentResidencyCode = getUserPermanentResidencyCode()
+  
+  if (!nationalityCode && !permanentResidencyCode) {
+    return '请设置您的国籍或永久居民身份信息，以便获取准确的签证要求。'
+  }
+  
+  if (!nationalityCode) {
+    return '已设置永久居民身份，但建议同时设置国籍信息以获得更完整的签证信息。'
+  }
+  
+  if (!permanentResidencyCode) {
+    return '已设置国籍信息，如果您持有永久居民身份，建议也设置以获得更优惠的签证政策。'
+  }
+  
+  return '正在查询该目的地的签证信息，请稍候...'
 }
 </script>
 

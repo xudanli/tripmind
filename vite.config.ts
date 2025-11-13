@@ -15,8 +15,13 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    port: 5173, // 明确指定开发服务器端口
+    host: true, // 允许外部访问
+  },
   define: {
     // 设置环境变量
+    // BASE_URL 包含 /api，endpoint 不包含 /api
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://localhost:3000/api'),
     'import.meta.env.VITE_API_KEY': JSON.stringify('your_api_key_here'),
     'import.meta.env.VITE_APP_ENV': JSON.stringify('development'),

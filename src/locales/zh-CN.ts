@@ -750,10 +750,17 @@ export default {
   // 登录相关
   login: {
     title: '💫 让我们一起开始旅行',
+    pageTitle: '欢迎回来',
+    pageSubtitle: '使用 Google 账号登录，开始你的旅行计划',
+    description: '登录后，我们可以帮你保存旅行计划、记住你的偏好，并提供个性化的旅行建议。',
     loginWithGoogle: '使用 Google 账号登录',
     rememberStyle: '让我们记住你的旅行风格，帮你保存灵感',
     rememberPlan: '让我们记住你的旅行计划，帮你保存灵感 ✈️',
-    rememberInspiration: '让我们记住你的旅行灵感，帮你保存下来 ✨'
+    rememberInspiration: '让我们记住你的旅行灵感，帮你保存下来 ✨',
+    success: '登录成功！',
+    error: '登录失败，请重试',
+    postLoginError: '登录后处理失败',
+    tips: '使用 Google 账号登录，安全便捷。我们不会获取你的密码，只会获取基本的账号信息用于个性化服务。'
   },
 
   // Planner 模式

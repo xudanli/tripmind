@@ -86,8 +86,8 @@ async function reverseGeocodeMapbox(lat: number, lng: number, language: string) 
     } satisfies GeocodeDetail
   } catch (error) {
     console.warn('[Geocode] Mapbox reverse lookup failed:', error)
-    return null
-  }
+  return null
+}
 }
 
 async function reverseGeocodeNominatim(

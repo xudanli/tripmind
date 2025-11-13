@@ -667,10 +667,17 @@ export default {
   // Login Related
   login: {
     title: '💫 Let\'s Start Your Journey Together',
+    pageTitle: 'Welcome Back',
+    pageSubtitle: 'Sign in with Google to start your travel planning',
+    description: 'After signing in, we can help you save travel plans, remember your preferences, and provide personalized travel recommendations.',
     loginWithGoogle: 'Sign in with Google',
     rememberStyle: 'Let us remember your travel style and help you save your inspiration',
     rememberPlan: 'Let us remember your travel plan and help you save your inspiration ✈️',
-    rememberInspiration: 'Let us remember your travel inspiration and help you save it ✨'
+    rememberInspiration: 'Let us remember your travel inspiration and help you save it ✨',
+    success: 'Login successful!',
+    error: 'Login failed, please try again',
+    postLoginError: 'Post-login processing failed',
+    tips: 'Sign in with Google for secure and convenient access. We will not access your password, only basic account information for personalized services.'
   },
 
   // Planner Mode

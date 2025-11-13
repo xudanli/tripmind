@@ -1,5 +1,61 @@
 <template>
-  <div class="container">
+  <!-- 未登录：显示登录页面 -->
+  <div v-if="!userStore.isLoggedIn" class="login-container">
+    <div class="login-background">
+      <!-- 背景装饰 -->
+      <div class="background-decoration">
+        <div class="floating-element floating-element-1">✈️</div>
+        <div class="floating-element floating-element-2">🌿</div>
+        <div class="floating-element floating-element-3">🗺️</div>
+        <div class="floating-element floating-element-4">🌸</div>
+      </div>
+    </div>
+
+    <div class="login-content">
+      <div class="login-card">
+        <!-- 主要内容 -->
+        <div class="login-body">
+          <div class="login-title-section">
+            <h1 class="login-title">🌍 {{ t('login.pageTitle') }}</h1>
+            <p class="login-subtitle">{{ t('login.pageSubtitle') }}</p>
+          </div>
+
+          <div class="login-form-section">
+            <div class="login-description">
+              <p>{{ t('login.description') }}</p>
+            </div>
+
+            <!-- Google 登录按钮 -->
+            <div class="google-signin-wrapper">
+              <GoogleSignIn
+                @success="handleLoginSuccess"
+                @error="handleLoginError"
+              />
+            </div>
+
+            <!-- 错误提示 -->
+            <div v-if="loginError" class="error-message">
+              <a-alert
+                :message="loginError"
+                type="error"
+                show-icon
+                closable
+                @close="loginError = ''"
+              />
+            </div>
+
+            <!-- 提示信息 -->
+            <div class="login-tips">
+              <p>{{ t('login.tips') }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 已登录：显示模式选择页面 -->
+  <div v-else class="container">
     <!-- 背景装饰 -->
     <div class="background-decoration">
       <div class="floating-element floating-element-1">✈️</div>
@@ -106,6 +162,7 @@
               </a-col>
             </a-row>
     </div>
+
   </div>
 </template>
 
@@ -114,8 +171,9 @@ import { ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useI18n } from 'vue-i18n'
+import { message } from 'ant-design-vue'
 import { RocketOutlined, HeartOutlined, BulbOutlined } from '@ant-design/icons-vue'
-import { Modal } from 'ant-design-vue'
+import GoogleSignIn from '@/components/GoogleSignIn.vue'
 
 const { t, locale } = useI18n()
 
@@ -137,6 +195,45 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const loading = ref(false)
+const loginError = ref('')
+
+// 处理登录成功
+const handleLoginSuccess = async (userInfo: any) => {
+  try {
+    console.log('登录成功:', userInfo)
+    message.success(t('login.success') || '登录成功！')
+    
+    // 检查是否有待处理的意图
+    if (userStore.pendingIntent) {
+      const intent = userStore.pendingIntent
+      userStore.clearIntent()
+      
+      if (intent.mode === 'planner') {
+        router.push('/planner')
+      } else if (intent.mode === 'seeker') {
+        router.push('/seeker')
+      } else if (intent.mode === 'inspiration') {
+        router.push('/inspiration')
+      } else {
+        // 如果没有明确模式，留在首页显示模式选择
+        // 由于 userStore.isLoggedIn 已更新，页面会自动切换到模式选择视图
+      }
+    } else {
+      // 没有待处理意图，留在首页显示模式选择
+      // 由于 userStore.isLoggedIn 已更新，页面会自动切换到模式选择视图
+    }
+  } catch (error) {
+    console.error('登录后处理失败:', error)
+    message.error(t('login.postLoginError') || '登录后处理失败')
+  }
+}
+
+// 处理登录错误
+const handleLoginError = (error: Error) => {
+  console.error('登录失败:', error)
+  loginError.value = error.message || (t('login.error') || '登录失败，请重试')
+  message.error(loginError.value)
+}
 
 const handlePlannerMode = async () => {
   console.log('进入 Planner 模式')
@@ -147,7 +244,7 @@ const handlePlannerMode = async () => {
     userStore.saveIntent({ mode: 'planner' })
     router.push('/planner')
   } else {
-    // 未登录，弹出登录提示
+    // 未登录，跳转到登录页（首页）
     showLoginModal('planner')
   }
 }
@@ -180,39 +277,16 @@ const handleApiTest = () => {
 }
 
 const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
-  // 根据模式获取对应的登录消息
-  const messages: { [key: string]: string } = {
-    planner: t('login.rememberPlan'),
-    seeker: t('login.rememberStyle'),
-    inspiration: t('login.rememberInspiration')
-  }
-  
-  Modal.info({
-    title: t('login.title'),
-    content: messages[mode],
-    okText: t('login.loginWithGoogle'),
-    onOk: async () => {
-      loading.value = true
-      try {
-        await userStore.login()
-        // 保存意图
+  // 保存意图并跳转到登录页（首页）
         userStore.saveIntent({ mode })
-        // 跳转到列表页
-        router.push('/travel-list')
-      } catch (error) {
-        console.error('登录失败:', error)
-      } finally {
-        loading.value = false
-      }
-    },
-    onCancel: () => {
-      // 用户取消登录，仍然允许进入（不保存意图）
-      if (mode === 'planner') router.push('/planner')
-      else if (mode === 'seeker') router.push('/seeker')
-      else router.push('/inspiration')
+  router.push({
+    path: '/',
+    query: {
+      redirect: mode === 'planner' ? '/planner' : mode === 'seeker' ? '/seeker' : '/inspiration'
     }
   })
 }
+
 </script>
 
 <style scoped>
@@ -271,6 +345,18 @@ const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
   top: 40%;
   right: 30%;
   animation-delay: 1s;
+}
+
+.login-modal-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+}
+
+.login-modal-content p {
+  text-align: center;
+  margin-bottom: 20px;
 }
 
 @keyframes float {
@@ -499,6 +585,127 @@ const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
   
   .card-icon {
     font-size: 1.8rem;
+  }
+}
+
+/* 登录页面样式 */
+.login-container {
+  min-height: 100vh;
+  width: 100vw;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.login-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.login-content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 480px;
+}
+
+.login-card {
+  background: white;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: slideUp 0.5s ease-out;
+}
+
+.login-body {
+  padding: 40px 48px 48px;
+}
+
+.login-title-section {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.login-title {
+  font-size: 32px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 12px 0;
+  line-height: 1.2;
+}
+
+.login-subtitle {
+  font-size: 16px;
+  color: #666;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.login-form-section {
+  width: 100%;
+}
+
+.login-description {
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.login-description p {
+  font-size: 15px;
+  color: #666;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.google-signin-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.error-message {
+  margin-bottom: 24px;
+}
+
+.login-tips {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #f0f0f0;
+  text-align: center;
+}
+
+.login-tips p {
+  font-size: 13px;
+  color: #999;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* 登录页面响应式设计 */
+@media (max-width: 576px) {
+  .login-container {
+    padding: 16px;
+  }
+
+  .login-body {
+    padding: 32px 24px 40px;
+  }
+
+  .login-title {
+    font-size: 28px;
+  }
+
+  .login-subtitle {
+    font-size: 14px;
   }
 }
 </style>

@@ -3,6 +3,8 @@
  * 维护各国对不同国籍和永久居民的签证政策
  */
 
+import { PRESET_COUNTRIES } from '@/constants/countries'
+
 export type VisaType = 'visa-free' | 'visa-on-arrival' | 'e-visa' | 'visa-required' | 'permanent-resident-benefit'
 
 export interface VisaInfo {
@@ -267,6 +269,27 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
     }]
   },
   
+  // 澳大利亚对中国护照的政策
+  'AU': {
+    'CN': [{
+      destinationCountry: 'AU',
+      destinationName: '澳大利亚',
+      visaType: 'visa-required',
+      applicableTo: '中国护照',
+      description: '需要提前申请签证，可在线申请电子签证（eVisitor或ETA）',
+      applicationUrl: 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing'
+    }],
+    'US-PR': [{
+      destinationCountry: 'AU',
+      destinationName: '澳大利亚',
+      visaType: 'e-visa',
+      applicableTo: '美国永久居民',
+      description: '美国永久居民可在线申请电子签证（ETA），通常处理时间较快',
+      duration: 90,
+      applicationUrl: 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/electronic-travel-authority-601'
+    }]
+  },
+  
   // 墨西哥对中国护照的政策
   'MX': {
     'CN': [{
@@ -360,27 +383,27 @@ export function isValidVisaInfo(visaInfo: any): visaInfo is VisaInfo {
     return false
   }
   
-  // duration 是可选的，但如果存在必须是数字
-  if (visaInfo.duration !== undefined && (typeof visaInfo.duration !== 'number' || visaInfo.duration < 0)) {
-    return false
+  // duration 是可选的，可以是 undefined、null 或数字
+  if (visaInfo.duration !== undefined && visaInfo.duration !== null) {
+    if (typeof visaInfo.duration !== 'number' || visaInfo.duration < 0) {
+      return false
+    }
   }
   
   // applicationUrl 是可选的，但如果存在必须是字符串
-  if (visaInfo.applicationUrl !== undefined && typeof visaInfo.applicationUrl !== 'string') {
-    return false
+  if (visaInfo.applicationUrl !== undefined && visaInfo.applicationUrl !== null) {
+    if (typeof visaInfo.applicationUrl !== 'string') {
+      return false
+    }
   }
   
   return true
 }
 
 /**
- * 获取签证信息
- * @param destinationCountry 目的地国家代码
- * @param nationalityCode 用户国籍代码（如 'CN'）
- * @param permanentResidencyCode 用户永久居民身份国家代码（如 'US'）
- * @returns 签证信息数组（已校验）
+ * 从静态数据获取签证信息（向后兼容）
  */
-export function getVisaInfo(
+function getVisaInfoFromStaticData(
   destinationCountry: string,
   nationalityCode?: string | null,
   permanentResidencyCode?: string | null
@@ -430,18 +453,162 @@ export function getVisaInfo(
 }
 
 /**
+ * 获取签证信息
+ * 优先使用后端 API，如果后端不可用则回退到静态数据
+ * @param destinationCountry 目的地国家代码
+ * @param nationalityCode 用户国籍代码（如 'CN'）
+ * @param permanentResidencyCode 用户永久居民身份国家代码（如 'US'）
+ * @returns 签证信息数组（已校验）
+ */
+export async function getVisaInfo(
+  destinationCountry: string,
+  nationalityCode?: string | null,
+  permanentResidencyCode?: string | null
+): Promise<VisaInfo[]>
+export function getVisaInfo(
+  destinationCountry: string,
+  nationalityCode?: string | null,
+  permanentResidencyCode?: string | null
+): VisaInfo[]
+export function getVisaInfo(
+  destinationCountry: string,
+  nationalityCode?: string | null,
+  permanentResidencyCode?: string | null
+): VisaInfo[] | Promise<VisaInfo[]> {
+  // 检查是否配置了后端 API
+  const visaApiBaseUrl = import.meta.env.VITE_VISA_API_BASE_URL
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+  const useVisaApi = import.meta.env.VITE_USE_VISA_API === 'true'
+  
+  const useBackendAPI = visaApiBaseUrl || apiBaseUrl || useVisaApi
+
+  console.log('🔍 getVisaInfo: 检查后端API配置', {
+    VITE_VISA_API_BASE_URL: visaApiBaseUrl || '未设置',
+    VITE_API_BASE_URL: apiBaseUrl || '未设置',
+    VITE_USE_VISA_API: useVisaApi,
+    useBackendAPI: !!useBackendAPI,
+    destinationCountry,
+    nationalityCode: nationalityCode || '未设置',
+    permanentResidencyCode: permanentResidencyCode || '未设置'
+  })
+
+  if (useBackendAPI) {
+    // 使用后端 API（异步）
+    return (async () => {
+      try {
+        console.log('🌐 getVisaInfo: 开始调用后端API...')
+        const { getVisaInfo: getVisaInfoFromAPI } = await import('@/services/visaAPI')
+        const results = await getVisaInfoFromAPI({
+          destinationCountry,
+          nationalityCode: nationalityCode || undefined,
+          permanentResidencyCode: permanentResidencyCode || undefined,
+        })
+        
+        console.log('📥 getVisaInfo: 后端API返回结果', results)
+        console.log('📥 getVisaInfo: 后端API返回结果详情', JSON.stringify(results, null, 2))
+        
+        // 转换后端数据格式（如果字段名不一致）
+        const normalizedResults = results.map((info: any) => {
+          // 如果后端返回的是 durationDays，转换为 duration
+          let duration = info.duration
+          if (info.durationDays !== undefined && duration === undefined) {
+            duration = info.durationDays
+          }
+          // 将 null 转换为 undefined（前端接口期望 undefined 而不是 null）
+          if (duration === null) {
+            duration = undefined
+          }
+          
+          let applicationUrl = info.applicationUrl
+          if (applicationUrl === null) {
+            applicationUrl = undefined
+          }
+          
+          // 确保所有必需字段都存在
+          return {
+            destinationCountry: info.destinationCountry,
+            destinationName: info.destinationName,
+            visaType: info.visaType,
+            applicableTo: info.applicableTo,
+            description: info.description,
+            duration: duration,
+            applicationUrl: applicationUrl
+          }
+        })
+        
+        console.log('🔄 getVisaInfo: 数据转换后', normalizedResults)
+        
+        // 校验返回的数据
+        const validResults = normalizedResults.filter((info: any) => {
+          const isValid = isValidVisaInfo(info)
+          if (!isValid) {
+            console.warn('⚠️ getVisaInfo: 后端返回的数据未通过校验', {
+              原始数据: info,
+              校验详情: {
+                hasDestinationCountry: !!info?.destinationCountry,
+                hasDestinationName: !!info?.destinationName,
+                hasVisaType: !!info?.visaType,
+                hasApplicableTo: !!info?.applicableTo,
+                validVisaType: info?.visaType && ['visa-free', 'visa-on-arrival', 'e-visa', 'visa-required', 'permanent-resident-benefit'].includes(info.visaType),
+                validDuration: info?.duration === undefined || (typeof info.duration === 'number' && info.duration >= 0),
+                validApplicationUrl: info?.applicationUrl === undefined || typeof info.applicationUrl === 'string'
+              }
+            })
+          }
+          return isValid
+        })
+        
+        console.log('🔍 getVisaInfo: 校验结果', {
+          原始数据数量: results.length,
+          有效数据数量: validResults.length,
+          无效数据数量: results.length - validResults.length
+        })
+        
+        if (validResults.length > 0) {
+          console.log('✅ getVisaInfo: 从后端API获取签证信息成功', validResults.length, '条')
+          return validResults
+        }
+        
+        // 如果后端返回空或校验失败，回退到静态数据
+        console.warn('⚠️ getVisaInfo: 后端API返回的数据未通过校验或为空，回退到静态数据', {
+          原始数据: results,
+          校验失败原因: results.map(info => {
+            const checks = {
+              hasDestinationCountry: !!info?.destinationCountry,
+              hasDestinationName: !!info?.destinationName,
+              hasVisaType: !!info?.visaType,
+              hasApplicableTo: !!info?.applicableTo,
+              validVisaType: info?.visaType && ['visa-free', 'visa-on-arrival', 'e-visa', 'visa-required', 'permanent-resident-benefit'].includes(info.visaType)
+            }
+            return { info, checks }
+          })
+        })
+        return getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
+      } catch (error) {
+        console.error('❌ getVisaInfo: 后端API调用失败，回退到静态数据', error)
+        return getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
+      }
+    })()
+  }
+  
+  // 使用静态数据（同步）
+  console.log('📚 getVisaInfo: 使用静态数据（未配置后端API）')
+  return getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
+}
+
+/**
  * 检查目的地是否对用户免签或落地签
  * @param destinationCountry 目的地国家代码
  * @param nationalityCode 用户国籍代码
  * @param permanentResidencyCode 用户永久居民身份国家代码
- * @returns 是否免签或落地签
+ * @returns 是否免签或落地签（同步版本，使用静态数据）
  */
 export function isVisaFreeOrOnArrival(
   destinationCountry: string,
   nationalityCode?: string | null,
   permanentResidencyCode?: string | null
 ): boolean {
-  const visaInfo = getVisaInfo(destinationCountry, nationalityCode, permanentResidencyCode)
+  const visaInfo = getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
   return visaInfo.some(info => 
     info.visaType === 'visa-free' || 
     info.visaType === 'visa-on-arrival' ||
@@ -454,14 +621,14 @@ export function isVisaFreeOrOnArrival(
  * @param destinationCountry 目的地国家代码
  * @param nationalityCode 用户国籍代码
  * @param permanentResidencyCode 用户永久居民身份国家代码
- * @returns 签证类型描述字符串
+ * @returns 签证类型描述字符串（同步版本，使用静态数据）
  */
 export function getVisaDescription(
   destinationCountry: string,
   nationalityCode?: string | null,
   permanentResidencyCode?: string | null
 ): string | null {
-  const visaInfo = getVisaInfo(destinationCountry, nationalityCode, permanentResidencyCode)
+  const visaInfo = getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
   if (visaInfo.length === 0) {
     return null
   }
@@ -686,7 +853,7 @@ export function analyzeMultiDestinationVisa(
     if (unionKey === 'schengen') {
       // 检查是否所有申根国家都需要签证（不是免签或落地签）
       const needsVisa = group.countries.some(country => {
-        const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+        const visaInfos = getVisaInfoFromStaticData(country, nationalityCode, permanentResidencyCode)
         if (visaInfos.length === 0) return true // 没有数据，假设需要签证
         return visaInfos.some(info => info.visaType === 'visa-required')
       })
@@ -696,7 +863,7 @@ export function analyzeMultiDestinationVisa(
       if (needsVisa) {
         // 获取第一个需要签证的国家的签证信息作为参考
         for (const country of group.countries) {
-          const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+          const visaInfos = getVisaInfoFromStaticData(country, nationalityCode, permanentResidencyCode)
           const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
           if (requiredVisa) {
             group.visaInfo = [requiredVisa]
@@ -715,7 +882,7 @@ export function analyzeMultiDestinationVisa(
     } else {
       // 对于其他联盟（如东盟），需要分别检查每个国家
       for (const country of group.countries) {
-        const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+        const visaInfos = getVisaInfoFromStaticData(country, nationalityCode, permanentResidencyCode)
         const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
         
         if (requiredVisa) {
@@ -733,7 +900,7 @@ export function analyzeMultiDestinationVisa(
   
   // 处理独立国家
   for (const country of standaloneCountries) {
-    const visaInfos = getVisaInfo(country, nationalityCode, permanentResidencyCode)
+    const visaInfos = getVisaInfoFromStaticData(country, nationalityCode, permanentResidencyCode)
     const requiredVisa = visaInfos.find(info => info.visaType === 'visa-required')
     
     if (requiredVisa) {
@@ -864,6 +1031,7 @@ function extractCountryCodeFromString(str: string): string | null {
     'ES': ['spain', '西班牙'],
     'FI': ['finland', '芬兰'],
     'IS': ['iceland', '冰岛', 'reykjavik', '雷克雅未克'],
+    'EG': ['egypt', '埃及', 'cairo', '开罗', 'aswan', '阿斯旺', 'luxor', '卢克索'],
     'TW': ['taiwan', '台湾'],
     'HK': ['hong kong', '香港'],
     'MO': ['macau', 'macao', '澳门'],
@@ -875,7 +1043,17 @@ function extractCountryCodeFromString(str: string): string | null {
     'GR': ['greece', '希腊'],
   }
   
-  // 遍历所有已知的国家代码
+  // 首先遍历 PRESET_COUNTRIES，匹配国家名称（中文）
+  for (const [code, country] of Object.entries(PRESET_COUNTRIES)) {
+    if (strLower.includes(country.name.toLowerCase())) {
+      return code
+    }
+    if (strLower.includes(code.toLowerCase())) {
+      return code
+    }
+  }
+  
+  // 然后遍历别名映射
   for (const [code, aliases] of Object.entries(countryAliases)) {
     if (strLower.includes(code.toLowerCase())) return code
     if (aliases.some(alias => strLower.includes(alias.toLowerCase()))) return code

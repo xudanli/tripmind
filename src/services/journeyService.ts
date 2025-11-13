@@ -135,7 +135,7 @@ export class JourneyService {
     // 5. 生成 Tips（可选，如果用户需要快速响应可以跳过或异步生成）
     // 优化：Tips 生成改为可选，先返回基本行程，Tips 可以后续异步补充
     let finalItinerary = itineraryWithTransport
-
+    
     if (estimatedDays <= 3) {
       finalItinerary = await generateTipsForAllSlots({
         itinerary: itineraryWithTransport,

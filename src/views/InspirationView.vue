@@ -311,11 +311,20 @@ const loading = computed(() => travelStore.loading)
 const error = computed(() => travelStore.error)
 const inspirationResult = computed(() => {
   const data = travelStore.inspirationData
+  // 只在开发环境且有数据时输出详细信息
+  if (import.meta.env.DEV) {
+    if (data) {
   console.log('🔄 inspirationResult computed 触发，数据:', {
-    hasData: !!data,
+        hasData: true,
     locationsCount: data?.locations?.length || 0,
-    title: data?.title
+        title: data?.title,
+        hasFullItinerary: data?.hasFullItinerary
   })
+    } else {
+      // 空数据是正常状态（用户还未生成灵感），只在开发环境静默记录
+      console.debug('ℹ️ inspirationResult: 暂无数据（用户还未生成灵感）')
+    }
+  }
   return data
 })
 const selectedLocation = computed<string | null>({

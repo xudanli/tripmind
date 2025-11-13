@@ -25,8 +25,8 @@ export const API_CONFIG = {
   MAPBOX_ACCESS_TOKEN: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '',
   MAPBOX_API_URL: import.meta.env.VITE_MAPBOX_API_URL || 'https://api.mapbox.com',
   
-  // 基础URL - 根据环境切换
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://api.emotional-travel.com',
+  // 基础URL - 根据环境切换（包含 /api）
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://api.emotional-travel.com/api',
   
   // API 端点
   ENDPOINTS: {
@@ -49,6 +49,13 @@ export const API_CONFIG = {
     // 旅行攻略 API 端点
     TRAVEL_GUIDES: '/travel-guides',
     TRAVEL_GUIDES_SEARCH: '/travel-guides/search',
+    // 签证信息 API 端点
+    VISA_INFO: '/visa/info',
+    VISA_MULTI_DESTINATION_ANALYSIS: '/visa/multi-destination-analysis',
+    VISA_ADMIN_POLICIES: '/visa/admin/policies',
+    // 认证相关 API 端点（不包含 /api，因为 BASE_URL 已包含）
+    GOOGLE_AUTH: '/auth/google',
+    AUTH_PROFILE: '/auth/profile',
   },
   
   // 请求配置

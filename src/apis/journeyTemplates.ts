@@ -214,7 +214,7 @@ export interface JourneyTemplateListResult extends JourneyTemplateListResponse {
 }
 
 export async function fetchJourneyTemplates(params: JourneyTemplateListParams = {}): Promise<JourneyTemplateListResult> {
-  const endpoint = buildEndpoint('/api/v1/templates', {
+  const endpoint = buildEndpoint('/v1/templates', {
     status: params.status,
     mode: params.mode,
     modePrimary: params.modePrimary,
@@ -256,7 +256,7 @@ export async function fetchJourneyTemplates(params: JourneyTemplateListParams = 
 }
 
 export async function fetchJourneyTemplateDetail(id: string) {
-  const endpoint = buildEndpoint(`/api/v1/templates/${id}`)
+  const endpoint = buildEndpoint(`/v1/templates/${id}`)
   const response = await fetch(endpoint, {
     headers: { 'Content-Type': 'application/json' },
   })

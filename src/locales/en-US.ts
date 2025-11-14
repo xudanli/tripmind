@@ -677,7 +677,11 @@ export default {
     success: 'Login successful!',
     error: 'Login failed, please try again',
     postLoginError: 'Post-login processing failed',
-    tips: 'Sign in with Google for secure and convenient access. We will not access your password, only basic account information for personalized services.'
+    tips: 'Sign in with Google for secure and convenient access. We will not access your password, only basic account information for personalized services.',
+    devLoginDivider: 'or use offline dev mode',
+    devLoginButton: 'Continue with a temporary dev account',
+    devLoginTip: 'Enable by setting VITE_ENABLE_DEV_LOGIN=true (or VITE_AUTH_MODE=mock). For local debugging only; data is stored in your browser and no backend call is made.',
+    devLoginSuccess: 'Dev mode enabled'
   },
 
   // Planner Mode

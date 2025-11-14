@@ -79,6 +79,7 @@ async function request<T>(
       // 如果需要认证，可以在这里添加
       // 'Authorization': `Bearer ${token}`,
     },
+    credentials: 'include',
     ...options,
   }
 

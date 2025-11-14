@@ -6,16 +6,17 @@
         <h2 class="title">🗺️ {{ t('travelList.title') }}</h2>
       </div>
       <div class="header-right">
+        <a-button @click="handleLogout" class="logout-btn">
+          <template #icon>
+            <logout-outlined />
+          </template>
+          <span>{{ t('travelList.logout') }}</span>
+        </a-button>
         <a-button type="primary" @click="showCreateModal" class="new-journey-btn">
           <template #icon>
             <plus-outlined />
           </template>
           {{ t('travelList.newJourney') }}
-        </a-button>
-        <a-button type="text" @click="handleLogout" class="logout-btn">
-          <template #icon>
-            <logout-outlined />
-          </template>
         </a-button>
       </div>
     </div>
@@ -342,8 +343,8 @@ const handleLogout = () => {
     content: '确定要退出登录吗？',
     okText: '登出',
     cancelText: '取消',
-    onOk: () => {
-      userStore.logout()
+    onOk: async () => {
+      await userStore.logout()
       travelListStore.clearAll()
       message.success('已退出登录')
       router.push('/')
@@ -552,6 +553,13 @@ const getVisaStatusColor = (travel: Travel) => {
 .header-right {
   display: flex;
   gap: 1rem;
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 40px !important;
 }
 
 .new-journey-btn {

@@ -187,6 +187,7 @@ async function fetchGuidesFromAPI(
         // 如果需要认证，可以添加：
         // 'Authorization': `Bearer ${API_CONFIG.API_KEY}`
       },
+      credentials: 'include',
       // 添加超时控制
       signal: AbortSignal.timeout(API_CONFIG.REQUEST_CONFIG.TIMEOUT || 30000)
     })

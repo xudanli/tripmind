@@ -760,7 +760,11 @@ export default {
     success: '登录成功！',
     error: '登录失败，请重试',
     postLoginError: '登录后处理失败',
-    tips: '使用 Google 账号登录，安全便捷。我们不会获取你的密码，只会获取基本的账号信息用于个性化服务。'
+    tips: '使用 Google 账号登录，安全便捷。我们不会获取你的密码，只会获取基本的账号信息用于个性化服务。',
+    devLoginDivider: '或者使用临时体验模式',
+    devLoginButton: '使用临时体验账号继续',
+    devLoginTip: '在 .env.local 中设置 VITE_ENABLE_DEV_LOGIN=true（或 VITE_AUTH_MODE=mock）即可启用，仅供本地调试使用，不会访问真实后端。',
+    devLoginSuccess: '已启用体验模式'
   },
 
   // Planner 模式

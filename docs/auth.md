@@ -1,163 +1,37 @@
 接口列表
 
-### 1. Google OAuth 登录
+---
 
-使用 Google ID Token 进行登录，后端验证 token 后返回应用的 JWT token。
+## 1. Google OAuth 登录（后端托管）
 
-**接口地址**: `POST /api/auth/google`
+前端不再提交 ID Token，而是直接跳转到后端的 OAuth 入口。所有会话由服务器设置的 HttpOnly Cookie 维护。
 
-**请求参数** (Request Body):
+- **接口地址**：`GET /api/auth/google`
+- **说明**：后端会重定向到 Google 授权页，成功后再重定向回 `FRONTEND_ORIGIN`，并写入 `app_session` Cookie。
+- **前端调用示例**：
 
-```json
-{
-  "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6IjE2Nz..."
+```ts
+function redirectToLogin(redirectPath = '/travel-list') {
+  window.location.href = `/api/auth/google?redirect=${encodeURIComponent(redirectPath)}`
 }
 ```
 
-**请求字段说明**:
-
-| 字段名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| token | string | 是 | Google ID Token（从 Google 登录 SDK 获取） |
-
-**响应格式**:
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "nickname": "John Doe",
-    "avatarUrl": "https://lh3.googleusercontent.com/..."
-  }
-}
-```
-
-**响应字段说明**:
-
-| 字段名 | 类型 | 说明 |
-|--------|------|------|
-| success | boolean | 是否成功 |
-| token | string | JWT Token，用于后续请求认证 |
-| user | object | 用户信息 |
-| user.id | string | 用户 ID（UUID） |
-| user.email | string | 用户邮箱 |
-| user.nickname | string | 用户昵称 |
-| user.avatarUrl | string | 用户头像 URL |
-
-**错误响应**:
-```json
-{
-  "statusCode": 401,
-  "message": "Google 认证失败",
-  "error": "Unauthorized"
-}
-```
-
-**前端集成示例**:
-
-```typescript
-// React + Google Sign-In
-import { GoogleLogin } from '@react-oauth/google';
-
-function LoginButton() {
-  const handleGoogleSuccess = async (credentialResponse: any) => {
-    try {
-      const response = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: credentialResponse.credential,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        // 存储 token
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        // 跳转到主页
-        window.location.href = '/';
-      }
-    } catch (error) {
-      console.error('登录失败:', error);
-    }
-  };
-
-  return (
-    <GoogleLogin
-      onSuccess={handleGoogleSuccess}
-      onError={() => {
-        console.log('登录失败');
-      }}
-    />
-  );
-}
-```
-
-**JavaScript 示例**:
-
-```javascript
-// 使用 Google Identity Services
-async function signInWithGoogle() {
-  try {
-    // 1. 使用 Google Identity Services 获取 ID Token
-    const tokenResponse = await google.accounts.oauth2.initTokenClient({
-      client_id: 'YOUR_GOOGLE_CLIENT_ID',
-      scope: 'email profile',
-      callback: async (response) => {
-        // 2. 发送 token 到后端
-        const result = await fetch('/api/auth/google', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            token: response.id_token,
-          }),
-        });
-
-        const data = await result.json();
-        
-        if (data.success) {
-          // 3. 存储 token
-          localStorage.setItem('token', data.token);
-          console.log('登录成功:', data.user);
-        }
-      },
-    });
-
-    tokenResponse.requestAccessToken();
-  } catch (error) {
-    console.error('登录失败:', error);
-  }
-}
-```
+> `redirect` 参数可选，后端应在授权成功后将用户带回指定路径。
 
 ---
 
-### 2. 获取当前用户信息
+## 2. 获取当前用户信息
 
-获取当前登录用户的详细信息。
+**接口地址**：`GET /api/auth/me`
 
-**接口地址**: `GET /api/auth/profile`
+**请求**：
+- 需携带 `credentials: include`（浏览器自动带上 `app_session` Cookie）
 
-**请求头**:
-```
-Authorization: Bearer <your-jwt-token>
-```
-
-**响应格式**:
+**响应**：
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "user@example.com",
-  "phone": null,
   "nickname": "John Doe",
   "avatarUrl": "https://lh3.googleusercontent.com/...",
   "preferredLanguage": "zh-CN",
@@ -166,200 +40,159 @@ Authorization: Bearer <your-jwt-token>
 }
 ```
 
-**前端调用示例**:
-
-```typescript
-async function getCurrentUser() {
-  const token = localStorage.getItem('token');
-  
-  if (!token) {
-    throw new Error('未登录');
-  }
-
-  const response = await fetch('/api/auth/profile', {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
-  });
+**前端示例**：
+```ts
+async function getCurrentUser(): Promise<UserProfile> {
+  const response = await fetch('/api/auth/me', {
+    credentials: 'include',
+  })
 
   if (response.status === 401) {
-    // Token 过期或无效，清除本地存储
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    throw new Error('登录已过期');
+    throw new Error('未登录')
   }
 
-  return await response.json();
+  if (!response.ok) {
+    throw new Error(`获取用户信息失败: ${response.status}`)
+  }
+
+  return response.json()
 }
 ```
 
 ---
 
-## 使用 JWT Token 保护路由
+## 3. 退出登录
 
-在需要认证的接口中，前端需要在请求头中携带 JWT token：
+**接口地址**：`POST /api/auth/logout`
 
-```typescript
-// 创建带认证的 fetch 封装
+**请求**：
+- Method: `POST`
+- Headers: `Content-Type: application/json`
+- Options: `credentials: 'include'`
+
+**前端示例**：
+```ts
+async function logout() {
+  await fetch('/api/auth/logout', {
+    method: 'POST',
+    credentials: 'include',
+  })
+}
+```
+
+---
+
+## 4. 在前端保护业务接口
+
+- 所有需要认证的接口都要以 `credentials: 'include'` 方式调用，让浏览器自动附带 HttpOnly Cookie。
+
+```ts
 async function authenticatedFetch(url: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('token');
-  
-  if (!token) {
-    throw new Error('未登录');
-  }
-
   return fetch(url, {
     ...options,
     headers: {
-      ...options.headers,
-      'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      ...(options.headers || {}),
     },
-  });
+    credentials: 'include',
+  })
 }
-
-// 使用示例
-const response = await authenticatedFetch('/api/v1/journeys', {
-  method: 'GET',
-});
 ```
 
-**Axios 示例**:
+- Axios 示例：
 
-```typescript
-import axios from 'axios';
-
-// 创建 axios 实例
-const apiClient = axios.create({
+```ts
+const api = axios.create({
   baseURL: '/api',
-});
+  withCredentials: true,
+})
 
-// 添加请求拦截器，自动添加 token
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// 添加响应拦截器，处理 token 过期
-apiClient.interceptors.response.use(
-  (response) => response,
+api.interceptors.response.use(
+  (res) => res,
   (error) => {
     if (error.response?.status === 401) {
-      // Token 过期，清除本地存储并跳转到登录页
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
+      // 清理本地缓存、跳转登录页等
     }
-    return Promise.reject(error);
+    return Promise.reject(error)
   }
-);
-
-// 使用
-const user = await apiClient.get('/auth/profile');
-const journeys = await apiClient.get('/v1/journeys');
+)
 ```
 
 ---
 
-## 后端保护路由示例
+## 5. 后端保护路由
 
-在后端控制器中使用 `@UseGuards(JwtAuthGuard)` 保护路由：
+后端仍需校验 `app_session` Cookie 中的会话，示例（NestJS）：
 
-```typescript
-import { Controller, Get, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-
+```ts
 @Controller('api/v1/journeys')
 export class JourneyController {
   @Get()
-  @UseGuards(JwtAuthGuard)  // 需要认证
+  @UseGuards(SessionAuthGuard) // 自定义 Guard，基于 Cookie 验证
   async listJourneys(@CurrentUser() user: { userId: string }) {
-    // user.userId 包含当前登录用户的 ID
-    return this.journeyService.listJourneys(user.userId);
+    return this.journeyService.listJourneys(user.userId)
   }
 }
 ```
 
 ---
 
-## 错误码说明
+## 6. 错误码说明
 
-| HTTP 状态码 | 说明 |
-|------------|------|
-| 200 | 请求成功 |
-| 401 | 未授权（token 无效或过期） |
-| 400 | 请求参数错误 |
-| 500 | 服务器内部错误 |
+| 状态码 | 说明 |
+|--------|------|
+| 200    | 请求成功 |
+| 401    | 未登录或会话过期 |
+| 400    | 请求参数错误 |
+| 500    | 服务器内部错误 |
 
-**常见错误处理**:
+**推荐的前端处理**：
 
-```typescript
+```ts
 async function handleApiError(response: Response) {
   if (response.status === 401) {
-    // Token 过期，清除本地存储
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    // 跳转到登录页
-    window.location.href = '/login';
-  } else if (response.status === 400) {
-    const error = await response.json();
-    console.error('请求错误:', error.message);
-  } else {
-    console.error('服务器错误:', response.statusText);
+    // 清理本地状态、提示重新登录
+    throw new Error('未登录或会话已过期')
   }
+  const text = await response.text()
+  throw new Error(`服务器错误: ${response.status} ${text}`)
 }
 ```
 
 ---
 
-## 完整的前端登录流程
+## 7. 登录流程总结
 
-```typescript
-// 1. 用户点击 Google 登录按钮
-// 2. Google SDK 返回 ID Token
-const googleToken = await getGoogleIdToken();
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant FE as Frontend
+  participant BE as Backend
+  participant Google
 
-// 3. 发送到后端验证
-const response = await fetch('/api/auth/google', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ token: googleToken }),
-});
-
-const { success, token, user } = await response.json();
-
-if (success) {
-  // 4. 存储 token 和用户信息
-  localStorage.setItem('token', token);
-  localStorage.setItem('user', JSON.stringify(user));
-  
-  // 5. 更新应用状态（如果使用状态管理）
-  // setUser(user);
-  
-  // 6. 跳转到主页
-  router.push('/');
-}
+  U->>FE: 点击“使用 Google 登录”
+  FE->>BE: 跳转 /api/auth/google
+  BE->>Google: OAuth 授权
+  Google-->>BE: 授权结果 + 用户信息
+  BE->>BE: 写入 app_session Cookie
+  BE-->>FE: 重定向 FRONTEND_ORIGIN
+  FE->>BE: GET /api/auth/me (credentials: include)
+  BE-->>FE: 返回用户资料
 ```
 
 ---
 
-## 安全注意事项
+## 8. 安全注意事项
 
-1. **JWT Secret**: 生产环境必须使用强随机字符串作为 `JWT_SECRET`
-2. **HTTPS**: 生产环境必须使用 HTTPS 传输
-3. **Token 存储**: 
-   - Web 应用：使用 `localStorage` 或 `sessionStorage`
-   - 移动应用：使用安全存储（Keychain/Keystore）
-4. **Token 过期**: 建议设置合理的过期时间（如 7 天）
-5. **刷新 Token**: 可以实现 refresh token 机制延长登录状态
+1. **Cookie 设置**：`Secure; HttpOnly; SameSite=None`（跨域场景）或 `SameSite=Lax`（同域）。
+2. **CORS**：后端必须允许前端 Origin 并开启 `Access-Control-Allow-Credentials`.
+3. **HTTPS**：生产必须使用 HTTPS，否则浏览器会拒绝 `SameSite=None` Cookie。
+4. **CSRF**：由于使用 Cookie，会话敏感接口应搭配 CSRF Token 或双重 Cookie 校验。
+5. **Session 失效**：合理设置过期时间，并在 `/auth/logout`、`/auth/me` 中处理过期清理。
 
 ---
 
-## 更新日志
+## 9. 更新日志
 
-- 2024-01-01: 初始版本，支持 Google OAuth 登录和 JWT 认证
+- 2025-XX-XX：改为后端托管 OAuth，使用 HttpOnly Session。
 

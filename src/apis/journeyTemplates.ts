@@ -230,6 +230,7 @@ export async function fetchJourneyTemplates(params: JourneyTemplateListParams = 
 
   const response = await fetch(endpoint, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
 
   if (!response.ok) {
@@ -259,6 +260,7 @@ export async function fetchJourneyTemplateDetail(id: string) {
   const endpoint = buildEndpoint(`/v1/templates/${id}`)
   const response = await fetch(endpoint, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
   })
 
   if (!response.ok) {

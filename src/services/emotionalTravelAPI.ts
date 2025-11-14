@@ -133,6 +133,7 @@ class EmotionalTravelAPI {
         // 添加认证头等
         // 'Authorization': `Bearer ${token}`,
       },
+      credentials: 'include',
     }
 
     const mergedOptions = { ...defaultOptions, ...options }

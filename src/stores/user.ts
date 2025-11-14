@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { loginWithGoogle as authLoginWithGoogle, getCurrentUser, getToken, clearToken, setToken } from '@/services/authAPI'
+import { fetchCurrentUser, logoutSession, redirectToGoogleLogin } from '@/services/authAPI'
+
+const authMode = (import.meta.env.VITE_AUTH_MODE || 'google').toLowerCase()
+const devLoginFlag = import.meta.env.VITE_ENABLE_DEV_LOGIN === 'true'
+const devLoginEnabled = devLoginFlag || authMode === 'mock'
+const DEV_LOGIN_STORAGE_KEY = 'devLoginActive'
+
+const isDevSessionActive = () => devLoginEnabled && localStorage.getItem(DEV_LOGIN_STORAGE_KEY) === 'true'
 
 export interface User {
   id: string
@@ -22,38 +29,23 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = ref(false)
   const pendingIntent = ref<TravelIntent | null>(null)
   
-  /**
-   * Google OAuth 登录
-   * @param idToken Google 返回的 ID token
-   */
-  const loginWithGoogle = async (idToken: string): Promise<User> => {
-    try {
-      // 调用认证 API
-      const authResponse = await authLoginWithGoogle(idToken)
-      
-      // 构建用户对象（兼容新旧字段）
-      const userInfo: User = {
-        id: authResponse.user.id,
-        name: authResponse.user.nickname, // 兼容字段
-        nickname: authResponse.user.nickname,
-        email: authResponse.user.email,
-        avatar: authResponse.user.avatarUrl, // 兼容字段
-        avatarUrl: authResponse.user.avatarUrl,
-      }
-      
-      user.value = userInfo
-      isLoggedIn.value = true
-      
-      // 保存到 localStorage（token 已在 authAPI 中保存）
-      localStorage.setItem('user', JSON.stringify(userInfo))
+  const setSessionUser = (value: User | null) => {
+    user.value = value
+    isLoggedIn.value = !!value
+  }
+
+  const persistSession = (value: User | null) => {
+    if (value) {
+      localStorage.setItem('user', JSON.stringify(value))
       localStorage.setItem('isLoggedIn', 'true')
-      
-      console.log('登录成功:', userInfo)
-      return userInfo
-    } catch (error) {
-      console.error('Google 登录失败:', error)
-      throw error
+    } else {
+      localStorage.removeItem('user')
+      localStorage.removeItem('isLoggedIn')
     }
+  }
+
+  const triggerLoginRedirect = (redirectPath?: string) => {
+    redirectToGoogleLogin(redirectPath)
   }
   
   /**
@@ -62,7 +54,18 @@ export const useUserStore = defineStore('user', () => {
    */
   const fetchUserProfile = async (): Promise<User> => {
     try {
-      const profile = await getCurrentUser()
+      if (isDevSessionActive()) {
+        const savedUser = localStorage.getItem('user')
+        if (savedUser) {
+          const userInfo: User = JSON.parse(savedUser)
+          user.value = userInfo
+          isLoggedIn.value = true
+          return userInfo
+        }
+        throw new Error('开发模式未找到本地用户信息')
+      }
+      
+      const profile = await fetchCurrentUser()
       
       // 构建用户对象
       const userInfo: User = {
@@ -77,16 +80,14 @@ export const useUserStore = defineStore('user', () => {
       user.value = userInfo
       isLoggedIn.value = true
       
-      // 更新 localStorage
-      localStorage.setItem('user', JSON.stringify(userInfo))
-      localStorage.setItem('isLoggedIn', 'true')
+      persistSession(userInfo)
       
       return userInfo
     } catch (error) {
       console.error('获取用户信息失败:', error)
-      // 如果 token 过期，清除状态
+      // 如果会话过期，清除状态
       if (error instanceof Error && error.message.includes('登录已过期')) {
-        logout()
+        await logout(true)
       }
       throw error
     }
@@ -98,10 +99,8 @@ export const useUserStore = defineStore('user', () => {
    */
   const login = async (): Promise<User> => {
     try {
-      // 如果配置了 Google Client ID，提示使用 Google 登录
-      const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-      if (googleClientId) {
-        throw new Error('请使用 GoogleSignIn 组件进行登录')
+      if (!devLoginEnabled) {
+        throw new Error('当前环境未启用开发者体验模式')
       }
       
       // 否则使用模拟数据（仅用于开发）
@@ -112,8 +111,9 @@ export const useUserStore = defineStore('user', () => {
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=traveler'
       }
       
-      user.value = mockUser
-      isLoggedIn.value = true
+      setSessionUser(mockUser)
+      persistSession(mockUser)
+      localStorage.setItem(DEV_LOGIN_STORAGE_KEY, 'true')
       
       console.log('登录成功（模拟）:', mockUser)
       return mockUser
@@ -129,46 +129,55 @@ export const useUserStore = defineStore('user', () => {
    */
   const restoreUser = async () => {
     try {
-      const token = getToken()
       const savedUser = localStorage.getItem('user')
       const savedLoginStatus = localStorage.getItem('isLoggedIn')
+      const devSessionActive = isDevSessionActive()
       
-      if (token && savedUser && savedLoginStatus === 'true') {
-        // 先恢复本地状态
+      if (devSessionActive && savedUser && savedLoginStatus === 'true') {
         user.value = JSON.parse(savedUser)
         isLoggedIn.value = true
-        
-        // 尝试从后端获取最新用户信息（静默失败）
-        try {
-          await fetchUserProfile()
-        } catch (error) {
-          // 如果获取失败，继续使用本地缓存的状态
+        console.log('恢复开发模式用户状态:', user.value)
+        return
+      }
+      
+      if (savedUser && savedLoginStatus === 'true') {
+        user.value = JSON.parse(savedUser)
+        isLoggedIn.value = true
+      }
+
+      try {
+        await fetchUserProfile()
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('未登录')) {
+          if (!devSessionActive) {
+            console.warn('未检测到有效会话，清除本地缓存')
+            await logout(true)
+          }
+        } else {
           console.warn('无法从后端获取最新用户信息，使用本地缓存:', error)
         }
-        
-        console.log('恢复用户状态:', user.value)
-      } else if (savedUser && savedLoginStatus === 'true' && !token) {
-        // 有用户信息但没有 token，清除状态
-        console.warn('检测到用户信息但缺少 token，清除状态')
-        logout()
       }
     } catch (error) {
       console.error('恢复用户状态失败:', error)
       // 清除无效数据
-      logout()
+      await logout(true)
     }
   }
-  
+
   // 登出
-  const logout = () => {
-    user.value = null
-    isLoggedIn.value = false
+  const logout = async (skipServerCall = false) => {
+    if (!isDevSessionActive() && !skipServerCall) {
+      try {
+        await logoutSession()
+      } catch (error) {
+        console.warn('调用后端退出登录失败:', error)
+      }
+    }
+    setSessionUser(null)
     pendingIntent.value = null
     
-    // 清除 localStorage 和 token
-    clearToken()
-    localStorage.removeItem('user')
-    localStorage.removeItem('isLoggedIn')
+    persistSession(null)
+    localStorage.removeItem(DEV_LOGIN_STORAGE_KEY)
     
     console.log('已登出')
   }
@@ -193,11 +202,12 @@ export const useUserStore = defineStore('user', () => {
     isLoggedIn,
     pendingIntent,
     login,
-    loginWithGoogle,
+    startLogin: triggerLoginRedirect,
     fetchUserProfile,
     logout,
     saveIntent,
     clearIntent,
-    restoreUser
+    restoreUser,
+    devLoginEnabled
   }
 })

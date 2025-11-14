@@ -55,7 +55,8 @@ export const API_CONFIG = {
     VISA_ADMIN_POLICIES: '/visa/admin/policies',
     // 认证相关 API 端点（不包含 /api，因为 BASE_URL 已包含）
     GOOGLE_AUTH: '/auth/google',
-    AUTH_PROFILE: '/auth/profile',
+    AUTH_PROFILE: '/auth/me',
+    AUTH_LOGOUT: '/auth/logout',
   },
   
   // 请求配置

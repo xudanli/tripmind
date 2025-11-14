@@ -81,9 +81,31 @@ ENDPOINTS: {
 
 ---
 
+### 问题 5: 无法访问 Google 服务，只想临时体验
+
+**适用场景：** 公司网络或本地环境无法访问 Google 登录，导致无法进入系统。
+
+**解决方案：**
+
+1. 在项目根目录创建或更新 `.env.local`：
+   ```env
+   VITE_ENABLE_DEV_LOGIN=true
+   # 或使用新的模式开关
+   VITE_AUTH_MODE=mock
+   ```
+2. 重新启动前端开发服务器（`npm run dev`）。
+3. 登录页会出现“使用临时体验账号继续”按钮，点击即可跳过 Google 登录。
+
+**说明：**
+- 该模式仅用于本地调试，不会调用真实后端接口。
+- 所有数据仅存储在浏览器中，刷新或清空缓存后会失效。
+- 退出登录或切回 Google 登录时，请删除 `.env.local` 中的开关并重启。
+
+---
+
 ## 后端 API 问题
 
-### 问题 5: `404 Not Found` 或 `Cannot POST /api/auth/google`
+### 问题 6: `404 Not Found` 或 `Cannot POST /api/auth/google`
 
 **原因：** 后端 API 端点不存在或 URL 配置错误
 

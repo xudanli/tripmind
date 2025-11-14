@@ -15,15 +15,6 @@
       <div class="header-section">
         <h1 class="main-title">🌍 {{ t('home.title') }}</h1>
         <p class="subtitle">🪄 {{ t('home.subtitle') }}</p>
-        <div class="test-link">
-          <a-button 
-            type="link" 
-            @click="handleApiTest"
-            style="color: rgba(255, 255, 255, 0.8); font-size: 0.9rem;"
-          >
-            🧪 API测试页面
-          </a-button>
-        </div>
       </div>
 
       <!-- 模式选择区域 -->
@@ -135,12 +126,35 @@
               <p>{{ t('login.description') }}</p>
             </div>
 
-            <!-- Google 登录按钮 -->
+            <!-- 登录按钮 -->
             <div class="google-signin-wrapper">
-              <GoogleSignIn
-                @success="handleLoginSuccess"
-                @error="handleLoginError"
-              />
+              <a-button
+                type="primary"
+                size="large"
+                block
+                @click="handleGoogleLogin"
+              >
+                {{ t('login.loginWithGoogle') }}
+              </a-button>
+            </div>
+
+            <!-- 开发者备用登录 -->
+            <div v-if="enableDevLogin" class="dev-login">
+              <a-divider plain>{{ t('login.devLoginDivider') }}</a-divider>
+              <a-button
+                block
+                size="large"
+                type="default"
+                class="dev-login-button"
+                :loading="devLoginLoading"
+                @click="handleDevLogin"
+              >
+                <template #icon>
+                  <ExperimentOutlined />
+                </template>
+                {{ t('login.devLoginButton') }}
+              </a-button>
+              <p class="dev-login-tip">{{ t('login.devLoginTip') }}</p>
             </div>
 
             <!-- 错误提示 -->
@@ -166,12 +180,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { RocketOutlined, HeartOutlined, BulbOutlined } from '@ant-design/icons-vue'
-import GoogleSignIn from '@/components/GoogleSignIn.vue'
+import { RocketOutlined, HeartOutlined, BulbOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 const { t } = useI18n()
@@ -180,6 +193,10 @@ const route = useRoute()
 const userStore = useUserStore()
 
 const loginError = ref('')
+const devLoginLoading = ref(false)
+const enableDevLogin = userStore.devLoginEnabled
+const hasHandledLogin = ref(false)
+const shouldAnnounceLogin = ref(!userStore.isLoggedIn)
 
 // 获取特性列表（用于已登录状态显示）
 const getFeatures = (mode: 'planner' | 'seeker' | 'inspiration') => {
@@ -204,51 +221,69 @@ const handleInspirationMode = () => {
   router.push('/inspiration')
 }
 
-const handleApiTest = () => {
-  router.push('/api-test')
-}
+const navigateAfterLogin = () => {
+  if (hasHandledLogin.value) return
+  hasHandledLogin.value = true
 
-// 处理登录成功
-const handleLoginSuccess = async (userInfo: any) => {
-  try {
-    console.log('登录成功:', userInfo)
+  if (shouldAnnounceLogin.value) {
     message.success(t('login.success') || '登录成功！')
+  }
+
+  const redirect = route.query.redirect as string
+  if (redirect) {
+    router.replace(redirect)
+    return
+  }
+
+  if (userStore.pendingIntent) {
+    const intent = userStore.pendingIntent
+    userStore.clearIntent()
     
-    // 检查是否有重定向路径
-    const redirect = route.query.redirect as string
-    if (redirect) {
-      router.push(redirect)
+    if (intent.mode === 'planner') {
+      router.replace('/planner')
+    } else if (intent.mode === 'seeker') {
+      router.replace('/seeker')
+    } else if (intent.mode === 'inspiration') {
+      router.replace('/inspiration')
     } else {
-      // 检查是否有待处理的意图
-      if (userStore.pendingIntent) {
-        const intent = userStore.pendingIntent
-        userStore.clearIntent()
-        
-        if (intent.mode === 'planner') {
-          router.push('/planner')
-        } else if (intent.mode === 'seeker') {
-          router.push('/seeker')
-        } else if (intent.mode === 'inspiration') {
-          router.push('/inspiration')
-        } else {
-          router.push('/travel-list')
-        }
-      } else {
-        // 没有待处理意图，保持在首页（会自动显示模式选择）
-        // 页面会根据 isLoggedIn 自动切换显示
-      }
+      router.replace('/travel-list')
     }
-  } catch (error) {
-    console.error('登录后处理失败:', error)
-    message.error(t('login.postLoginError') || '登录后处理失败')
+  } else {
+    router.replace('/travel-list')
   }
 }
 
-// 处理登录错误
-const handleLoginError = (error: Error) => {
-  console.error('登录失败:', error)
-  loginError.value = error.message || (t('login.error') || '登录失败，请重试')
-  message.error(loginError.value)
+watch(
+  () => userStore.isLoggedIn,
+  (loggedIn) => {
+    if (loggedIn) {
+      navigateAfterLogin()
+    } else {
+      hasHandledLogin.value = false
+      shouldAnnounceLogin.value = true
+    }
+  },
+  { immediate: true }
+)
+
+const handleGoogleLogin = () => {
+  const target = (route.query.redirect as string) || route.fullPath || '/travel-list'
+  userStore.startLogin(target)
+}
+
+const handleDevLogin = async () => {
+  try {
+    devLoginLoading.value = true
+    await userStore.login()
+    navigateAfterLogin()
+  } catch (error) {
+    console.error('开发模式登录失败:', error)
+    const messageText = error instanceof Error ? error.message : String(error)
+    loginError.value = messageText
+    message.error(messageText)
+  } finally {
+    devLoginLoading.value = false
+  }
 }
 
 </script>
@@ -405,6 +440,22 @@ const handleLoginError = (error: Error) => {
   display: flex;
   justify-content: center;
   margin-bottom: 24px;
+}
+
+.dev-login {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.dev-login-button {
+  margin-top: 8px;
+}
+
+.dev-login-tip {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #999;
+  line-height: 1.6;
 }
 
 .error-message {

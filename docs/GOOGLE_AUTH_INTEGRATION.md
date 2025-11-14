@@ -1,404 +1,184 @@
-# Google OAuth 登录集成指南
+# Google OAuth 登录集成指南（后端托管版）
 
-本文档说明如何在项目中使用 Google OAuth 登录功能。
+前端已经切换为“后端托管”模式：所有 OAuth 协议细节全部由服务器处理，浏览器只负责跳转、等待回调，并通过 HttpOnly Cookie 维护会话。本指南描述新的接入方式。
 
-## 功能概述
+---
 
-实现了完整的 Google OAuth 2.0 登录流程：
-1. 用户点击 Google 登录按钮
-2. Google 弹出 OAuth 授权窗口
-3. Google 返回 ID token 给前端
-4. 前端发送 token 到后端验证
-5. 后端验证成功后返回用户信息
-6. 前端保存用户状态并完成登录
+## 1. 登录流程概览
 
-## 文件结构
+1. 用户点击“使用 Google 账号登录”按钮。
+2. 前端直接跳转到后端 `/api/auth/google`（或部署域名下的等价路径）。
+3. 后端发起 Google 授权、获取用户信息，并写入 `app_session`（HttpOnly Cookie）。
+4. 后端将用户重定向回 `FRONTEND_ORIGIN`（携带可选的 `redirect` 参数）。
+5. 前端加载时调用 `/api/auth/me`，如果返回 200，即表示已登录，可获得用户资料。
+
+> 重点：前端不再需要 `GoogleSignIn` 组件、也不需要管理 ID Token/JWT。所有登录状态通过 Cookie 维护，请求时设置 `credentials: 'include'` 即可。
+
+---
+
+## 2. 关键代码位置
 
 ```
 src/
-├── services/
-│   └── googleAuth.ts          # Google OAuth 服务（初始化、配置、验证）
-├── components/
-│   └── GoogleSignIn.vue       # Google 登录按钮组件
 ├── stores/
-│   └── user.ts                # 用户状态管理（已更新支持 Google 登录）
+│   └── user.ts                # Pinia 用户状态（含 login redirect、/auth/me 调用）
+├── services/
+│   └── authAPI.ts             # 封装 redirect、/auth/me、/auth/logout
+├── views/
+│   ├── HomeView.vue           # 登录入口（按钮跳转）
+│   └── LoginView.vue          # 登录页 & 登录后重定向逻辑
 └── config/
-    └── api.ts                 # API 配置（已添加 Google OAuth 端点）
+    └── api.ts                 # API 基础地址及认证端点
 ```
 
-## 环境变量配置
+---
 
-在 `.env.local` 文件中添加以下配置：
+## 3. 环境变量
 
 ```env
-# Google OAuth 配置
-VITE_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+# 后端 API 配置（必须指向包含 /api 的域名，例如 http://localhost:3000/api）
+VITE_API_BASE_URL=https://api.emotional-travel.com/api
 
-# 后端 API 配置
-VITE_API_BASE_URL=https://api.emotional-travel.com
+# （可选）启用开发者离线登录
+VITE_ENABLE_DEV_LOGIN=true
+VITE_AUTH_MODE=mock
 ```
 
-### 获取 Google Client ID
+如需后端自行拼接完整登录地址，可额外提供 `VITE_AUTH_BASE_URL` 等扩展字段，在 `authAPI.ts` 中拼接。
 
-1. 访问 [Google Cloud Console](https://console.cloud.google.com/)
-2. 创建新项目或选择现有项目
-3. 启用 Google Identity Services API（或 Google+ API）
-4. 创建 OAuth 2.0 客户端 ID：
-   - 应用类型：**Web 应用**
-   - **已授权的 JavaScript 来源**（重要！）：
-     - 开发环境：`http://localhost:5173`（根据你的开发服务器端口调整）
-     - 生产环境：`https://yourdomain.com`
-   - **已授权的重定向 URI**（可选，GSI 通常不需要）：
-     - 开发环境：`http://localhost:5173`
-     - 生产环境：`https://yourdomain.com`
-5. 复制客户端 ID 到 `.env.local`
+---
 
-**⚠️ 重要提示：**
-- 必须配置"已授权的 JavaScript 来源"，否则会出现 `origin_mismatch` 错误
-- 来源必须包含协议（`http://` 或 `https://`）
-- 不能包含路径或端口号（开发环境除外）
-- 配置保存后可能需要等待几分钟生效
+## 4. 前端调用方式
 
-详细配置步骤请参考：[GOOGLE_OAUTH_SETUP.md](./GOOGLE_OAUTH_SETUP.md)
+### 4.1 触发登录
 
-## 使用方法
-
-### 方法 1：使用 GoogleSignIn 组件（推荐）
-
-```vue
-<template>
-  <div>
-    <GoogleSignIn
-      @success="handleLoginSuccess"
-      @error="handleLoginError"
-    />
-  </div>
-</template>
-
-<script setup lang="ts">
-import { GoogleSignIn } from '@/components/GoogleSignIn.vue'
+```ts
 import { useUserStore } from '@/stores/user'
-import { useRouter } from 'vue-router'
 
 const userStore = useUserStore()
-const router = useRouter()
 
-const handleLoginSuccess = async (userInfo: any) => {
-  // userInfo 已经包含后端验证后的用户信息
-  // userStore 已经自动更新
-  console.log('登录成功:', userInfo)
-  
-  // 跳转到目标页面
-  if (userStore.pendingIntent) {
-    const intent = userStore.pendingIntent
-    userStore.clearIntent()
-    
-    if (intent.mode === 'planner') {
-      router.push('/planner')
-    } else if (intent.mode === 'seeker') {
-      router.push('/seeker')
-    } else {
-      router.push('/inspiration')
-    }
-  } else {
-    router.push('/travel-list')
+// 在按钮点击时调用
+const handleLogin = () => {
+  const currentPath = route.fullPath || '/travel-list'
+  userStore.startLogin(currentPath)  // 内部执行 window.location.href = `<API>/auth/google?redirect=...`
+}
+```
+
+### 4.2 会话检测
+
+`userStore` 会在应用初始化时调用 `/api/auth/me`：
+
+```ts
+const { user, isLoggedIn } = useUserStore()
+
+watchEffect(() => {
+  if (isLoggedIn.value) {
+    console.log('当前用户：', user.value)
   }
-}
-
-const handleLoginError = (error: Error) => {
-  console.error('登录失败:', error)
-  // 显示错误提示
-  message.error('登录失败: ' + error.message)
-}
-</script>
-```
-
-### 方法 2：在 Modal 中使用
-
-```vue
-<template>
-  <a-modal v-model:open="visible" title="登录" @ok="handleOk">
-    <GoogleSignIn
-      @success="handleLoginSuccess"
-      @error="handleLoginError"
-    />
-  </a-modal>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-import { GoogleSignIn } from '@/components/GoogleSignIn.vue'
-import { useUserStore } from '@/stores/user'
-
-const visible = ref(false)
-const userStore = useUserStore()
-
-const handleLoginSuccess = (userInfo: any) => {
-  visible.value = false
-  // 处理登录成功逻辑
-}
-
-const handleLoginError = (error: Error) => {
-  console.error('登录失败:', error)
-}
-
-const handleOk = () => {
-  // Modal 的确定按钮（可选）
-}
-</script>
-```
-
-### 方法 3：直接使用服务（高级用法）
-
-```typescript
-import { 
-  initializeGoogleSignIn,
-  configureGoogleSignIn,
-  renderGoogleSignInButton,
-  verifyGoogleToken
-} from '@/services/googleAuth'
-import { useUserStore } from '@/stores/user'
-
-// 初始化
-await initializeGoogleSignIn()
-
-// 配置
-const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
-configureGoogleSignIn(clientId, async (response) => {
-  const userStore = useUserStore()
-  await userStore.loginWithGoogle(response.credential)
 })
-
-// 渲染按钮
-renderGoogleSignInButton('my-button-id')
 ```
 
-## 组件 Props
+`authAPI.fetchCurrentUser()` 自动附带 `credentials: 'include'`，所以浏览器会在同域或跨域（需要 CORS + Allow-Credentials）的情况下附上 `app_session` Cookie。
 
-`GoogleSignIn` 组件支持以下 props：
+### 4.3 退出登录
 
-| Prop | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `theme` | `'outline' \| 'filled_blue' \| 'filled_black'` | `'outline'` | 按钮主题 |
-| `size` | `'large' \| 'medium' \| 'small'` | `'large'` | 按钮大小 |
-| `text` | `'signin_with' \| 'signup_with' \| 'continue_with' \| 'signin'` | `'signin_with'` | 按钮文本 |
-| `shape` | `'rectangular' \| 'pill' \| 'circle' \| 'square'` | `'rectangular'` | 按钮形状 |
-| `logoAlignment` | `'left' \| 'center'` | `'left'` | Logo 对齐方式 |
-
-## 事件
-
-| 事件名 | 参数 | 说明 |
-|--------|------|------|
-| `success` | `userInfo: any` | 登录成功，返回后端验证后的用户信息 |
-| `error` | `error: Error` | 登录失败，返回错误对象 |
-
-## 后端 API 要求
-
-后端需要实现 `/auth/google/verify` 端点：
-
-### 请求格式
-
-```http
-POST /auth/google/verify
-Content-Type: application/json
-
-{
-  "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Ij..."
+```ts
+const handleLogout = async () => {
+  await userStore.logout()          // 调用 /api/auth/logout 并清理本地状态
+  router.push('/login')
 }
 ```
 
-### 响应格式（成功）
+---
+
+## 5. API 端点约定
+
+| HTTP 方法 | 路径                | 说明                     |
+|-----------|---------------------|--------------------------|
+| GET       | `/api/auth/google`  | 跳转到 Google OAuth（后端托管） |
+| GET       | `/api/auth/me`      | 返回当前登录用户信息（401 表示未登录） |
+| POST      | `/api/auth/logout`  | 注销当前会话，清除 Cookie |
+
+响应示例（`/api/auth/me`）：
 
 ```json
 {
-  "id": "123456789",
-  "sub": "123456789",
-  "name": "John Doe",
-  "email": "john.doe@example.com",
-  "picture": "https://lh3.googleusercontent.com/...",
-  "email_verified": true
+  "id": "user-123",
+  "email": "user@example.com",
+  "nickname": "Traveler",
+  "avatarUrl": "https://lh3.googleusercontent.com/..."
 }
 ```
 
-### 响应格式（失败）
+后端必须设置：
 
-```http
-HTTP/1.1 401 Unauthorized
-Content-Type: application/json
+- `Set-Cookie: app_session=...; HttpOnly; Secure; SameSite=None`（跨域场景）
+- `Access-Control-Allow-Credentials: true`，并允许 `FRONTEND_ORIGIN`
 
-{
-  "error": "Invalid token",
-  "message": "Token verification failed"
-}
-```
+---
 
-### 后端验证步骤
+## 6. 组件/服务更新要点
 
-1. 接收前端发送的 ID token
-2. 使用 Google 的验证库验证 token（例如：Node.js 使用 `google-auth-library`）
-3. 验证 token 的有效性、过期时间、签名等
-4. 从 token 中提取用户信息
-5. 可选：在数据库中查找或创建用户记录
-6. 返回用户信息给前端
+1. **移除 `GoogleSignIn.vue`、`googleAuth.ts` 等前端 SDK 依赖。**
+2. `authAPI.ts` 新增三个核心方法：
+   - `redirectToGoogleLogin(redirectPath?: string)`
+   - `fetchCurrentUser()` — GET `/auth/me`
+   - `logoutSession()` — POST `/auth/logout`
+3. `userStore`：
+   - `startLogin()` 内部调用 redirect。
+   - `restoreUser()` 页面加载时调用 `/auth/me` 并更新 Pinia。
+   - 登出时触发后端 `/auth/logout`，再清理本地缓存。
+   - 保留 `devLogin` 逻辑作为无法访问 Google 时的临时方案。
+4. 所有依赖认证的请求需带 `credentials: 'include'`（参见 `journeyTemplates.ts`、`visaAPI.ts`、`emotionalTravelAPI.ts` 等示例）。
 
-### Node.js 后端示例
+---
 
-```javascript
-const { OAuth2Client } = require('google-auth-library');
+## 7. 常见问题 & 排查
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+### 7.1 重定向后仍显示未登录
+- 浏览器未携带 `app_session`：检查后端 CORS、`SameSite=None`、是否 HTTPS。
+- `/api/auth/me` 返回 401：会话过期或 Cookie 路径不匹配。
+- 解决：确认后端日志，检查 `Set-Cookie` 是否到达浏览器（可在 DevTools → Network → Response Headers 查看）。
 
-app.post('/auth/google/verify', async (req, res) => {
-  try {
-    const { token } = req.body;
-    
-    // 验证 token
-    const ticket = await client.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    
-    const payload = ticket.getPayload();
-    
-    // 返回用户信息
-    res.json({
-      id: payload.sub,
-      sub: payload.sub,
-      name: payload.name,
-      email: payload.email,
-      picture: payload.picture,
-      email_verified: payload.email_verified,
-    });
-  } catch (error) {
-    res.status(401).json({
-      error: 'Invalid token',
-      message: error.message,
-    });
-  }
-});
-```
+### 7.2 跨域请求被拒绝
+- 需确保后端返回头包含：
+  ```
+  Access-Control-Allow-Origin: https://localhost:5173
+  Access-Control-Allow-Credentials: true
+  ```
+- 前端 fetch/axios 必须设置 `credentials: 'include'` 或 `withCredentials: true`。
 
-## 用户状态管理
+### 7.3 无法访问 Google，如何调试？
+- 在 `.env.local` 中启用 `VITE_ENABLE_DEV_LOGIN=true` 或 `VITE_AUTH_MODE=mock`。
+- 登录页/首页会显示“使用临时体验账号继续”按钮，直接写入本地 mock 用户，方便开发。
 
-用户登录后，状态会自动保存到：
-- Pinia store (`useUserStore`)
-- localStorage（用于页面刷新后恢复状态）
+### 7.4 如何指定登录后回跳页面？
+- 调用 `userStore.startLogin(redirectPath)` 时传入完整路径，例如：
+  ```ts
+  userStore.startLogin('/planner')
+  ```
+- 后端应读取 `redirect` 查询参数，并在授权成功后重定向回 `${FRONTEND_ORIGIN}${redirect}`。
 
-### 检查登录状态
+---
 
-```typescript
-import { useUserStore } from '@/stores/user'
+## 8. 与旧实现的差异
 
-const userStore = useUserStore()
+| 旧方案（前端 GSI） | 新方案（后端托管） |
+| ------------------ | ------------------- |
+| 前端嵌入 Google SDK，渲染按钮 | 前端只渲染普通按钮 |
+| GSI 返回 ID Token → 前端调用 `/auth/google` | 直接跳转 `/auth/google`，由后端同 Google 交互 |
+| 前端保存 JWT 到 `localStorage` | 后端写入 HttpOnly Cookie，会话透明 |
+| 每个请求带 `Authorization` 头 | 每个请求 `credentials: 'include'`，后端读 Cookie |
 
-if (userStore.isLoggedIn) {
-  console.log('用户已登录:', userStore.user)
-} else {
-  console.log('用户未登录')
-}
-```
+> 迁移完成后，务必删除残余的 `googleAuth.ts`、`GoogleSignIn.vue`、`loginWithGoogle` 等旧代码，避免二义性。
 
-### 登出
+---
 
-```typescript
-import { useUserStore } from '@/stores/user'
+## 9. 参考
 
-const userStore = useUserStore()
-userStore.logout()
-```
+- [Google Identity Services](https://developers.google.com/identity/gsi/web)（后端仍需配置 OAuth Client）
+- [SameSite Cookie 说明](https://developer.mozilla.org/docs/Web/HTTP/Headers/Set-Cookie/SameSite)
+- [CORS with Credentials](https://developer.mozilla.org/docs/Web/HTTP/CORS)
 
-## 更新现有代码
-
-### 更新 HomeView.vue
-
-将现有的 `showLoginModal` 函数更新为使用 `GoogleSignIn` 组件：
-
-```vue
-<template>
-  <!-- ... -->
-  <a-modal v-model:open="loginModalVisible" :title="t('login.title')">
-    <GoogleSignIn
-      @success="handleGoogleLoginSuccess"
-      @error="handleGoogleLoginError"
-    />
-  </a-modal>
-</template>
-
-<script setup lang="ts">
-import GoogleSignIn from '@/components/GoogleSignIn.vue'
-// ... 其他导入
-
-const loginModalVisible = ref(false)
-
-const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
-  userStore.saveIntent({ mode })
-  loginModalVisible.value = true
-}
-
-const handleGoogleLoginSuccess = async (userInfo: any) => {
-  loginModalVisible.value = false
-  
-  const intent = userStore.pendingIntent
-  if (intent) {
-    userStore.clearIntent()
-    if (intent.mode === 'planner') router.push('/planner')
-    else if (intent.mode === 'seeker') router.push('/seeker')
-    else router.push('/inspiration')
-  } else {
-    router.push('/travel-list')
-  }
-}
-
-const handleGoogleLoginError = (error: Error) => {
-  console.error('登录失败:', error)
-  message.error('登录失败: ' + error.message)
-}
-</script>
-```
-
-## 故障排除
-
-### 1. "Google Identity Services 未初始化"
-
-**原因：** Google Identity Services 脚本未加载完成
-
-**解决：** 确保 `initializeGoogleSignIn()` 在组件挂载后调用
-
-### 2. "未配置 VITE_GOOGLE_CLIENT_ID"
-
-**原因：** 环境变量未设置
-
-**解决：** 在 `.env.local` 中添加 `VITE_GOOGLE_CLIENT_ID`
-
-### 3. "后端验证失败: 401"
-
-**原因：** 
-- Token 无效或已过期
-- 后端验证逻辑有误
-- Client ID 不匹配
-
-**解决：** 
-- 检查后端验证逻辑
-- 确保前后端使用相同的 Client ID
-- 检查 token 是否在有效期内
-
-### 4. CORS 错误
-
-**原因：** 后端未配置 CORS
-
-**解决：** 在后端添加 CORS 中间件，允许前端域名访问
-
-## 安全注意事项
-
-1. **永远不要在前端存储敏感信息**
-2. **ID token 必须发送到后端验证**，不要仅在前端解析使用
-3. **使用 HTTPS** 在生产环境中
-4. **验证 token 的签名和过期时间**
-5. **检查 token 的 audience（aud）字段**，确保匹配你的 Client ID
-
-## 参考资源
-
-- [Google Identity Services 文档](https://developers.google.com/identity/gsi/web)
-- [Google OAuth 2.0 文档](https://developers.google.com/identity/protocols/oauth2)
-- [Google Auth Library (Node.js)](https://github.com/googleapis/google-auth-library-nodejs)
+如需进一步扩展（例如多身份提供商、短信登录），可在此基础上新增 `/api/auth/{provider}`，前端只需复用 `userStore.startLogin()`。
 

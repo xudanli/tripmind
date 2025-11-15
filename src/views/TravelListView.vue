@@ -6,6 +6,15 @@
         <h2 class="title">🗺️ {{ t('travelList.title') }}</h2>
       </div>
       <div class="header-right">
+        <div v-if="currentUser" class="user-profile">
+          <a-avatar :size="40" :src="currentUser.avatarUrl" class="user-avatar">
+            {{ (currentUser.nickname || currentUser.name || currentUser.email || 'U').charAt(0).toUpperCase() }}
+          </a-avatar>
+          <div class="user-text">
+            <div class="user-name">{{ currentUser.nickname || currentUser.name || currentUser.email }}</div>
+            <div class="user-email">{{ currentUser.email }}</div>
+          </div>
+        </div>
         <a-button @click="handleLogout" class="logout-btn">
           <template #icon>
             <logout-outlined />
@@ -214,6 +223,7 @@ const travelListStore = useTravelListStore()
 
 // 获取旅行列表
 const travelList = computed(() => travelListStore.travelList)
+const currentUser = computed(() => userStore.user)
 
 // 创建模态框显示状态
 const createModalVisible = ref(false)
@@ -553,6 +563,38 @@ const getVisaStatusColor = (travel: Travel) => {
 .header-right {
   display: flex;
   gap: 1rem;
+  align-items: center;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 999px;
+  color: white;
+  backdrop-filter: blur(6px);
+}
+
+.user-avatar {
+  background-color: #1890ff;
+}
+
+.user-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.user-name {
+  font-weight: 600;
+  color: white;
+}
+
+.user-email {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .logout-btn {

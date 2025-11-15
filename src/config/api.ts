@@ -57,6 +57,10 @@ export const API_CONFIG = {
     GOOGLE_AUTH: '/auth/google',
     AUTH_PROFILE: '/auth/me',
     AUTH_LOGOUT: '/auth/logout',
+    USER_PREFERENCES: '/user/preferences',
+    EVENTBRITE_AUTH_URL: '/eventbrite/auth-url',
+    EVENTBRITE_STATUS: '/eventbrite/status',
+    EVENTBRITE_DISCONNECT: '/eventbrite/disconnect',
   },
   
   // 请求配置

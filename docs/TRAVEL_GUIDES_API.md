@@ -8,37 +8,23 @@
 
 ### 1. 后端API配置
 
-在 `src/config/api.ts` 中配置你的API端点：
-
-```typescript
-export const API_CONFIG = {
-  BASE_URL: 'https://your-api.com', // 你的后端API地址
-  ENDPOINTS: {
-    TRAVEL_GUIDES_SEARCH: '/travel-guides/search' // 搜索端点
-  }
-}
-```
+前端会通过 `GET /api/travel-guides/search` 调用后端（`src/config/api.ts` 中的 `ENDPOINTS.TRAVEL_GUIDES_SEARCH` 默认 `/travel-guides/search`）。请在服务端实现该接口，负责与 TripAdvisor/其他攻略源交互，并返回统一结构的数据。所有请求均会携带 `app_session` Cookie（`credentials: 'include'`），注意跨域和鉴权。
 
 ### 2. API 接口规范
 
 #### 请求格式
 
 ```
-GET /travel-guides/search?destination={目的地}&limit={数量}&language={语言}
+GET /api/travel-guides/search?destination={destination}&limit={limit}&language={language}
 ```
 
-**参数：**
-- `destination` (string): 目的地名称，如 "日本"、"Tokyo"
-- `limit` (number): 返回数量限制，默认50
-- `language` (string): 语言代码，如 "zh-CN"、"en-US"
+| 参数         | 类型   | 必填 | 说明                                     |
+|--------------|--------|------|------------------------------------------|
+| `destination`| string | 是   | 目的地（中文或英文），例如 `东京`/`Tokyo` |
+| `limit`      | number | 否   | 返回数量，默认 50，前端通常传 10         |
+| `language`   | string | 否   | 语言代码，默认 `zh-CN`                   |
 
-**Headers：**
-```json
-{
-  "Content-Type": "application/json",
-  "Authorization": "Bearer {YOUR_API_KEY}" // 可选
-}
-```
+请求头包含 `Cookie: app_session=...`，若第三方 API 需要额外认证，由后端补充（如 RapidAPI key）。
 
 #### 响应格式
 
@@ -47,21 +33,41 @@ GET /travel-guides/search?destination={目的地}&limit={数量}&language={语�
   "success": true,
   "data": [
     {
-      "id": "guide_001",
-      "title": "文章标题",
-      "excerpt": "文章摘要...",
-      "url": "https://example.com/article",
-      "source": "来源名称",
-      "publishedAt": "2024-01-15T00:00:00Z",
-      "tags": ["标签1", "标签2"],
-      "imageUrl": "https://example.com/image.jpg", // 可选
-      "author": "作者名称", // 可选
-      "readTime": 5 // 可选，阅读时长（分钟）
+      "id": "tripadvisor_tokyo_001",
+      "title": "东京自由行完全指南：从浅草寺到涩谷",
+      "excerpt": "探索东京的必去景点、美食与体验...",
+      "url": "https://www.tripadvisor.com/Guide/Tokyo",
+      "source": "Tripadvisor",
+      "publishedAt": "2024-05-20T08:00:00Z",
+      "tags": ["东京", "日本"],
+      "imageUrl": "https://media-cdn.tripadvisor.com/...",
+      "author": "Tripadvisor Editorial",
+      "readTime": 8
     }
   ],
-  "message": "成功",
+  "message": null,
   "error": null
 }
+```
+
+字段说明：
+
+| 字段 | 说明 |
+|------|------|
+| `id` | 唯一标识，建议使用第三方返回 ID 或自生成 UUID |
+| `title` | 攻略/文章标题 |
+| `excerpt` | 简短摘要 |
+| `url` | 原文链接 |
+| `source` | 数据来源（如 `Tripadvisor`、`Klook`） |
+| `publishedAt` | ISO8601 时间字符串 |
+| `tags` | 可选，标签数组 |
+| `imageUrl` | 可选，封面图 URL |
+| `author` / `readTime` | 可选附加信息 |
+
+异常时返回：
+
+```json
+{ "success": false, "error": "Tripadvisor service unavailable" }
 ```
 
 ### 3. 错误处理

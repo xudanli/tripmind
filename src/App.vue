@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, watch, nextTick } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useI18nStore } from './stores/i18n'
 import { UserOutlined } from '@ant-design/icons-vue'
 import { PRESET_COUNTRIES } from '@/config/location'
@@ -8,6 +8,7 @@ import {
   getUserProfile, 
   setUserProfile, 
   getUserProfileOrDefault,
+  validateUserProfile,
   SUPPORTED_LANGUAGES,
   type UserProfileConfig,
   type TransportationPreference
@@ -16,6 +17,8 @@ import { getAllCurrencies, type CurrencyInfo } from '@/utils/currency'
 import { message } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 import { API_CONFIG } from '@/config/api'
+import { getUserPreferences, updateUserPreferences } from '@/services/userPreferencesAPI'
+import { getEventbriteAuthUrl, getEventbriteStatus, disconnectEventbrite, type EventbriteStatus } from '@/services/eventbriteAPI'
 
 const i18nStore = useI18nStore()
 const { t } = useI18n()
@@ -33,6 +36,20 @@ const selectedCurrency = ref<string>('CNY') // 货币偏好
 const selectedLLMProvider = ref<'deepseek' | 'openai'>('deepseek')
 const selectedLLMModel = ref<string>(API_CONFIG.OPENAI_DEFAULT_MODEL)
 const userProfile = ref<UserProfileConfig | null>(null)
+const syncingPreferences = ref(false)
+const savingPreferences = ref(false)
+
+const route = useRoute()
+const router = useRouter()
+
+const eventbriteStatus = ref<EventbriteStatus | null>(null)
+const eventbriteLoading = ref(false)
+const eventbriteActionLoading = ref(false)
+const eventbriteError = ref<string | null>(null)
+
+const clearEventbriteError = () => {
+  eventbriteError.value = null
+}
 
 // 货币选项
 const currencyOptions = computed(() => {
@@ -62,6 +79,152 @@ const countryOptions = computed(() => {
 
 
 
+const applyUserProfile = (profile: UserProfileConfig) => {
+  setUserProfile(profile)
+  userProfile.value = profile
+  reactiveUserProfile.value = { ...profile }
+}
+
+const mergeProfileWithDefaults = (raw?: any): UserProfileConfig => {
+  const defaults = getUserProfileOrDefault()
+  if (!raw || typeof raw !== 'object') {
+    return defaults
+  }
+
+  const merged: UserProfileConfig = {
+    ...defaults,
+    ...raw,
+    nationality: raw.nationality ?? defaults.nationality,
+    location: raw.location ?? defaults.location,
+    permanentResidency: raw.permanentResidency ?? defaults.permanentResidency,
+    heldVisas: Array.isArray(raw.heldVisas) ? raw.heldVisas : defaults.heldVisas,
+    proficientLanguages: Array.isArray(raw.proficientLanguages) && raw.proficientLanguages.length > 0
+      ? raw.proficientLanguages
+      : defaults.proficientLanguages,
+  }
+
+  if (!merged.preferredTransportMode) {
+    merged.preferredTransportMode = defaults.preferredTransportMode
+  }
+
+  if (!merged.preferredCurrency) {
+    merged.preferredCurrency = defaults.preferredCurrency
+  }
+
+  if (!merged.interfaceLanguage) {
+    merged.interfaceLanguage = defaults.interfaceLanguage
+  }
+
+  if (!validateUserProfile(merged)) {
+    return defaults
+  }
+
+  return merged
+}
+
+const syncPreferencesFromServer = async () => {
+  syncingPreferences.value = true
+  try {
+    const { preferences } = await getUserPreferences()
+    const merged = mergeProfileWithDefaults(preferences)
+    applyUserProfile(merged)
+
+    if (merged.interfaceLanguage) {
+      selectedInterfaceLanguage.value = merged.interfaceLanguage
+      i18nStore.setLocale(merged.interfaceLanguage)
+    }
+  } catch (error) {
+    console.warn('[UserPreferences] 无法从服务器同步偏好，将使用本地缓存。', error)
+  } finally {
+    syncingPreferences.value = false
+  }
+}
+
+const loadEventbriteStatus = async () => {
+  eventbriteLoading.value = true
+  eventbriteError.value = null
+  try {
+    const status = await getEventbriteStatus()
+    eventbriteStatus.value = status
+  } catch (error) {
+    const statusCode = (error as any)?.status
+    if (statusCode === 404) {
+      eventbriteStatus.value = { connected: false }
+      eventbriteError.value = null
+    } else {
+      const messageText = error instanceof Error ? error.message : String(error)
+      eventbriteError.value = messageText
+      eventbriteStatus.value = null
+    }
+  } finally {
+    eventbriteLoading.value = false
+  }
+}
+
+const handleEventbriteConnect = async () => {
+  eventbriteActionLoading.value = true
+  try {
+    const { url } = await getEventbriteAuthUrl()
+    if (url) {
+      window.location.href = url
+    } else {
+      message.error(t('integrations.eventbrite.connectFailed') || '无法获取授权地址')
+    }
+  } catch (error) {
+    console.error('[Eventbrite] 获取授权地址失败：', error)
+    message.error(t('integrations.eventbrite.connectFailed') || '连接失败，请稍后重试')
+  } finally {
+    eventbriteActionLoading.value = false
+  }
+}
+
+const handleEventbriteDisconnect = async () => {
+  eventbriteActionLoading.value = true
+  try {
+    await disconnectEventbrite()
+    message.success(t('integrations.eventbrite.disconnectedToast') || '已解除绑定')
+    await loadEventbriteStatus()
+  } catch (error) {
+    console.error('[Eventbrite] 解除绑定失败：', error)
+    message.error(t('integrations.eventbrite.disconnectFailed') || '解除绑定失败，请稍后重试')
+  } finally {
+    eventbriteActionLoading.value = false
+  }
+}
+
+const clearEventbriteQuery = () => {
+  if (route.query.eventbrite) {
+    const newQuery = { ...route.query }
+    delete (newQuery as Record<string, any>).eventbrite
+    router.replace({ query: newQuery })
+  }
+}
+
+const handleEventbriteQueryChange = async (value: string | string[] | undefined) => {
+  if (!value) return
+  const flag = Array.isArray(value) ? value[0] : value
+  if (flag === 'connected') {
+    message.success(t('integrations.eventbrite.connectedToast') || 'Eventbrite 已绑定')
+    await loadEventbriteStatus()
+  } else if (flag === 'error') {
+    message.error(t('integrations.eventbrite.connectedError') || 'Eventbrite 绑定失败，请重试')
+  }
+  clearEventbriteQuery()
+}
+
+const formatEventbriteDate = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(i18nStore.currentLocale || 'zh-CN', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
 // 打开用户个人信息设置
 const handleUserProfileClick = () => {
   userProfileModalVisible.value = true
@@ -69,7 +232,7 @@ const handleUserProfileClick = () => {
   userProfile.value = profile
   
   // 加载当前设置
-  selectedInterfaceLanguage.value = i18nStore.currentLocale
+  selectedInterfaceLanguage.value = profile.interfaceLanguage || i18nStore.currentLocale
   selectedNationality.value = profile.nationality?.countryCode || ''
   selectedLocation.value = profile.location?.countryCode || ''
   selectedPermanentResidency.value = profile.permanentResidency?.countryCode || ''
@@ -79,10 +242,13 @@ const handleUserProfileClick = () => {
   selectedCurrency.value = profile.preferredCurrency || 'CNY'
   selectedLLMProvider.value = profile.preferredLLMProvider || 'deepseek'
   selectedLLMModel.value = profile.preferredLLMModel || API_CONFIG.OPENAI_DEFAULT_MODEL
+  loadEventbriteStatus()
 }
 
 // 保存用户个人信息
-const handleUserProfileSave = () => {
+const handleUserProfileSave = async () => {
+  if (savingPreferences.value) return
+  savingPreferences.value = true
   // 1. 保存界面语言
   if (selectedInterfaceLanguage.value) {
     i18nStore.setLocale(selectedInterfaceLanguage.value)
@@ -115,23 +281,34 @@ const handleUserProfileSave = () => {
     preferredLLMProvider: selectedLLMProvider.value,
     preferredLLMModel: selectedLLMProvider.value === 'openai'
       ? (selectedLLMModel.value || API_CONFIG.OPENAI_DEFAULT_MODEL)
-      : ''
+      : '',
+    interfaceLanguage: selectedInterfaceLanguage.value || i18nStore.currentLocale
   }
   
-  setUserProfile(newProfile)
-  userProfile.value = newProfile
-  // 更新响应式配置，确保右上角显示立即更新
-  reactiveUserProfile.value = { ...newProfile } // 使用展开运算符创建新对象，确保响应式更新
-  
-  // 触发自定义事件，通知其他组件更新
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('userProfileUpdated'))
+  applyUserProfile(newProfile)
+
+  try {
+    try {
+      await updateUserPreferences(newProfile)
+    } catch (error) {
+      console.error('[UserPreferences] 同步服务器失败：', error)
+      message.warning('设置已在本地保存，但同步服务器失败，请稍后重试。')
+      userProfileModalVisible.value = false
+      return
+    }
+
+    // 触发自定义事件，通知其他组件更新
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('userProfileUpdated'))
+    }
+    
+    userProfileModalVisible.value = false
+    
+    // 使用 toast 提示保存成功
+    message.success('设置已保存')
+  } finally {
+    savingPreferences.value = false
   }
-  
-  userProfileModalVisible.value = false
-  
-  // 使用 toast 提示保存成功
-  message.success('设置已保存')
 }
 
 // 用户个人信息显示
@@ -170,13 +347,24 @@ const userProfileDisplay = computed(() => {
   return parts.length > 0 ? parts.join(' · ') : '个人偏好'
 })
 
+watch(
+  () => route.query.eventbrite,
+  (value) => {
+    if (value) {
+      handleEventbriteQueryChange(value as string | string[] | undefined)
+    }
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
   // 加载保存的语言设置
   i18nStore.loadLocale()
   // 加载用户个人信息
   const profile = getUserProfileOrDefault()
-  userProfile.value = profile
-  reactiveUserProfile.value = profile
+  applyUserProfile(profile)
+  selectedInterfaceLanguage.value = profile.interfaceLanguage || i18nStore.currentLocale
+  syncPreferencesFromServer()
 })
 </script>
 
@@ -203,6 +391,7 @@ onMounted(() => {
       cancel-text="取消"
       width="700px"
       :body-style="{ padding: '24px', maxHeight: '600px', overflowY: 'auto' }"
+      :confirm-loading="savingPreferences"
       @ok="handleUserProfileSave"
     >
       <div class="profile-modal-content">
@@ -228,6 +417,87 @@ onMounted(() => {
               </a-select>
               <div class="form-hint">选择应用界面显示的语言</div>
             </div>
+          </div>
+        </a-card>
+
+        <!-- 7. 第三方集成 -->
+        <a-card class="profile-section-card" :bordered="true">
+          <template #title>
+            <span class="section-title">
+              <span class="section-icon">🔗</span>
+              {{ t('integrations.title') || '第三方集成' }}
+            </span>
+          </template>
+          <div class="section-content">
+            <div class="integration-row">
+              <div class="integration-info">
+                <div class="integration-name">{{ t('integrations.eventbrite.name') || 'Eventbrite' }}</div>
+                <div class="integration-desc">
+                  {{ t('integrations.eventbrite.description') || '同步 Eventbrite 上的节庆与活动，丰富你的旅程灵感。' }}
+                </div>
+                <div class="integration-status-line">
+                  <template v-if="eventbriteLoading">
+                    <a-spin size="small" />
+                    <span>{{ t('integrations.eventbrite.loading') || '正在获取状态…' }}</span>
+                  </template>
+                  <template v-else>
+                    <a-tag v-if="eventbriteStatus?.connected" color="green">
+                      {{ t('integrations.eventbrite.connectedTag') || '已绑定' }}
+                    </a-tag>
+                    <a-tag v-else color="default">
+                      {{ t('integrations.eventbrite.disconnectedTag') || '未绑定' }}
+                    </a-tag>
+                  </template>
+                </div>
+                <div class="integration-details" v-if="eventbriteStatus?.connected">
+                  <div>
+                    {{
+                      t('integrations.eventbrite.connectedAs', {
+                        id: eventbriteStatus.eventbriteUserId || t('integrations.eventbrite.unknownUser')
+                      }) || `已绑定账号：${eventbriteStatus.eventbriteUserId || '-'}`
+                    }}
+                  </div>
+                  <div v-if="eventbriteStatus.expiresAt">
+                    {{
+                      t('integrations.eventbrite.expiresAt', {
+                        date: formatEventbriteDate(eventbriteStatus.expiresAt)
+                      }) || `凭证有效期至：${formatEventbriteDate(eventbriteStatus.expiresAt)}`
+                    }}
+                  </div>
+                </div>
+                <div class="integration-details" v-else>
+                  {{ t('integrations.eventbrite.connectHint') || '授权后即可将 Eventbrite 活动同步到旅程体验中。' }}
+                </div>
+              </div>
+              <div class="integration-actions">
+                <a-button
+                  v-if="eventbriteStatus?.connected"
+                  danger
+                  @click="handleEventbriteDisconnect"
+                  :loading="eventbriteActionLoading"
+                  :disabled="eventbriteLoading"
+                >
+                  {{ t('integrations.eventbrite.disconnect') || '解除绑定' }}
+                </a-button>
+                <a-button
+                  v-else
+                  type="primary"
+                  @click="handleEventbriteConnect"
+                  :loading="eventbriteActionLoading"
+                  :disabled="eventbriteLoading"
+                >
+                  {{ t('integrations.eventbrite.connect') || '绑定 Eventbrite' }}
+                </a-button>
+              </div>
+            </div>
+            <a-alert
+              v-if="eventbriteError"
+              type="warning"
+              show-icon
+              :message="eventbriteError"
+              closable
+              @close="clearEventbriteError()"
+            />
           </div>
         </a-card>
 
@@ -673,5 +943,49 @@ onMounted(() => {
 
 .info-list li {
   margin: 4px 0;
+}
+
+.integration-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.integration-info {
+  flex: 1;
+}
+
+.integration-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 4px;
+}
+
+.integration-desc {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.integration-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.integration-details {
+  font-size: 13px;
+  color: #444;
+  line-height: 1.5;
+}
+
+.integration-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 150px;
+  align-items: flex-end;
 }
 </style>

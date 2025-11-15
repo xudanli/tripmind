@@ -263,6 +263,7 @@
                   size="large"
                   @click="createTravel"
                   class="convert-button"
+                  :loading="generatingFullItinerary"
                   :disabled="!canCreateJourney"
                 >
                   {{ t('home.inspiration.createJourney') }} ✈️
@@ -308,6 +309,7 @@ const travelListStore = useTravelListStore()
 
 const inspirationInput = ref('')
 const loading = computed(() => travelStore.loading)
+const generatingFullItinerary = ref(false)
 const error = computed(() => travelStore.error)
 const inspirationResult = computed(() => {
   const data = travelStore.inspirationData
@@ -476,10 +478,14 @@ const isCandidateResult = computed(() => {
 })
 
 const canCreateJourney = computed(() => {
-  if (!hasFullInspiration.value) return false
   const data = inspirationResult.value
   if (!data) return false
-  return Array.isArray(data.days) && data.days.length > 0
+  if (generatingFullItinerary.value || loading.value) return false
+  if (data.hasFullItinerary) {
+    return Array.isArray(data.days) && data.days.length > 0
+  }
+  // 候选模式：需要选择目的地后才能点击，点击会自动生成详细行程
+  return Boolean(selectedLocation.value)
 })
 
 
@@ -563,29 +569,39 @@ const handleSubmit = async () => {
 const handleGenerateFullItinerary = async () => {
   if (!selectedLocation.value) {
     message.warning(t('home.inspiration.selectLocationFirst'))
-    return
+    return false
   }
 
+  generatingFullItinerary.value = true
   try {
     await travelStore.generateInspirationForDestination(selectedLocation.value)
     message.success('详细行程已生成！')
+    return true
   } catch (error) {
     console.error('生成详细行程失败:', error)
     message.error('生成详细行程失败，请稍后重试')
+    return false
+  } finally {
+    generatingFullItinerary.value = false
   }
 }
 
 // 创建 Travel 并跳转到详情页
 const createTravel = async () => {
-  const data = travelStore.inspirationData
+  let data = travelStore.inspirationData
   if (!data) {
     message.error('数据未生成')
     return
   }
   
   if (!data.hasFullItinerary) {
-    message.warning(t('home.inspiration.detailedJourneyRequired'))
-    return
+    const success = await handleGenerateFullItinerary()
+    if (!success) return
+    data = travelStore.inspirationData
+    if (!data?.hasFullItinerary) {
+      message.warning(t('home.inspiration.detailedJourneyRequired'))
+      return
+    }
   }
   
   // 如果有多个目的地，检查是否已选择

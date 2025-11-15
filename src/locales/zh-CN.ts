@@ -767,6 +767,28 @@ export default {
     devLoginSuccess: '已启用体验模式'
   },
 
+  integrations: {
+    title: '第三方集成',
+    eventbrite: {
+      name: 'Eventbrite',
+      description: '连接 Eventbrite，将精选的节庆与活动同步到你的旅程灵感中。',
+      loading: '正在获取状态…',
+      connectedTag: '已绑定',
+      disconnectedTag: '未绑定',
+      connectedAs: '绑定账号：{id}',
+      unknownUser: '未知用户',
+      expiresAt: '凭证有效期至 {date}',
+      connectHint: '授权后即可在旅程中查看和使用你在 Eventbrite 的活动。',
+      connect: '绑定 Eventbrite',
+      disconnect: '解除绑定',
+      connectedToast: 'Eventbrite 已绑定成功',
+      disconnectedToast: '已解除与 Eventbrite 的绑定',
+      connectedError: 'Eventbrite 绑定失败，请稍后重试。',
+      connectFailed: '无法获取 Eventbrite 授权地址',
+      disconnectFailed: '解除绑定失败，请稍后重试'
+    }
+  },
+
   // Planner 模式
   planner: {
     title: '✈️ 已有计划',

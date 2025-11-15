@@ -684,6 +684,28 @@ export default {
     devLoginSuccess: 'Dev mode enabled'
   },
 
+  integrations: {
+    title: 'Integrations',
+    eventbrite: {
+      name: 'Eventbrite',
+      description: 'Connect to Eventbrite to bring curated festivals and events into your journeys.',
+      loading: 'Fetching status…',
+      connectedTag: 'Connected',
+      disconnectedTag: 'Not connected',
+      connectedAs: 'Connected as {id}',
+      unknownUser: 'Unknown user',
+      expiresAt: 'Token expires on {date}',
+      connectHint: 'Authorize to sync Eventbrite events and enhance your inspiration.',
+      connect: 'Connect Eventbrite',
+      disconnect: 'Disconnect',
+      connectedToast: 'Eventbrite connected successfully',
+      disconnectedToast: 'Eventbrite disconnected',
+      connectedError: 'Eventbrite connection failed, please try again.',
+      connectFailed: 'Failed to start Eventbrite authorization',
+      disconnectFailed: 'Failed to disconnect Eventbrite'
+    }
+  },
+
   // Planner Mode
   planner: {
     title: '✈️ Have a Plan',

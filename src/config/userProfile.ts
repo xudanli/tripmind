@@ -35,6 +35,8 @@ export interface UserProfileConfig {
   preferredLLMProvider?: LLMProvider
   // 自定义 OpenAI 模型
   preferredLLMModel?: string
+  // 界面语言偏好
+  interfaceLanguage?: string
 }
 
 // 支持的语言列表
@@ -90,7 +92,8 @@ export function getUserProfileOrDefault(): UserProfileConfig {
     preferredTransportMode: 'public_transit_and_walking', // 默认：公共交通+短距离步行
     preferredCurrency: 'CNY', // 默认：人民币
     preferredLLMProvider: 'deepseek',
-    preferredLLMModel: ''
+    preferredLLMModel: '',
+    interfaceLanguage: 'zh-CN'
   }
   
   return defaultProfile
@@ -158,6 +161,10 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
   }
 
   if (config.preferredLLMModel && typeof config.preferredLLMModel !== 'string') {
+    return false
+  }
+
+  if (config.interfaceLanguage && typeof config.interfaceLanguage !== 'string') {
     return false
   }
   

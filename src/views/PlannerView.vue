@@ -68,13 +68,14 @@
             <h3>{{ t('planner.step2.title') }}</h3>
             <p>{{ t('planner.step2.description') }}</p>
             <a-form-item
-              :rules="[{ required: true, message: t('planner.step2.selectPlaceholder') }]"
+              :rules="[{ required: true, message: '请选择旅行天数' }]"
             >
               <a-select 
-                :value="formData.duration"
-                @update:value="(value) => travelStore.setPlannerData({ duration: value })"
+                :value="formData.days"
+                @update:value="(value) => travelStore.setPlannerData({ days: value })"
                 size="large" 
                 :placeholder="t('planner.step2.selectPlaceholder')"
+                :allow-clear="false"
               >
                 <a-select-option 
                   v-for="days in durationOptions" 
@@ -84,6 +85,22 @@
                   {{ days }} {{ t('planner.days') }}
                 </a-select-option>
               </a-select>
+            </a-form-item>
+            
+            <a-divider />
+            
+            <h4>选择开始日期</h4>
+            <a-form-item
+              :rules="[{ required: true, message: '请选择开始日期' }]"
+            >
+              <a-date-picker
+                :value="formData.startDate ? dayjs(formData.startDate) : null"
+                @update:value="(value) => travelStore.setPlannerData({ startDate: value ? value.format('YYYY-MM-DD') : '' })"
+                size="large"
+                style="width: 100%"
+                :placeholder="'选择开始日期'"
+                :disabled-date="(current) => current && current < dayjs().startOf('day')"
+              />
             </a-form-item>
           </div>
 
@@ -95,21 +112,33 @@
               :rules="[{ required: true, message: t('planner.step4.rules') }]"
             >
               <a-select 
-                :value="formData.budget"
-                @update:value="(value) => travelStore.setPlannerData({ budget: value })"
+                :value="formData.preferences?.budget"
+                @update:value="(value) => travelStore.setPlannerData({ 
+                  preferences: { 
+                    ...formData.preferences, 
+                    budget: value 
+                  } 
+                })"
                 size="large" 
                 :placeholder="t('planner.step4.placeholder')"
+                :allow-clear="false"
               >
-                <a-select-option 
-                  v-for="option in budgetOptions" 
-                  :key="option.value" 
-                  :value="option.value"
-                >
+                <a-select-option value="low">
                   <div>
-                    <div>{{ option.label }}</div>
-                    <span class="text-secondary" style="font-size: 12px">
-                      {{ option.description }}
-                    </span>
+                    <div>经济型 (low)</div>
+                    <span class="text-secondary" style="font-size: 12px">预算有限，追求性价比</span>
+                  </div>
+                </a-select-option>
+                <a-select-option value="medium">
+                  <div>
+                    <div>舒适型 (medium)</div>
+                    <span class="text-secondary" style="font-size: 12px">中等预算，追求舒适体验</span>
+                  </div>
+                </a-select-option>
+                <a-select-option value="high">
+                  <div>
+                    <div>豪华型 (high)</div>
+                    <span class="text-secondary" style="font-size: 12px">预算充足，追求高品质体验</span>
                   </div>
                 </a-select-option>
               </a-select>
@@ -121,11 +150,16 @@
             <h3>{{ t('planner.step5.title') }}</h3>
             <p>{{ t('planner.step5.description') }}</p>
             <a-form-item
-              :rules="[{ required: true, message: '请至少选择一项偏好' }]"
+              :rules="[{ required: false, message: '请至少选择一项偏好' }]"
             >
               <a-select
-                :value="formData.preferences"
-                @update:value="(value) => travelStore.setPlannerData({ preferences: value })"
+                :value="formData.preferences?.interests || []"
+                @update:value="(value) => travelStore.setPlannerData({ 
+                  preferences: { 
+                    ...formData.preferences, 
+                    interests: value 
+                  } 
+                })"
                 mode="multiple"
                 size="large"
                 :placeholder="t('planner.step5.placeholder')"
@@ -148,24 +182,35 @@
             
             <h4>{{ t('planner.step6.title') }}</h4>
             <a-form-item
-              :rules="[{ required: true, message: t('planner.step6.rules') }]"
+              :rules="[{ required: false, message: t('planner.step6.rules') }]"
             >
               <a-select 
-                :value="formData.travelStyle"
-                @update:value="(value) => travelStore.setPlannerData({ travelStyle: value })"
+                :value="formData.preferences?.travelStyle"
+                @update:value="(value) => travelStore.setPlannerData({ 
+                  preferences: { 
+                    ...formData.preferences, 
+                    travelStyle: value 
+                  } 
+                })"
                 size="large" 
                 :placeholder="t('planner.step6.placeholder')"
               >
-                <a-select-option 
-                  v-for="option in travelStyleOptions" 
-                  :key="option.value" 
-                  :value="option.value"
-                >
+                <a-select-option value="relaxed">
                   <div>
-                    <div>{{ option.label }}</div>
-                    <span class="text-secondary" style="font-size: 12px">
-                      {{ option.description }}
-                    </span>
+                    <div>放松型 (relaxed)</div>
+                    <span class="text-secondary" style="font-size: 12px">慢节奏，充分休息</span>
+                  </div>
+                </a-select-option>
+                <a-select-option value="moderate">
+                  <div>
+                    <div>平衡型 (moderate)</div>
+                    <span class="text-secondary" style="font-size: 12px">节奏适中，劳逸结合</span>
+                  </div>
+                </a-select-option>
+                <a-select-option value="intensive">
+                  <div>
+                    <div>紧凑型 (intensive)</div>
+                    <span class="text-secondary" style="font-size: 12px">快节奏，充分利用时间</span>
                   </div>
                 </a-select-option>
               </a-select>
@@ -211,19 +256,28 @@
               <h4>{{ t('planner.summaryTitle') }}</h4>
               <a-space direction="vertical" style="width: 100%">
                 <div><strong>目的地：</strong> {{ formData.destination || '待选择' }}</div>
-                <div><strong>时长：</strong> {{ formData.duration || 0 }} 天</div>
-                <div><strong>预算：</strong> {{ getBudgetLabel(formData.budget) || '待选择' }}</div>
-                <div><strong>偏好：</strong> 
+                <div><strong>天数：</strong> {{ formData.days || 0 }} 天</div>
+                <div><strong>开始日期：</strong> {{ formData.startDate || '待选择' }}</div>
+                <div><strong>预算：</strong> 
+                  {{ formData.preferences?.budget === 'low' ? '经济型 (low)' : 
+                     formData.preferences?.budget === 'medium' ? '舒适型 (medium)' : 
+                     formData.preferences?.budget === 'high' ? '豪华型 (high)' : '待选择' }}
+                </div>
+                <div><strong>兴趣：</strong> 
                   <a-tag 
-                    v-for="pref in formData.preferences" 
+                    v-for="pref in (formData.preferences?.interests || [])" 
                     :key="pref" 
                     color="blue"
                   >
                     {{ getPreferenceIcon(pref) }} {{ getPreferenceLabel(pref) }}
                   </a-tag>
-                  <span v-if="!formData.preferences.length" class="text-muted">待选择</span>
+                  <span v-if="!formData.preferences?.interests?.length" class="text-muted">待选择</span>
                 </div>
-                <div><strong>节奏：</strong> {{ getTravelStyleLabel(formData.travelStyle) || '待选择' }}</div>
+                <div><strong>旅行风格：</strong> 
+                  {{ formData.preferences?.travelStyle === 'relaxed' ? '放松型 (relaxed)' : 
+                     formData.preferences?.travelStyle === 'moderate' ? '平衡型 (moderate)' : 
+                     formData.preferences?.travelStyle === 'intensive' ? '紧凑型 (intensive)' : '待选择' }}
+                </div>
               </a-space>
             </a-card>
           </div>
@@ -241,6 +295,7 @@
             @click="handleNext"
             class="next-button"
             :disabled="!canProceed"
+            :title="!canProceed ? '请完成必填项后再继续' : ''"
           >
             {{ t('common.next') }}
           </a-button>
@@ -268,6 +323,7 @@ import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
+import dayjs from 'dayjs'
 
 const { t } = useI18n()
 import PlannerDemo from '@/components/TravelDetail/PlannerDemo.vue'
@@ -346,16 +402,54 @@ const travelStyleOptions = computed(() => {
 
 const canProceed = computed(() => {
   switch (currentStep.value) {
-    case 0: return formData.value.destination
-    case 1: return formData.value.duration
-    case 2: return formData.value.budget
-    case 3: return formData.value.preferences.length > 0 && formData.value.travelStyle
-    default: return true
+    case 0: 
+      // 目的地必填：非空字符串
+      return formData.value.destination && formData.value.destination.trim().length > 0
+    case 1: 
+      // 天数和开始日期必填：天数必须是 1-30 之间的数字，开始日期必须是非空字符串
+      return formData.value.days && 
+             typeof formData.value.days === 'number' && 
+             formData.value.days >= 1 && 
+             formData.value.days <= 30 &&
+             formData.value.startDate && 
+             formData.value.startDate.trim().length > 0
+    case 2: 
+      // 预算必填：必须是 'low' | 'medium' | 'high' 之一
+      return formData.value.preferences?.budget && 
+             ['low', 'medium', 'high'].includes(formData.value.preferences.budget)
+    case 3: 
+      // preferences 是可选的，可以直接进入下一步
+      return true
+    default: 
+      return true
   }
 })
 
 const handleNext = () => {
   console.log('handleNext called, currentStep:', currentStep.value, 'steps.length:', steps.value.length)
+  
+  // 验证当前步骤的必填项
+  if (!canProceed.value) {
+    let errorMessage = '请完成必填项后再继续'
+    switch (currentStep.value) {
+      case 0:
+        errorMessage = '请输入目的地'
+        break
+      case 1:
+        if (!formData.value.days) {
+          errorMessage = '请选择旅行天数'
+        } else if (!formData.value.startDate) {
+          errorMessage = '请选择开始日期'
+        }
+        break
+      case 2:
+        errorMessage = '请选择预算等级'
+        break
+    }
+    message.warning(errorMessage)
+    return
+  }
+  
   if (currentStep.value < steps.value.length - 1) {
     currentStep.value++
     console.log('Moved to step:', currentStep.value)
@@ -375,36 +469,85 @@ const handlePrev = () => {
 }
 
 const handleSubmit = async () => {
-  console.log('提交规划请求:', formData.value)
+  console.log('📋 [Planner] 提交规划请求:', formData.value)
+  console.log('📋 [Planner] 用户输入数据:', {
+    destination: formData.value.destination,
+    days: formData.value.days,
+    startDate: formData.value.startDate,
+    preferences: formData.value.preferences
+  })
+  
   try {
+    console.log('🚀 [Planner] 步骤 1/3: 开始生成行程...')
     // 生成行程
     await travelStore.generateItinerary('planner')
+    console.log('✅ [Planner] 步骤 1/3: 行程生成完成')
     
     // 从 travelStore 获取生成的行程数据
+    console.log('📊 [Planner] 步骤 2/3: 获取生成的行程数据...')
     const itineraryData = travelStore.itineraryData
     if (!itineraryData) {
+      console.error('❌ [Planner] 步骤 2/3: 未获取到行程数据')
       throw new Error('行程生成失败')
     }
-    
-    // 创建 Travel 并保存到列表
-    const newTravel = travelListStore.createTravel({
-      title: `${formData.value.destination}之旅`,
-      location: formData.value.destination,
-      description: `精心安排的${formData.value.duration}天${formData.value.destination}之旅`,
-      mode: 'planner',
-      status: 'active',
-      duration: formData.value.duration,
-      participants: 1,
-      budget: 0,
-      data: itineraryData // 保存详细的行程数据
+    console.log('✅ [Planner] 步骤 2/3: 行程数据获取成功', {
+      title: itineraryData.title,
+      destination: itineraryData.destination,
+      days: itineraryData.days?.length || 0,
+      totalCost: itineraryData.totalCost
     })
     
+    // 创建 Travel 并保存到列表
+    console.log('💾 [Planner] 步骤 3/3: 创建 Travel 并保存到列表...')
+    
+    // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
+    // 方式1: data.days (直接存储)
+    // 方式2: data.itineraryData.days (嵌套存储)
+    const travelData: any = {
+      // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
+      days: (itineraryData as any).days || [],
+      destination: itineraryData.destination,
+      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+      totalCost: (itineraryData as any).totalCost || 0,
+      summary: (itineraryData as any).summary || '',
+      // 同时存储为 itineraryData 格式，以兼容其他组件
+      itineraryData: {
+        days: (itineraryData as any).days || [],
+        destination: itineraryData.destination,
+        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+        totalCost: (itineraryData as any).totalCost || 0,
+        summary: (itineraryData as any).summary || '',
+        duration: itineraryData.duration,
+        budget: itineraryData.budget,
+        preferences: itineraryData.preferences,
+        travelStyle: itineraryData.travelStyle
+      }
+    }
+    
+    const newTravel = travelListStore.createTravel({
+      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+      location: formData.value.destination,
+      description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
+      mode: 'planner',
+      status: 'active',
+      duration: formData.value.days,
+      participants: 1,
+      budget: (itineraryData as any).totalCost || 0,
+      data: travelData // 保存详细的行程数据
+    })
+    console.log('✅ [Planner] 步骤 3/3: Travel 创建成功', {
+      id: newTravel.id,
+      title: newTravel.title,
+      mode: newTravel.mode
+    })
+    
+    console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页')
     message.success('行程生成成功！')
     
     // 跳转到旅行详情页
     router.push(`/travel/${newTravel.id}`)
   } catch (err) {
-    console.error('生成行程失败:', err)
+    console.error('❌ [Planner] 生成行程失败:', err)
     message.error('生成行程失败，请重试')
   }
 }

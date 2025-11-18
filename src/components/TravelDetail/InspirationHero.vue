@@ -269,17 +269,10 @@ watchEffect((onCleanup) => {
   })()
 })
 
+// 移除封面图片逻辑，灵感模式不再使用封面
 const heroCoverImage = computed(() => {
-  const data: any = travelData.value
-  if (props.travel?.coverImage) return props.travel.coverImage
-  if (data?.coverImage) return data.coverImage
-
-  const destination = heroDestination.value || ''
-  if (destination) {
-    return `https://source.unsplash.com/1600x450/?${encodeURIComponent(destination)}`
-  }
-
-  return 'https://source.unsplash.com/1600x450/?travel'
+  // 返回默认占位图或透明背景
+  return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwMCIgaGVpZ2h0PSI0NTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idHJhbnNwYXJlbnQiLz48L3N2Zz4='
 })
 
 const preferredLocaleKeys = computed(() => {
@@ -325,72 +318,24 @@ const findSafetyNotice = (data: any): string => {
   return ''
 }
 
+// 移除行程摘要
 const heroItinerarySummary = computed(() => {
-  const data: any = travelData.value
-  const itinerary = itineraryData.value
-
-  const candidates = [
-    itinerary?.summary,
-    data?.summary,
-    data?.journeyBackground,
-    data?.aiMessage,
-    props.travel?.description
-  ]
-
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate.trim()
-    }
-    if (Array.isArray(candidate) && candidate.length) {
-      const merged = candidate
-        .map(item => (typeof item === 'string' ? item.trim() : ''))
-        .filter(Boolean)
-        .join(' ')
-      if (merged) return merged
-    }
-  }
-
   return ''
 })
 
+// 移除核心洞察等文本内容
 const heroCoreInsight = computed(() => {
-  const data: any = travelData.value
-  const safetyNotice = findSafetyNotice(data)
-
-  if (safetyNotice) {
-    return safetyNotice
-  }
-
-  return (
-    data?.coreInsight ||
-    data?.narrative?.threshold ||
-    data?.narrative?.stillness ||
-    ''
-  )
+  return ''
 })
 
+// 移除支持文本
 const heroSupportingText = computed(() => {
-  const data: any = travelData.value
-  if (heroItinerarySummary.value) {
-    return heroItinerarySummary.value
-  }
-  return (
-    data?.narrative?.mirror ||
-    data?.cognitiveTriggers?.questions?.[0] ||
-    ''
-  )
+  return ''
 })
 
+// 移除旅程背景文本
 const heroJourneyBackground = computed(() => {
-  const data: any = travelData.value
-  return (
-    data?.journeyBackground ||
-    data?.summary ||
-    data?.aiMessage ||
-    itineraryData.value?.summary ||
-    props.travel?.description ||
-    ''
-  )
+  return ''
 })
 
 const dayCount = computed(() => itineraryData.value?.days?.length || props.travel?.duration || 0)

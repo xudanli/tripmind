@@ -485,6 +485,11 @@ const canCreateJourney = computed(() => {
     return Array.isArray(data.days) && data.days.length > 0
   }
   // 候选模式：需要选择目的地后才能点击，点击会自动生成详细行程
+  // 如果有明确目的地（destination 或 location 字段存在，且没有推荐列表），也允许创建
+  if (hasSpecificDestination.value) {
+    return true
+  }
+  // 否则需要用户选择目的地
   return Boolean(selectedLocation.value)
 })
 
@@ -549,9 +554,14 @@ const handleSubmit = async () => {
     // 生成灵感
     await travelStore.generateInspiration(inspirationInput.value)
     
-    // 初始化选中的目的地（优先选择第一个）
+    // 初始化选中的目的地
     if (travelStore.inspirationData?.locations && travelStore.inspirationData.locations.length > 0) {
+      // 如果有推荐列表，选择第一个
       selectedLocation.value = travelStore.inspirationData.locations[0]
+    } else if (travelStore.inspirationData?.destination || travelStore.inspirationData?.location) {
+      // 如果有明确目的地但没有推荐列表，自动设置选中目的地
+      selectedLocation.value = travelStore.inspirationData.destination || travelStore.inspirationData.location || null
+      console.log('自动设置选中目的地（明确目的地）:', selectedLocation.value)
     }
     
     // 数据已在 travelStore.inspirationData 中
@@ -594,7 +604,28 @@ const createTravel = async () => {
     return
   }
   
+  // 如果有明确目的地但 selectedLocation 未设置，自动设置
+  if (!selectedLocation.value && hasSpecificDestination.value) {
+    const dest = data.destination || data.location
+    if (dest) {
+      selectedLocation.value = dest
+      console.log('创建旅程时自动设置选中目的地:', dest)
+    }
+  }
+  
   if (!data.hasFullItinerary) {
+    // 如果没有选中目的地，尝试使用明确目的地
+    const targetLocation = selectedLocation.value || data.destination || data.location
+    if (!targetLocation) {
+      message.warning(t('home.inspiration.selectLocationFirst'))
+      return
+    }
+    
+    // 确保 selectedLocation 已设置
+    if (!selectedLocation.value && targetLocation) {
+      selectedLocation.value = targetLocation
+    }
+    
     const success = await handleGenerateFullItinerary()
     if (!success) return
     data = travelStore.inspirationData
@@ -625,10 +656,27 @@ const createTravel = async () => {
   
   // 创建 Travel 并保存到列表
   // 将选中的地点和配置文件保存到 data 中
-  const travelDataWithSelection = {
+  // 移除时间线文本内容和封面数据，只保留图片
+  const travelDataWithSelection: any = {
     ...data,
     selectedLocation: selectedLocation.value, // 保存用户选择的地点
-    inspirationConfig // 保存动态生成的配置
+    inspirationConfig, // 保存动态生成的配置
+    // 移除封面图片
+    coverImage: undefined,
+    // 清理时间线文本内容，只保留图片数据
+    days: data.days?.map((day: any) => ({
+      day: day.day,
+      date: day.date,
+      timeSlots: day.timeSlots?.map((slot: any) => ({
+        time: slot.time,
+        coordinates: slot.coordinates,
+        // 只保留图片相关数据
+        details: slot.details ? {
+          images: slot.details.images,
+          photos: slot.details.photos
+        } : undefined
+      })) || []
+    })) || []
   }
   
   // 确保使用补齐后的天数（如果days数组存在，使用其长度；否则使用duration字段）
@@ -645,18 +693,14 @@ const createTravel = async () => {
   const newTravel = travelListStore.createTravel({
     title: data.title || '灵感之旅',
     location: selectedLocation.value || data.location || '待定',
-    description:
-      data.summary ||
-      data.coreInsight ||
-      data.subtitle ||
-      data.aiMessage ||
-      '基于你的灵感创造的旅程',
+    description: '', // 灵感模式不保存文本描述
     mode: 'inspiration',
     status: 'active',
     duration: actualDuration,
     participants: 1,
     budget: 0,
-    data: travelDataWithSelection // 保存详细的灵感数据（包含选中的地点和配置）
+    coverImage: undefined, // 不保存封面图片
+    data: travelDataWithSelection // 保存详细的灵感数据（包含选中的地点和配置，已移除文本内容）
   })
   
   message.success('旅程创建成功！')

@@ -18,30 +18,34 @@
         {{ t('travelDetail.backToJourney') }}
       </a-button>
     </div>
-    <PlannerHero
-      v-if="travel?.mode === 'planner'"
-      :title="travel?.title || ''"
-      :cover-image="getCoverImage()"
-      :status="travel?.status || 'draft'"
-      :status-label="getStatusLabel(travel?.status)"
-      :duration="travel?.duration || 7"
-      :participants="travel?.participants || 1"
-    />
-
+    <!-- Hero 区域：只保留灵感模式 -->
     <InspirationHero
-      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
+      v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
       :travel="travel"
     />
+    
+    <!-- planner 和 seeker 模式不显示详情页 -->
+    <template v-if="travel?.mode === 'planner' || travel?.mode === 'seeker'">
+      <div class="mode-not-supported">
+        <a-result
+          status="info"
+          title="该模式暂不支持详情页"
+          sub-title="请使用灵感模式查看详情"
+        >
+          <template #extra>
+            <a-button type="primary" @click="router.push('/inspiration')">
+              前往灵感模式
+            </a-button>
+          </template>
+        </a-result>
+      </div>
+    </template>
 
-    <SeekerHero
-      v-else-if="travel?.mode === 'seeker'"
-      :title="travel?.title || ''"
-      :cover-image="getCoverImage()"
-      :show-mood-tracker="true"
-    />
-
-    <!-- 主要内容区域 -->
-    <div class="main-content" :class="{ 'inspiration-mode': travel?.mode === 'inspiration' || travel?.mode === 'classic' }">
+    <!-- 主要内容区域（仅灵感模式显示） -->
+    <div 
+      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'" 
+      class="main-content inspiration-mode"
+    >
       <div
         class="content-layout"
           :class="{
@@ -50,56 +54,8 @@
         }"
       >
         <section class="primary-panel">
-          <!-- Planner 模式：行程概览 + 详细时间表 -->
-          <template v-if="travel?.mode === 'planner'">
-            <PlannerOverview :itinerary="plannerItineraryData" />
-            <PlannerTimeline :itinerary="plannerItineraryData" />
-          </template>
-
-          <!-- Seeker 模式：心情笔记 -->
-          <SeekerMoodNotes v-else-if="travel?.mode === 'seeker'" />
-
-          <!-- Inspiration 或 Classic 模式：体验日 -->
-          <template v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'">
-            <ExperienceDay />
-          </template>
-
-          <!-- 默认时间表 -->
-          <a-card :title="t('travelDetail.timeline')" class="timeline-card" :bordered="false" v-else>
-            <a-timeline>
-              <a-timeline-item v-for="day in timelineDays" :key="day.date" color="blue">
-                <template #dot>
-                  <calendar-outlined :style="{ fontSize: '16px' }" />
-                </template>
-                <div class="day-card">
-                  <div class="day-header">
-                    <h3>{{ day.title }}</h3>
-                    <a-space>
-                      <a-button type="text" size="small">
-                        <template #icon>
-                          <edit-outlined />
-                        </template>
-                      </a-button>
-                    </a-space>
-                  </div>
-                  <p class="day-description">{{ day.description }}</p>
-                  <div class="day-activities">
-                    <a-tag v-for="activity in day.activities" :key="activity" color="cyan" class="activity-tag">
-                      {{ activity }}
-                    </a-tag>
-                  </div>
-                </div>
-              </a-timeline-item>
-            </a-timeline>
-            <div class="timeline-actions">
-              <a-button type="dashed" block>
-                <template #icon>
-                  <plus-outlined />
-                </template>
-                {{ t('travelDetail.addNewDay') }}
-              </a-button>
-            </div>
-          </a-card>
+          <!-- 只保留 Inspiration 或 Classic 模式：体验日 -->
+          <ExperienceDay />
         </section>
 
         <!-- 右侧面板 -->
@@ -190,16 +146,10 @@ import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
 import { useI18n } from 'vue-i18n'
-import { storeToRefs } from 'pinia'
-import PlannerHero from '@/components/TravelDetail/PlannerHero.vue'
-import SeekerHero from '@/components/TravelDetail/SeekerHero.vue'
-// InspirationHero 组件已移除，功能已集成到 ExperienceDay 组件中
-import PlannerTimeline from '@/components/TravelDetail/PlannerTimeline.vue'
-import SeekerMoodNotes from '@/components/TravelDetail/SeekerMoodNotes.vue'
+// 只保留灵感模式相关组件
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
 import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
-import PlannerOverview from '@/components/TravelDetail/PlannerOverview.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
@@ -209,31 +159,22 @@ import { PRESET_COUNTRIES } from '@/constants/countries'
 
 const { t } = useI18n()
 import {
-  ArrowLeftOutlined,
-  CalendarOutlined,
-  EditOutlined,
-  PlusOutlined
+  ArrowLeftOutlined
 } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const travelListStore = useTravelListStore()
 const travelStore = useTravelStore()
-const { plannerItinerary: plannerItineraryRef } = storeToRefs(travelStore)
 
 const travel = ref<Travel | null>(null)
-const shouldShowSidebar = computed(() => Boolean(travel.value))
+const shouldShowSidebar = computed(() => {
+  // 只对灵感模式显示侧边栏
+  return Boolean(travel.value && (travel.value.mode === 'inspiration' || travel.value.mode === 'classic'))
+})
 
 // 开发环境标识
 const isDev = !import.meta.env.PROD
-
-const plannerItineraryData = computed(() => {
-  if (plannerItineraryRef.value?.days?.length) {
-    return plannerItineraryRef.value
-  }
-  const dataObj = travel.value?.data as any
-  return dataObj?.plannerItinerary || null
-})
 
 // 从目的地字符串提取国家代码（统一的提取函数）
 const extractCountryCodeFromDestination = (destStr: string): string | null => {
@@ -360,7 +301,7 @@ const destinationCountry = computed(() => {
     }
   }
   
-  // 3. 从 itineraryData 或 plannerItinerary 中提取
+  // 3. 从 itineraryData 中提取
   if (data?.itineraryData?.destination) {
     const countryCode = extractCountryCodeFromDestination(data.itineraryData.destination)
     if (countryCode) {
@@ -674,151 +615,12 @@ onMounted(() => {
   }
   
   console.log('Should show sidebar for mode:', travel.value?.mode || 'default')
-  // 将存储在 Travel 数据中的 planner 行程注入到全局 store，保证 Timeline 一致
-  if (travel.value?.mode === 'planner') {
-    const dataObj: any = travel.value.data || {}
-    if (dataObj.plannerItinerary) {
-      travelStore.setItineraryData(travelStore.itineraryData) // 保持现有接口
-      plannerItineraryRef.value = dataObj.plannerItinerary
-    } else if (dataObj.itineraryData) {
-      // 尝试从通用结构生成一个最小 PlannerItineraryResponse，供 Timeline 使用
-      try {
-        const mappedDays = (dataObj.itineraryData.itinerary || []).map((d: any, idx: number) => ({
-          date: `Day ${d.day || idx + 1}`,
-          title: d.title || `第${d.day || idx + 1}天`,
-          description: '',
-          status: 'planned',
-          stats: { duration: (d.activities || []).length * 2, cost: 0 },
-          timeSlots: (d.activities || []).map((a: any) => ({
-            time: a.time || '10:00',
-            activity: a.activity || '',
-            location: '',
-            icon: '📍',
-            category: a.type || 'attraction',
-            categoryColor: 'blue',
-            notes: '',
-            estimatedDuration: 1,
-            estimatedCost: 0
-          }))
-        }))
-        plannerItineraryRef.value = {
-          title: travel.value.title || '智能行程规划',
-          destination: travel.value.location || '目的地',
-          duration: mappedDays.length,
-          totalCost: 0,
-          summary: '',
-          days: mappedDays,
-          recommendations: { bestTimeToVisit: '', weatherAdvice: '', packingTips: [], localTips: [], emergencyContacts: [] },
-          aiInsights: { optimizationSuggestions: [], alternativeActivities: [], budgetOptimization: [], culturalNotes: [] }
-        }
-      } catch (e) {
-        console.warn('Fallback mapping plannerItinerary failed:', e)
-      }
-    }
-  }
+  // planner 和 seeker 模式已移除，不再需要处理相关数据
 
 })
 
 
-// 获取当前天数
-const getCurrentDay = () => {
-  return 3 // 暂时使用固定值
-}
-
-
-// 获取封面图片
-const getCoverImage = () => {
-  if (travel.value?.coverImage) {
-    return travel.value.coverImage
-  }
-  return 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1200'
-}
-
-// 获取日期范围
-const getDateRange = () => {
-  if (travel.value?.startDate && travel.value?.endDate) {
-    const start = new Date(travel.value.startDate).toLocaleDateString('zh-CN')
-    const end = new Date(travel.value.endDate).toLocaleDateString('zh-CN')
-    return `${start} ~ ${end}`
-  }
-  return t('travelList.toBeDetermined')
-}
-
-// 获取状态颜色
-const getStatusColor = (status?: string) => {
-  const colors: { [key: string]: string } = {
-    draft: 'default',
-    active: 'processing',
-    completed: 'success'
-  }
-  return colors[status || 'draft'] || 'default'
-}
-
-// 获取状态标签
-const getStatusLabel = (status?: string) => {
-  return t(`travelList.status.${status || 'draft'}` as any)
-}
-
-// 获取模式标签
-const getModeLabel = (mode?: string) => {
-  return t(`travelList.travelMode.${mode || 'planner'}` as any)
-}
-
-// 获取引用
-const getQuote = () => {
-  const quotes: { [key: string]: string } = {
-    planner: '一次精心安排的完美旅程',
-    seeker: '让心情指引我的旅程',
-    inspiration: '将灵感转化为真实体验'
-  }
-  return quotes[travel.value?.mode || 'planner'] || '一次美好的旅程'
-}
-
-// Timeline 数据
-const timelineDays = ref([
-  {
-    date: 'Day 1',
-    title: '第一天 - 抵达目的地',
-    description: '上午抵达机场，下午入住酒店并休整',
-    activities: ['✈️ 接机', '🏨 入住酒店', '🍜 当地美食', '🌅 休息']
-  },
-  {
-    date: 'Day 2',
-    title: '第二天 - 探索主要景点',
-    description: '全天深度游览当地著名景点和特色体验',
-    activities: ['🏛️ 主要景点', '📸 拍照打卡', '🍽️ 当地餐厅', '🎁 购物']
-  },
-  {
-    date: 'Day 3',
-    title: '第三天 - 特色体验与返程',
-    description: '体验当地特色活动，下午准备返程',
-    activities: ['🎨 特色体验', '🛍️ 伴手礼', '✈️ 返程']
-  }
-])
-
-// 任务列表
-const tasks = ref([
-  { title: '预订机票', completed: true },
-  { title: '预订酒店', completed: false },
-  { title: '准备签证', completed: false },
-  { title: '购买保险', completed: false }
-])
-
-// 获取预算百分比
-const getBudgetPercent = () => {
-  if (!travel.value) return 0
-  const total = travel.value.budget || 5000
-  const spent = travel.value.spent || 0
-  return Math.round((spent / total) * 100)
-}
-
-// 获取预算颜色
-const getBudgetColor = () => {
-  const percent = getBudgetPercent()
-  if (percent < 50) return '#52c41a'
-  if (percent < 80) return '#faad14'
-  return '#ff4d4f'
-}
+// planner 和 seeker 模式已移除，相关辅助函数已删除
 
 // 获取签证信息提示
 const getVisaInfoHint = () => {
@@ -1241,5 +1043,13 @@ const getVisaInfoHint = () => {
 .loading-container p {
   color: #666;
   font-size: 1rem;
+}
+
+.mode-not-supported {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
 }
 </style>

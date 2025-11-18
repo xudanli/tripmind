@@ -198,7 +198,17 @@
 import { ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { useTravelStore } from '@/stores/travel'
-import type { PlannerItineraryResponse } from '@/services/plannerAPI'
+// plannerAPI 已删除，使用本地类型定义
+interface PlannerItineraryResponse {
+  title: string
+  destination: string
+  duration: number
+  totalCost: number
+  summary: string
+  days: any[]
+  recommendations?: any
+  aiInsights?: any
+}
 import { 
   RocketOutlined,
   CalendarOutlined,

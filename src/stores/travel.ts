@@ -4,7 +4,7 @@ import { ref, onUnmounted } from 'vue'
 import i18n from '@/i18n'
 import emotionalTravelAPI from '@/services/emotionalTravelAPI'
 import type { EmotionDetectionRequest, TravelPlanRequest, FeedbackRequest } from '@/services/emotionalTravelAPI'
-import { plannerAPI, type PlannerItineraryResponse } from '@/services/plannerAPI'
+// plannerAPI 已删除
 import { subscribeLogEvents, LogLevel } from '@/utils/inspiration/core/logger'
 import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
 import { getCachedMedia, setCachedMedia } from '@/utils/mediaCache'
@@ -21,12 +21,14 @@ interface GenerationLogEntry {
 }
 
 export interface PlannerFormData {
-  destination: string
-  duration: number
-  budget: string
-  preferences: string[]
-  travelStyle: string
-  customRequirements?: string
+  destination: string        // 目的地，如 "瑞士琉森"、"日本东京"
+  days: number              // 旅行天数，范围 1-30
+  preferences?: {           // 用户偏好（可选）
+    interests?: string[]    // 兴趣列表，如 ["自然风光", "户外活动"]
+    budget?: "low" | "medium" | "high"  // 预算等级
+    travelStyle?: "relaxed" | "moderate" | "intensive"  // 旅行风格
+  }
+  startDate: string         // 旅行开始日期，格式: "YYYY-MM-DD"
 }
 
 export interface MoodData {
@@ -42,28 +44,7 @@ export interface HighlightDetail {
   feeling: string
 }
 
-export interface PlannerNotification {
-  id: string
-  type: 'rhythm'
-  level: 'info' | 'warn'
-  message: string
-  createdAt: number
-  dayIndex?: number
-}
-
-export interface PlannerDailyRhythm {
-  dayIndex: number
-  title: string
-  score: number
-  warnings: string[]
-}
-
-export interface PlannerRhythmInsights {
-  score: number
-  level: 'balanced' | 'tight' | 'loose'
-  summary: string
-  daily: PlannerDailyRhythm[]
-}
+// planner 相关类型已删除
 
 export interface LocationDetail {
   name: string
@@ -99,8 +80,7 @@ export interface InspirationData {
   experiences?: { [key: string]: ExperienceDay }
   photos?: { [key: string]: any }
   inspirationConfig?: any
-  coreInsight?: string
-  journeyBackground?: string
+  // 移除封面和文本内容相关字段
   archetype?: {
     name?: string
     symbol?: string
@@ -188,28 +168,19 @@ export interface InspirationData {
   days?: Array<{
     day: number
     date: string
-    theme: string
-    mood: string
-    summary: string
-    psychologicalStage?: string
     timeSlots: Array<{
       time: string
-      title: string
-      activity: string
-      location: string
-      type: string
-      category?: string
-      duration: number
-      notes: string
-      localTip?: string
-      cost?: number
       coordinates?: { lat: number; lng: number }
-      internalTrack?: {
-        question?: string
-        ritual?: string
-        reflection?: string
+      // 只保留图片相关数据
+      details?: {
+        images?: {
+          cover?: string
+          gallery?: string[]
+          [key: string]: any
+        }
+        photos?: any
+        [key: string]: any
       }
-      details?: any
     }>
   }>
   psychologicalFlow?: string[]
@@ -225,8 +196,7 @@ export interface InspirationData {
     localTips?: string[]
     emergencyContacts?: string[]
   }
-  totalCost?: number
-  summary?: string
+  // 移除总结等文本内容
   videos?: Record<string, InspirationVideo>
   hasFullItinerary?: boolean
   generationMode?: 'full' | 'candidates'
@@ -382,135 +352,7 @@ async function enrichInspirationMedia(data: InspirationData, locale: string): Pr
   return { ...data, videos }
 }
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
-
-function evaluateDayRhythm(day: PlannerItineraryResponse['days'][number], index: number): { score: number; warnings: string[]; title: string } {
-  const title = safeStr((day as any)?.title, `第${index + 1}天`)
-  const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : []
-  const activityCount = slots.length
-  const durationHours = (() => {
-    const statDuration = Number((day as any)?.stats?.duration)
-    if (Number.isFinite(statDuration) && statDuration > 0) return statDuration
-    const slotSum = slots.reduce((sum, slot: any) => {
-      if (typeof slot?.estimatedDuration === 'number' && slot.estimatedDuration > 0) return sum + slot.estimatedDuration
-      if (typeof slot?.duration === 'number' && slot.duration > 0) return sum + slot.duration / 60
-      return sum + 1.5
-    }, 0)
-    return slotSum
-  })()
-
-  const transportSlots = slots.filter((slot: any) => {
-    const category = safeStr(slot?.category).toLowerCase()
-    const type = safeStr(slot?.type).toLowerCase()
-    return category.includes('transport') || type.includes('transport') || category.includes('交通')
-  })
-
-  let score = 92
-  const warnings: string[] = []
-
-  if (durationHours < 4.5) {
-    score -= 18
-    warnings.push('节奏偏松，可以再安排一个轻量体验或留白仪式。')
-  } else if (durationHours < 6) {
-    score -= 6
-    warnings.push('当日安排较为宽松，如想更充实，可补充一段探索时光。')
-  } else if (durationHours > 10) {
-    score -= 20
-    warnings.push('行程偏紧，建议删减一项或提前预留休息。')
-  } else if (durationHours > 9) {
-    score -= 10
-    warnings.push('今日活动较密集，试着加一段缓冲时间。')
-  }
-
-  if (activityCount <= 2) {
-    score -= 10
-    warnings.push('活动数量偏少，或许可以拓展一个灵光瞬间。')
-  } else if (activityCount >= 6) {
-    score -= 10
-    warnings.push('活动较多，挑选重点体验可以让节奏更顺。')
-  }
-
-  const transportRatio = activityCount > 0 ? transportSlots.length / activityCount : 0
-  if (transportRatio >= 0.4) {
-    score -= 8
-    warnings.push('交通占比较高，尝试将景点集中在同一区域，节奏会更轻盈。')
-  }
-
-  score = clamp(score, 45, 96)
-  if (!warnings.length && score >= 82) {
-    warnings.push('节奏恰到好处，保持这种自在的律动。')
-  }
-
-  return { score, warnings, title }
-}
-
-function composeRhythmSummary(level: PlannerRhythmInsights['level']): string {
-  switch (level) {
-    case 'balanced':
-      return '整体节奏均衡，Aris 会继续帮你守护这份从容。'
-    case 'tight':
-      return '有些时段稍显紧凑，适当删减或调整顺序会让节奏更顺滑。'
-    case 'loose':
-      return '行程略显松散，可以酌情补充体验，或保留更多留白仪式感。'
-    default:
-      return 'Aris 正在为你观察旅程节奏。'
-  }
-}
-
-function generatePlannerInsights(itinerary: PlannerItineraryResponse): { insights: PlannerRhythmInsights; notifications: PlannerNotification[] } {
-  const days = Array.isArray(itinerary.days) ? itinerary.days : []
-  if (!days.length) {
-    return {
-      insights: {
-        score: 0,
-        level: 'balanced',
-        summary: 'Aris 正在等待完整的行程内容。',
-        daily: []
-      },
-      notifications: []
-    }
-  }
-
-  const daily = days.map((day, index) => evaluateDayRhythm(day, index))
-  const totalScore = daily.reduce((sum, d) => sum + d.score, 0)
-  const averageScore = Math.round(totalScore / daily.length)
-  let level: PlannerRhythmInsights['level']
-  if (averageScore >= 80) level = 'balanced'
-  else if (averageScore >= 65) level = 'tight'
-  else level = 'loose'
-
-  const insights: PlannerRhythmInsights = {
-    score: averageScore,
-    level,
-    summary: composeRhythmSummary(level),
-    daily: daily.map((d, index) => ({
-      dayIndex: index,
-      title: d.title,
-      score: Math.round(d.score),
-      warnings: d.warnings
-    }))
-  }
-
-  const notifications: PlannerNotification[] = []
-  daily.forEach((dayInfo, index) => {
-    dayInfo.warnings.forEach((warning, warningIndex) => {
-      const isPositive = warning.includes('恰到好处') || warning.includes('自在')
-      notifications.push({
-        id: `rhythm-${index}-${warningIndex}-${Date.now()}`,
-        type: 'rhythm',
-        level: isPositive ? 'info' : 'warn',
-        message: `${dayInfo.title}：${warning}`,
-        createdAt: Date.now(),
-        dayIndex: index
-      })
-    })
-  })
-
-  return {
-    insights,
-    notifications: notifications.slice(0, 6)
-  }
-}
+// planner 相关函数已删除
 
 
 // -------------------- Store --------------------
@@ -518,11 +360,13 @@ export const useTravelStore = defineStore('travel', () => {
   // State
   const plannerData = ref<PlannerFormData>({
     destination: '',
-    duration: 5,
-    budget: 'comfort',
-    preferences: [],
-    travelStyle: 'moderate',
-    customRequirements: ''
+    days: 5,
+    preferences: {
+      interests: [],
+      budget: 'medium',
+      travelStyle: 'moderate'
+    },
+    startDate: new Date().toISOString().split('T')[0] as string // 默认为今天
   })
 
   const moodData = ref<MoodData>({
@@ -535,9 +379,6 @@ export const useTravelStore = defineStore('travel', () => {
   const inspirationData = ref<InspirationData | null>(null)
   const inspirationSelectedDestination = ref<string | null>(null)
   const itineraryData = ref<ItineraryData | null>(null)
-  const plannerItinerary = ref<PlannerItineraryResponse | null>(null)
-  const plannerRhythmInsights = ref<PlannerRhythmInsights | null>(null)
-  const plannerNotifications = ref<PlannerNotification[]>([])
   const lastInspirationInput = ref<string>('')
   
   const loading = ref(false)
@@ -595,19 +436,7 @@ export const useTravelStore = defineStore('travel', () => {
   const setCurrentMode = (mode: Mode) => { currentMode.value = mode }
   const setLoading = (isLoading: boolean) => { loading.value = isLoading }
   const setError = (message: string | null) => { error.value = message }
-  const dismissPlannerNotification = (id: string) => {
-    plannerNotifications.value = plannerNotifications.value.filter(note => note.id !== id)
-  }
-  const updatePlannerInsights = (itinerary: PlannerItineraryResponse | null) => {
-    if (!itinerary) {
-      plannerRhythmInsights.value = null
-      plannerNotifications.value = []
-      return
-    }
-    const { insights, notifications } = generatePlannerInsights(itinerary)
-    plannerRhythmInsights.value = insights
-    plannerNotifications.value = notifications
-  }
+  // planner 相关函数已删除
 
   // Local inspiration DB
   async function getLocalInspirationDestinations(params?: { country?: string; stage?: any; keyword?: string }): Promise<Array<{ name: string; country: string }>> {
@@ -639,61 +468,7 @@ export const useTravelStore = defineStore('travel', () => {
   }
 
   // ---------- Mapping helpers ----------
-  function toItineraryFromPlanner(resp: PlannerItineraryResponse, form: PlannerFormData): ItineraryData {
-    const days = Array.isArray(resp.days) ? resp.days : []
-    const mapped = days.map((day: any, index: number) => {
-      const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : Array.isArray(day?.activities) ? day.activities : []
-      const activities = slots.map((slot: any) => ({
-          time: safeStr(slot?.time),
-          activity: safeStr(slot?.activity || slot?.title),
-          type: safeStr(slot?.category || slot?.type || 'activity'),
-          duration: typeof slot?.estimatedDuration === 'number' ? slot.estimatedDuration : (typeof slot?.duration === 'number' ? slot.duration : undefined),
-          notes: safeStr(slot?.notes),
-          location: safeStr(slot?.location || slot?.transport?.to),
-          transport: slot?.transport ?? null,
-          cost: typeof slot?.estimatedCost === 'number' ? slot.estimatedCost : (typeof slot?.cost === 'number' ? slot.cost : undefined)
-        }))
-      if (!activities.length) {
-        activities.push({
-          time: '09:00',
-          activity: '自由探索时间',
-          type: 'activity',
-          duration: 60,
-          notes: 'AI 未返回详细活动，请自行安排。',
-          location: safeStr(day?.title),
-          transport: null,
-          cost: 0
-        })
-      }
-      return {
-        day: typeof day?.day === 'number' ? day.day : index + 1,
-        title: safeStr(day?.title, `第${index + 1}天`),
-        activities
-      }
-    })
-
-    const localTips = resp?.recommendations?.localTips || []
-    return {
-      destination: safeStr(resp.destination, form.destination),
-      duration: Number.isFinite(resp.duration as number) ? (resp.duration as number) : form.duration,
-      budget: form.budget,
-      preferences: form.preferences,
-      travelStyle: form.travelStyle,
-      itinerary: mapped,
-      recommendations: {
-        accommodation: firstOr(localTips, 0, '建议提前预订住宿'),
-        transportation: firstOr(localTips, 1, '建议使用公共交通'),
-        food: firstOr(localTips, 2, '尝试当地特色美食'),
-        tips: safeStr(resp.summary, '旅途中请关注当地礼仪与天气变化')
-      },
-      detectedIntent: {
-        intentType: 'planner',
-        keywords: form.preferences,
-        emotionTone: 'practical',
-        description: '实用型旅行规划'
-      }
-    }
-  }
+  // planner 相关函数已删除
 
   function toItineraryFromSeeker(aiData: any, mood: MoodData, intent: any): ItineraryData {
     const days = arr<any>(aiData?.data?.itinerary)
@@ -742,15 +517,59 @@ export const useTravelStore = defineStore('travel', () => {
       let generatedData: ItineraryData
 
       if (mode === 'planner') {
-        pushGenerationLog('📡 Planner：已发送行程生成请求，正在等待 AI 响应...')
-        const plannerResponse = await plannerAPI.generateItinerary({
-          ...plannerData.value,
-          language: i18n?.global?.locale?.value ?? 'zh-CN'
-        })
-        pushGenerationLog(`✅ Planner：行程生成完成，AI 返回 ${Array.isArray(plannerResponse.days) ? plannerResponse.days.length : 0} 天数据`)
-        plannerItinerary.value = plannerResponse
-        updatePlannerInsights(plannerResponse)
-        generatedData = toItineraryFromPlanner(plannerResponse, plannerData.value)
+        // 调用新的行程生成 API
+        const { generateItinerary: generateItineraryAPI } = await import('@/services/itineraryAPI')
+        
+        // 从 plannerData 中获取表单数据
+        const formData = plannerData.value
+        if (!formData.destination || !formData.days || !formData.startDate) {
+          throw new Error('请完成所有必填项：目的地、天数和开始日期')
+        }
+
+        pushGenerationLog('📡 正在调用行程生成 API...')
+        const apiResponse = await generateItineraryAPI(
+          {
+            destination: formData.destination,
+            days: formData.days,
+            startDate: formData.startDate,
+            preferences: formData.preferences
+          },
+          {
+            enrichWithLocationInfo: true, // 启用位置信息获取
+            onProgress: (message) => {
+              pushGenerationLog(message)
+            }
+          }
+        )
+
+        pushGenerationLog(`✅ 行程生成成功，共 ${apiResponse.days?.length || 0} 天`)
+        
+        // 将 API 返回的数据转换为 ItineraryData 格式
+        // 注意：这里我们需要将 FrontendItineraryData 转换为 ItineraryData
+        // 但实际存储时，我们可以直接使用 API 返回的数据结构
+        generatedData = {
+          destination: apiResponse.destination,
+          duration: apiResponse.days?.length || formData.days,
+          budget: formData.preferences?.budget || 'medium',
+          preferences: formData.preferences?.interests || [],
+          travelStyle: formData.preferences?.travelStyle || 'moderate',
+          itinerary: [], // 这个字段在新的数据结构中不再使用
+          recommendations: {
+            accommodation: '',
+            transportation: '',
+            food: '',
+            tips: apiResponse.summary || ''
+          }
+        }
+
+        // 将 API 返回的完整数据存储到 itineraryData 中
+        // 这样前端组件可以直接使用 days 数组
+        // 我们需要扩展 ItineraryData 或者创建一个新的字段来存储完整数据
+        // 暂时将完整数据存储到 itineraryData 的扩展字段中
+        ;(generatedData as any).days = apiResponse.days
+        ;(generatedData as any).totalCost = apiResponse.totalCost
+        ;(generatedData as any).summary = apiResponse.summary
+        ;(generatedData as any).title = apiResponse.title
       } else {
         const { detectInspirationIntent } = await import('@/services/deepseekAPI')
         const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
@@ -1197,42 +1016,19 @@ export const useTravelStore = defineStore('travel', () => {
     }
   }
 
-  // 优化 Planner 行程
-  const optimizePlannerItinerary = async (optimizationType: 'time' | 'cost' | 'route') => {
-    if (!plannerItinerary.value) throw new Error('没有可优化的行程')
-    setLoading(true)
-    setError(null)
-    try {
-      const optimizedItinerary = await plannerAPI.optimizeItinerary(plannerItinerary.value, optimizationType)
-      plannerItinerary.value = optimizedItinerary
-      updatePlannerInsights(optimizedItinerary)
-      pushGenerationLog('✨ 行程优化完成')
-    } catch (err) {
-      console.error('优化行程失败:', err)
-      setError('行程优化失败，请重试')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // 获取目的地信息
-  const getDestinationInfo = async (destination: string) => {
-    try {
-      return await plannerAPI.getDestinationInfo(destination)
-    } catch (err) {
-      console.error('获取目的地信息失败:', err)
-      return null
-    }
-  }
+  // planner 相关函数已删除
 
   // 重置
   const resetData = () => {
     plannerData.value = {
       destination: '',
-      duration: 5,
-      budget: 'comfort',
-      preferences: [],
-      travelStyle: 'moderate'
+      days: 5,
+      preferences: {
+        interests: [],
+        budget: 'medium',
+        travelStyle: 'moderate'
+      },
+      startDate: new Date().toISOString().split('T')[0] as string
     }
     moodData.value = {
       currentMood: '',
@@ -1243,8 +1039,7 @@ export const useTravelStore = defineStore('travel', () => {
     inspirationData.value = null
     inspirationSelectedDestination.value = null
     itineraryData.value = null
-    plannerItinerary.value = null
-    updatePlannerInsights(null)
+    // planner 相关清理已删除
     loading.value = false
     error.value = null
     currentMode.value = null
@@ -1259,9 +1054,7 @@ export const useTravelStore = defineStore('travel', () => {
     inspirationData,
     inspirationSelectedDestination,
     itineraryData,
-    plannerItinerary,
-    plannerRhythmInsights,
-    plannerNotifications,
+    // planner 相关导出已删除
     loading,
     error,
     currentMode,
@@ -1283,9 +1076,7 @@ export const useTravelStore = defineStore('travel', () => {
     getLocalInspirationDestinations,
     submitFeedback,
     resetData,
-    optimizePlannerItinerary,
-    getDestinationInfo,
-    dismissPlannerNotification,
+    // planner 相关函数已删除
     dispose // 手动释放订阅（路由切换/注销场景）
   }
 

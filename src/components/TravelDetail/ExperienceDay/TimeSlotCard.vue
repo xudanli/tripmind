@@ -2,7 +2,8 @@
   <article class="time-slot">
     <div class="time-slot__time">{{ slot.time }}</div>
     <div class="time-slot__body">
-      <header class="time-slot__header">
+      <!-- 灵感模式隐藏所有文本内容，只保留图片 -->
+      <header v-if="!isInspirationMode" class="time-slot__header">
         <div class="time-slot__title-group">
           <h4 class="time-slot__title">{{ slot.title || slot.activity }}</h4>
           <p v-if="slot.details?.name?.english" class="time-slot__subtitle">{{ slot.details.name.english }}</p>
@@ -51,45 +52,48 @@
         <a-skeleton-image :style="imageSkeletonStyle" />
       </div>
 
-      <p v-if="summary" class="time-slot__summary">{{ summary }}</p>
+      <!-- 灵感模式隐藏所有文本内容 -->
+      <template v-if="!isInspirationMode">
+        <p v-if="summary" class="time-slot__summary">{{ summary }}</p>
 
-      <div v-if="narration" class="time-slot__narration">
-        <span class="time-slot__narration-icon">🎙️</span>
-        <span class="time-slot__narration-label">
-          {{
-            t('travelDetail.experienceDay.activityDetailLabel') ||
-              t('travelDetail.experienceDay.activity') ||
-              '活动'
-          }}：
-            </span>
-        <span>{{ narration }}</span>
-      </div>
+        <div v-if="narration" class="time-slot__narration">
+          <span class="time-slot__narration-icon">🎙️</span>
+          <span class="time-slot__narration-label">
+            {{
+              t('travelDetail.experienceDay.activityDetailLabel') ||
+                t('travelDetail.experienceDay.activity') ||
+                '活动'
+            }}：
+              </span>
+          <span>{{ narration }}</span>
+        </div>
 
-      <div v-if="internalPreview" class="time-slot__internal">
-        <span class="time-slot__internal-icon">💭</span>
-        <span class="time-slot__internal-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') }}：</span>
-        <span>{{ internalPreview }}</span>
-      </div>
+        <div v-if="internalPreview" class="time-slot__internal">
+          <span class="time-slot__internal-icon">💭</span>
+          <span class="time-slot__internal-label">{{ t('travelDetail.experienceDay.internalTrackQuestion') }}：</span>
+          <span>{{ internalPreview }}</span>
+        </div>
 
-      <a-collapse
-        ghost
-        class="time-slot__collapse"
-        :active-key="collapseKeys"
-        @change="onCollapseChange"
-      >
-        <a-collapse-panel
-          key="details"
-          :header="expanded ? t('travelDetail.experienceDay.collapse') : t('travelDetail.experienceDay.more')"
+        <a-collapse
+          ghost
+          class="time-slot__collapse"
+          :active-key="collapseKeys"
+          @change="onCollapseChange"
         >
-          <SlotInfoGrid
-            :slot="slot"
-            :currency="currency"
-            :platform="platform"
-            :notes="notes"
-            :booking-links="slot.bookingLinks || []"
-          />
-        </a-collapse-panel>
-      </a-collapse>
+          <a-collapse-panel
+            key="details"
+            :header="expanded ? t('travelDetail.experienceDay.collapse') : t('travelDetail.experienceDay.more')"
+          >
+            <SlotInfoGrid
+              :slot="slot"
+              :currency="currency"
+              :platform="platform"
+              :notes="notes"
+              :booking-links="slot.bookingLinks || []"
+            />
+          </a-collapse-panel>
+        </a-collapse>
+      </template>
 
       <div class="time-slot__actions">
         <a-button type="primary" size="small" class="time-slot__action" @click="$emit('navigate')" aria-label="navigate">
@@ -147,6 +151,7 @@ interface TimeSlotCardProps {
   platform: string | null
   expanded: boolean
   loading?: boolean
+  isInspirationMode?: boolean
 }
 
 const props = defineProps<TimeSlotCardProps>()
@@ -258,8 +263,12 @@ const resolveSlotType = (slot: Record<string, any>) => {
   }
 }
 
+const isInspirationMode = computed(() => props.isInspirationMode || false)
+
 const slotTypeMeta = computed(() => resolveSlotType(props.slot))
 const summary = computed(() => {
+  // 灵感模式不显示摘要
+  if (isInspirationMode.value) return ''
   const parts: string[] = []
   const seen = new Set<string>()
 

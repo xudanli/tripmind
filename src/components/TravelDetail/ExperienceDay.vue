@@ -26,6 +26,7 @@
                 :currency="getSlotCurrency(slot)"
                 :platform="getRatingPlatform(slot)"
                 :expanded="isSlotExpanded(day.day, slotIndex, slot)"
+                :is-inspiration-mode="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
                 @navigate="handleNavigate(slot)"
                 @book="handleBook(slot)"
                 @search="openSearchModal(day.day, slotIndex, slot)"
@@ -2828,8 +2829,13 @@ const formatDate = (date: string | Date): string => {
   return `${year}-${month}-${day}`
 }
 
-// 获取每日行程摘要（优先级：summary > 其他描述）
+// 获取每日行程摘要 - 灵感模式不显示文本内容
 const getDaySummary = (day: any): string | null => {
+  // 如果是灵感模式，不返回任何文本内容
+  if (travel.value?.mode === 'inspiration' || travel.value?.mode === 'classic') {
+    return null
+  }
+  
   if (!day) return null
   
   const summaryCandidates: Array<string | null | undefined> = [

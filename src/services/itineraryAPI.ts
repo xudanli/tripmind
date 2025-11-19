@@ -161,6 +161,40 @@ export async function generateItinerary(
   log('发起行程生成请求...')
 
   try {
+    // 清理请求数据：移除空数组和未定义的字段
+    const cleanedRequest: GenerateItineraryRequest = {
+      destination: request.destination,
+      days: request.days,
+      startDate: request.startDate
+    }
+
+    // 处理 preferences：只包含有值的字段
+    // 注意：根据后端验证规则，interests 字段不被接受，所以不发送
+    if (request.preferences) {
+      const cleanedPreferences: any = {}
+      
+      // 注意：后端不接受 interests 字段，即使文档中标记为可选
+      // 如果需要传递兴趣信息，可能需要通过其他方式（如自定义字段）
+      // if (request.preferences.interests && request.preferences.interests.length > 0) {
+      //   cleanedPreferences.interests = request.preferences.interests
+      // }
+      
+      // 只有当 budget 存在时才添加
+      if (request.preferences.budget) {
+        cleanedPreferences.budget = request.preferences.budget
+      }
+      
+      // 只有当 travelStyle 存在时才添加
+      if (request.preferences.travelStyle) {
+        cleanedPreferences.travelStyle = request.preferences.travelStyle
+      }
+      
+      // 只有当 preferences 对象不为空时才添加到请求中
+      if (Object.keys(cleanedPreferences).length > 0) {
+        cleanedRequest.preferences = cleanedPreferences
+      }
+    }
+
     // 尝试使用 Cookie 认证（credentials: 'include'）
     // 如果后端需要 JWT Token，可能需要从某个地方获取 token
     // 目前先使用 Cookie 方式，如果后端返回 401，再考虑添加 JWT Token 支持
@@ -169,7 +203,7 @@ export async function generateItinerary(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(cleanedRequest)
     })
 
     if (!response.ok) {

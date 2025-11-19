@@ -1,6 +1,6 @@
 /**
- * 行程生成 API 服务
- * 对接后端 /api/itinerary/generate 接口
+ * 行程 API 服务
+ * 对接后端 /api/itinerary 接口（包括生成和 CRUD 操作）
  */
 
 import { API_CONFIG } from '@/config/api'
@@ -419,6 +419,539 @@ async function enrichItineraryWithLocationInfo(
     log('获取位置信息失败，使用基础行程数据')
     // 即使位置信息获取失败，也返回基础行程数据
     return itineraryData
+  }
+}
+
+// ==================== 行程 CRUD 接口 ====================
+
+/**
+ * 创建行程请求参数
+ */
+export interface CreateItineraryRequest {
+  destination: string
+  startDate: string // YYYY-MM-DD
+  days: number
+  data: {
+    days: Array<{
+      day: number
+      date: string // YYYY-MM-DD
+      activities: Array<{
+        time: string // HH:mm
+        title: string
+        type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+        duration: number
+        location: {
+          lat: number
+          lng: number
+        }
+        notes: string
+        cost: number
+      }>
+    }>
+    totalCost: number
+    summary: string
+  }
+  preferences?: {
+    interests?: string[]
+    budget?: 'low' | 'medium' | 'high'
+    travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+  }
+  status?: 'draft' | 'published' | 'archived'
+}
+
+/**
+ * 创建行程响应
+ */
+export interface CreateItineraryResponse {
+  success: boolean
+  data: {
+    id: string
+    destination: string
+    startDate: string
+    daysCount: number
+    summary: string
+    totalCost: number
+    days: ItineraryDay[]
+    preferences?: {
+      interests?: string[]
+      budget?: 'low' | 'medium' | 'high'
+      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+    }
+    status: 'draft' | 'published' | 'archived'
+    createdAt: string
+    updatedAt: string
+  }
+}
+
+/**
+ * 获取行程列表请求参数
+ */
+export interface GetItineraryListParams {
+  status?: 'draft' | 'published' | 'archived'
+  page?: number
+  limit?: number
+}
+
+/**
+ * 获取行程列表响应
+ */
+export interface GetItineraryListResponse {
+  success: boolean
+  data: Array<{
+    id: string
+    destination: string
+    startDate: string
+    days: number
+    summary?: string
+    totalCost?: number
+    status: 'draft' | 'published' | 'archived'
+    createdAt: string
+    updatedAt: string
+  }>
+  total: number
+  page: number
+  limit: number
+}
+
+/**
+ * 获取行程详情响应
+ */
+export interface GetItineraryDetailResponse {
+  success: boolean
+  data: {
+    id: string
+    destination: string
+    startDate: string
+    daysCount: number
+    summary: string
+    totalCost: number
+    days: ItineraryDay[]
+    preferences?: {
+      interests?: string[]
+      budget?: 'low' | 'medium' | 'high'
+      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+    }
+    status: 'draft' | 'published' | 'archived'
+    createdAt: string
+    updatedAt: string
+  }
+}
+
+/**
+ * 更新行程请求参数
+ */
+export interface UpdateItineraryRequest {
+  destination?: string
+  startDate?: string // YYYY-MM-DD
+  days?: number
+  summary?: string
+  totalCost?: number
+  preferences?: {
+    interests?: string[]
+    budget?: 'low' | 'medium' | 'high'
+    travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+  }
+  status?: 'draft' | 'published' | 'archived'
+}
+
+/**
+ * 更新行程响应
+ */
+export interface UpdateItineraryResponse {
+  success: boolean
+  data: {
+    id: string
+    destination: string
+    startDate: string
+    daysCount: number
+    summary: string
+    totalCost: number
+    days: ItineraryDay[]
+    preferences?: {
+      interests?: string[]
+      budget?: 'low' | 'medium' | 'high'
+      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+    }
+    status: 'draft' | 'published' | 'archived'
+    createdAt: string
+    updatedAt: string
+  }
+}
+
+/**
+ * 删除行程响应
+ */
+export interface DeleteItineraryResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * 创建行程
+ * @param request 请求参数
+ * @returns 创建的行程数据
+ */
+export async function createItinerary(
+  request: CreateItineraryRequest
+): Promise<CreateItineraryResponse['data']> {
+  const endpoint = '/itinerary'
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 创建行程:', {
+    url,
+    destination: request.destination,
+    days: request.days,
+    startDate: request.startDate
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: CreateItineraryResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('创建行程失败')
+    }
+
+    console.log('[ItineraryAPI] 行程创建成功:', {
+      id: apiData.data.id,
+      destination: apiData.data.destination
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 创建行程失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 获取行程列表
+ * @param params 查询参数
+ * @returns 行程列表
+ */
+export async function getItineraryList(
+  params?: GetItineraryListParams
+): Promise<GetItineraryListResponse> {
+  const endpoint = '/itinerary'
+  const url = buildUrl(endpoint)
+
+  // 构建查询参数
+  const queryParams = new URLSearchParams()
+  if (params?.status) {
+    queryParams.append('status', params.status)
+  }
+  if (params?.page) {
+    queryParams.append('page', params.page.toString())
+  }
+  if (params?.limit) {
+    queryParams.append('limit', params.limit.toString())
+  }
+
+  const fullUrl = queryParams.toString() ? `${url}?${queryParams.toString()}` : url
+
+  console.log('[ItineraryAPI] 获取行程列表:', {
+    url: fullUrl,
+    params
+  })
+
+  try {
+    const response = await authenticatedFetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: GetItineraryListResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取行程列表失败')
+    }
+
+    console.log('[ItineraryAPI] 获取行程列表成功:', {
+      count: apiData.data.length,
+      total: apiData.total,
+      page: apiData.page
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取行程列表失败:', {
+      error: error.message,
+      stack: error.stack,
+      url: fullUrl
+    })
+    throw error
+  }
+}
+
+/**
+ * 获取行程详情
+ * @param id 行程ID
+ * @returns 行程详情
+ */
+export async function getItineraryDetail(
+  id: string
+): Promise<GetItineraryDetailResponse['data']> {
+  const endpoint = `/itinerary/${id}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取行程详情:', {
+    url,
+    id
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: GetItineraryDetailResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取行程详情失败')
+    }
+
+    console.log('[ItineraryAPI] 获取行程详情成功:', {
+      id: apiData.data.id,
+      destination: apiData.data.destination
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取行程详情失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 更新行程
+ * @param id 行程ID
+ * @param request 更新请求参数
+ * @returns 更新后的行程数据
+ */
+export async function updateItinerary(
+  id: string,
+  request: UpdateItineraryRequest
+): Promise<UpdateItineraryResponse['data']> {
+  const endpoint = `/itinerary/${id}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 更新行程:', {
+    url,
+    id,
+    updates: Object.keys(request)
+  })
+
+  try {
+    // 清理请求数据：移除空数组和未定义的字段
+    const cleanedRequest: any = {}
+
+    if (request.destination !== undefined) {
+      cleanedRequest.destination = request.destination
+    }
+    if (request.startDate !== undefined) {
+      cleanedRequest.startDate = request.startDate
+    }
+    if (request.days !== undefined) {
+      cleanedRequest.days = request.days
+    }
+    if (request.summary !== undefined) {
+      cleanedRequest.summary = request.summary
+    }
+    if (request.totalCost !== undefined) {
+      cleanedRequest.totalCost = request.totalCost
+    }
+    if (request.status !== undefined) {
+      cleanedRequest.status = request.status
+    }
+
+    // 处理 preferences：只包含有值的字段，不包含 interests
+    if (request.preferences) {
+      const cleanedPreferences: any = {}
+      
+      // 注意：后端不接受 interests 字段
+      // if (request.preferences.interests && request.preferences.interests.length > 0) {
+      //   cleanedPreferences.interests = request.preferences.interests
+      // }
+      
+      if (request.preferences.budget) {
+        cleanedPreferences.budget = request.preferences.budget
+      }
+      
+      if (request.preferences.travelStyle) {
+        cleanedPreferences.travelStyle = request.preferences.travelStyle
+      }
+      
+      if (Object.keys(cleanedPreferences).length > 0) {
+        cleanedRequest.preferences = cleanedPreferences
+      }
+    }
+
+    const response = await authenticatedFetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(cleanedRequest)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: UpdateItineraryResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('更新行程失败')
+    }
+
+    console.log('[ItineraryAPI] 更新行程成功:', {
+      id: apiData.data.id,
+      destination: apiData.data.destination
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 更新行程失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 删除行程
+ * @param id 行程ID
+ * @returns 删除结果
+ */
+export async function deleteItinerary(id: string): Promise<void> {
+  const endpoint = `/itinerary/${id}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 删除行程:', {
+    url,
+    id
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: DeleteItineraryResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('删除行程失败')
+    }
+
+    console.log('[ItineraryAPI] 删除行程成功:', {
+      id,
+      message: apiData.message
+    })
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 删除行程失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 将前端行程数据转换为创建行程的 API 请求格式
+ * @param frontendData 前端行程数据
+ * @param destination 目的地
+ * @param startDate 开始日期
+ * @param preferences 用户偏好
+ * @param status 状态
+ * @returns API 请求格式
+ */
+export function convertFrontendDataToCreateRequest(
+  frontendData: FrontendItineraryData,
+  destination: string,
+  startDate: string,
+  preferences?: {
+    interests?: string[]
+    budget?: 'low' | 'medium' | 'high'
+    travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+  },
+  status: 'draft' | 'published' | 'archived' = 'draft'
+): CreateItineraryRequest {
+  // 将 timeSlots 转换为 activities
+  const days = frontendData.days.map((day) => ({
+    day: day.day,
+    date: day.date,
+    activities: day.timeSlots
+      .filter((slot) => slot.title && slot.type && slot.coordinates) // 只包含有效的活动
+      .map((slot) => ({
+        time: slot.time,
+        title: slot.title || '',
+        type: (slot.type || 'attraction') as Activity['type'],
+        duration: slot.duration || 60, // 默认 60 分钟
+        location: slot.coordinates!,
+        notes: slot.details?.notes || slot.details?.description || '',
+        cost: slot.cost || 0
+      }))
+  }))
+
+  // 清理 preferences：不包含 interests
+  const cleanedPreferences = preferences ? {
+    budget: preferences.budget,
+    travelStyle: preferences.travelStyle
+  } : undefined
+
+  return {
+    destination,
+    startDate,
+    days: frontendData.days.length,
+    data: {
+      days,
+      totalCost: frontendData.totalCost,
+      summary: frontendData.summary || ''
+    },
+    preferences: cleanedPreferences,
+    status
   }
 }
 

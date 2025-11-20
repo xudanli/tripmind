@@ -229,6 +229,20 @@ export async function generateItinerary(
     })
 
     if (!response.ok) {
+      // 如果是 500 错误，可能是后端验证失败（如 totalCost 格式问题）
+      if (response.status === 500) {
+        const errorText = await response.text()
+        console.error('[ItineraryAPI] 后端错误响应:', errorText)
+        // 尝试解析错误信息
+        try {
+          const errorData = JSON.parse(errorText)
+          if (errorData.message?.includes('totalCost') || errorData.message?.includes('格式不正确')) {
+            throw new Error('行程生成失败：数据格式验证失败，请重试。如果问题持续，请联系技术支持。')
+          }
+        } catch {
+          // 忽略解析错误，继续使用 handleApiError
+        }
+      }
       await handleApiError(response)
     }
 
@@ -238,7 +252,7 @@ export async function generateItinerary(
       throw new Error(apiData.data?.summary || '行程生成失败')
     }
 
-    // 验证和修复数据格式
+    // 验证和修复数据格式（防止 AI 返回格式不正确的数据）
     if (apiData.data) {
       // 确保 totalCost 是数字
       if (typeof apiData.data.totalCost !== 'number') {

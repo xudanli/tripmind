@@ -42,6 +42,10 @@
             <p>{{ heroCoreInsight }}</p>
           </div>
 
+          <p v-if="heroItinerarySummary" class="hero-summary">
+            {{ heroItinerarySummary }}
+          </p>
+
           <p v-if="heroSupportingText" class="hero-supporting-text">
             {{ heroSupportingText }}
           </p>
@@ -318,8 +322,18 @@ const findSafetyNotice = (data: any): string => {
   return ''
 }
 
-// 移除行程摘要
+// 行程摘要：planner 模式显示摘要，灵感模式不显示
 const heroItinerarySummary = computed(() => {
+  const mode = props.travel?.mode
+  if (mode === 'planner') {
+    const data: any = travelData.value
+    return (
+      data?.summary ||
+      itineraryData.value?.summary ||
+      props.travel?.description ||
+      ''
+    )
+  }
   return ''
 })
 
@@ -340,7 +354,13 @@ const heroJourneyBackground = computed(() => {
 
 const dayCount = computed(() => itineraryData.value?.days?.length || props.travel?.duration || 0)
 
-const heroModeLabel = computed(() => translate('travelDetail.inspirationHero.modeLabel', 'AI 灵感行程'))
+const heroModeLabel = computed(() => {
+  const mode = props.travel?.mode
+  if (mode === 'planner') {
+    return translate('travelDetail.inspirationHero.plannerModeLabel', '智能规划行程')
+  }
+  return translate('travelDetail.inspirationHero.modeLabel', 'AI 灵感行程')
+})
 
 const journeyStatusLabel = computed(() => {
   if (travelData.value?.statusLabel) return travelData.value.statusLabel
@@ -568,6 +588,13 @@ const heroChips = computed(() => collectChips())
   font-size: 20px;
   color: #ffe58f;
   margin-top: 2px;
+}
+
+.hero-summary {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.8;
+  margin-top: 8px;
 }
 
 .hero-supporting-text {

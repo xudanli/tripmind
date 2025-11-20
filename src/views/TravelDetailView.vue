@@ -18,14 +18,14 @@
         {{ t('travelDetail.backToJourney') }}
       </a-button>
     </div>
-    <!-- Hero 区域：只保留灵感模式 -->
+    <!-- Hero 区域：灵感模式和 planner 模式 -->
     <InspirationHero
-      v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
+      v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic' || travel?.mode === 'planner'"
       :travel="travel"
     />
     
-    <!-- planner 和 seeker 模式不显示详情页 -->
-    <template v-if="travel?.mode === 'planner' || travel?.mode === 'seeker'">
+    <!-- seeker 模式不显示详情页 -->
+    <template v-if="travel?.mode === 'seeker'">
       <div class="mode-not-supported">
         <a-result
           status="info"
@@ -41,10 +41,14 @@
       </div>
     </template>
 
-    <!-- 主要内容区域（仅灵感模式显示） -->
+    <!-- 主要内容区域：灵感模式和 planner 模式 -->
     <div 
-      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'" 
-      class="main-content inspiration-mode"
+      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic' || travel?.mode === 'planner'" 
+      class="main-content"
+      :class="{
+        'inspiration-mode': travel?.mode === 'inspiration' || travel?.mode === 'classic',
+        'planner-mode': travel?.mode === 'planner'
+      }"
     >
       <div
         class="content-layout"
@@ -64,7 +68,7 @@
           class="sidebar-panel"
           :class="{ 'sidebar-after-hero': travel?.mode === 'inspiration' || travel?.mode === 'classic' }"
         >
-          <!-- 人格画像与旅程设计（灵感模式和经典模式显示） -->
+          <!-- 人格画像与旅程设计（仅灵感模式和经典模式显示） -->
           <PersonaJourneySidebar 
             v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
             class="sidebar-block"

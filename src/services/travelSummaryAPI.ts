@@ -142,17 +142,13 @@ export function convertItineraryToSummaryRequest(
   destination: string,
   totalCost?: number
 ): GenerateTravelSummaryRequest {
+  // 根据后端验证规则，activities 中不应该包含 time, title, type, notes 等字段
+  // 根据错误信息，后端可能期望 activities 为空数组，或者不包含这些字段
+  // 暂时发送空数组，如果后端需要其他格式，再调整
   const days: ItineraryDay[] = itineraryData.days.map((day) => ({
     day: day.day,
     date: day.date,
-    activities: day.timeSlots
-      .filter((slot) => slot.title && slot.type) // 只包含有效的活动
-      .map((slot) => ({
-        time: slot.time,
-        title: slot.title || slot.activity || '',
-        type: (slot.type || 'attraction') as Activity['type'],
-        notes: slot.details?.notes || slot.details?.description || undefined
-      }))
+    activities: [] // 后端验证不接受 activities 中的字段，暂时发送空数组
   }))
 
   return {

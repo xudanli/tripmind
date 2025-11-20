@@ -63,7 +63,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
 import { message } from 'ant-design-vue'
-import { getTravelGuides } from '@/services/guidesAPI'
+// guidesAPI 已删除，暂时禁用此功能
+// import { getTravelGuides } from '@/services/guidesAPI'
 
 interface Guide {
   id: string
@@ -113,9 +114,9 @@ const loadGuides = async () => {
 
   loading.value = true
   try {
-    // getTravelGuides 现在会静默处理API错误并使用fallback
-    const result = await getTravelGuides(destination.value, 50, true, true)
-    guides.value = result || []
+    // guidesAPI 已删除，暂时返回空数组
+    // const result = await getTravelGuides(destination.value, 50, true, true)
+    guides.value = []
     // 如果没有结果，静默显示空状态，不显示错误消息
   } catch (error) {
     // 只有在非网络错误时才显示错误消息

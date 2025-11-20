@@ -118,17 +118,39 @@ export function convertAPIResponseToFrontendFormat(
         notes: activity.notes,
         description: activity.notes // 使用 notes 作为 description
       },
-      cost: activity.cost,
-      duration: activity.duration
+      cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+      duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
     }))
   }))
+
+  // 确保 totalCost 是有效的数字
+  let totalCost = 0
+  if (typeof data.totalCost === 'number') {
+    totalCost = data.totalCost
+  } else if (typeof data.totalCost === 'string') {
+    const parsed = parseFloat(data.totalCost)
+    totalCost = isNaN(parsed) ? 0 : parsed
+  } else if (data.totalCost != null) {
+    // 尝试转换为数字
+    const parsed = Number(data.totalCost)
+    totalCost = isNaN(parsed) ? 0 : parsed
+  }
+
+  // 如果 totalCost 为 0，尝试从 activities 计算总和
+  if (totalCost === 0 && days.length > 0) {
+    totalCost = days.reduce((sum, day) => {
+      return sum + day.timeSlots.reduce((daySum, slot) => {
+        return daySum + (slot.cost || 0)
+      }, 0)
+    }, 0)
+  }
 
   return {
     title: `${destination}之旅`,
     destination,
     days,
-    totalCost: data.totalCost,
-    summary: data.summary
+    totalCost,
+    summary: data.summary || ''
   }
 }
 
@@ -214,6 +236,30 @@ export async function generateItinerary(
 
     if (!apiData.success) {
       throw new Error(apiData.data?.summary || '行程生成失败')
+    }
+
+    // 验证和修复数据格式
+    if (apiData.data) {
+      // 确保 totalCost 是数字
+      if (typeof apiData.data.totalCost !== 'number') {
+        console.warn('[ItineraryAPI] totalCost 格式不正确，尝试转换:', apiData.data.totalCost)
+        const parsed = typeof apiData.data.totalCost === 'string' 
+          ? parseFloat(apiData.data.totalCost) 
+          : Number(apiData.data.totalCost)
+        apiData.data.totalCost = isNaN(parsed) ? 0 : parsed
+      }
+
+      // 验证 days 数组
+      if (Array.isArray(apiData.data.days)) {
+        apiData.data.days = apiData.data.days.map((day) => ({
+          ...day,
+          activities: (day.activities || []).map((activity: any) => ({
+            ...activity,
+            cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+            duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+          }))
+        }))
+      }
     }
 
     log(`行程生成成功，共 ${apiData.data?.days?.length || 0} 天`)

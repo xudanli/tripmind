@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { getItineraryList } from '@/services/itineraryAPI'
 
 export interface Travel {
   id: string
@@ -157,6 +158,88 @@ export const useTravelListStore = defineStore('travelList', () => {
     saveToStorage()
   }
   
+  // 从后端同步行程列表（仅 planner 模式）
+  const syncFromBackend = async () => {
+    try {
+      console.log('[TravelListStore] 开始从后端同步行程列表...')
+      const response = await getItineraryList()
+      
+      if (response.success && response.data) {
+        // 将后端数据转换为前端 Travel 格式
+        const backendTravels: Travel[] = response.data.map((itinerary: any) => {
+          // 后端返回的行程数据结构（列表接口可能不包含完整的 days 数组）
+          const daysCount = itinerary.daysCount || itinerary.days || 0
+          const title = itinerary.title || `${itinerary.destination}之旅`
+          const totalCost = itinerary.totalCost || 0
+          
+          return {
+            id: itinerary.id,
+            title: title,
+            location: itinerary.destination,
+            description: itinerary.summary || itinerary.description || `精心安排的${daysCount}天${itinerary.destination}之旅`,
+            mode: 'planner' as const,
+            status: itinerary.status === 'published' ? 'active' : (itinerary.status === 'archived' ? 'completed' : 'draft'),
+            createdAt: itinerary.createdAt || new Date().toISOString(),
+            updatedAt: itinerary.updatedAt || new Date().toISOString(),
+            duration: daysCount,
+            participants: 1,
+            budget: totalCost,
+            destination: itinerary.destination,
+            data: {
+              backendItineraryId: itinerary.id,
+              days: itinerary.days || [],
+              destination: itinerary.destination,
+              title: title,
+              totalCost: totalCost,
+              summary: itinerary.summary || '',
+              itineraryData: {
+                days: itinerary.days || [],
+                destination: itinerary.destination,
+                title: title,
+                totalCost: totalCost,
+                duration: daysCount,
+                budget: totalCost,
+                preferences: itinerary.preferences || {}
+              }
+            }
+          }
+        })
+        
+        // 合并后端数据和本地数据
+        // 1. 保留本地非 planner 模式的行程（inspiration、seeker）
+        const localNonPlannerTravels = travelList.value.filter(t => t.mode !== 'planner')
+        
+        // 2. 合并 planner 模式的行程：优先使用后端数据，如果本地有但后端没有则保留本地
+        const localPlannerTravels = travelList.value.filter(t => t.mode === 'planner')
+        const backendTravelIds = new Set(backendTravels.map(t => t.id))
+        const localOnlyPlannerTravels = localPlannerTravels.filter(t => !backendTravelIds.has(t.id))
+        
+        // 3. 合并结果：后端 planner 行程 + 本地非 planner 行程 + 本地独有的 planner 行程
+        travelList.value = [
+          ...backendTravels,
+          ...localNonPlannerTravels,
+          ...localOnlyPlannerTravels
+        ]
+        
+        // 按更新时间排序（最新的在前）
+        travelList.value.sort((a, b) => {
+          const timeA = new Date(a.updatedAt || a.createdAt).getTime()
+          const timeB = new Date(b.updatedAt || b.createdAt).getTime()
+          return timeB - timeA
+        })
+        
+        saveToStorage()
+        console.log('[TravelListStore] 从后端同步成功:', {
+          backendCount: backendTravels.length,
+          totalCount: travelList.value.length
+        })
+      }
+    } catch (error: any) {
+      console.error('[TravelListStore] 从后端同步失败:', error.message)
+      // 同步失败不影响使用，继续使用本地数据
+    }
+  }
+  
   // 生成 ID
   const generateId = () => {
     return `travel_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -172,6 +255,7 @@ export const useTravelListStore = defineStore('travelList', () => {
     getTravelsByMode,
     clearAll,
     loadFromStorage,
-    saveToStorage
+    saveToStorage,
+    syncFromBackend
   }
 })

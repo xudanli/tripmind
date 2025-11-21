@@ -108,19 +108,37 @@ export function convertAPIResponseToFrontendFormat(
   const days: FrontendItineraryDay[] = data.days.map((day) => ({
     day: day.day,
     date: day.date,
-    timeSlots: day.activities.map((activity) => ({
-      time: activity.time,
-      title: activity.title,
-      activity: activity.title, // 使用 title 作为 activity
-      type: activity.type,
-      coordinates: activity.location,
-      details: {
-        notes: activity.notes,
-        description: activity.notes // 使用 notes 作为 description
-      },
-      cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-      duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
-    }))
+    timeSlots: day.activities.map((activity) => {
+      // 确保所有字段都被正确映射
+      const slot = {
+        time: activity.time,
+        title: activity.title,
+        activity: activity.title, // 使用 title 作为 activity
+        type: activity.type,
+        coordinates: activity.location,
+        // 将 notes 同时映射到多个位置，确保所有组件都能访问到
+        notes: activity.notes || '', // 直接映射到 slot.notes，供 buildNotes 使用
+        details: {
+          notes: activity.notes || '', // 保留在 details.notes 中
+          description: activity.notes || '' // 使用 notes 作为 description
+        },
+        cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+        duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+      }
+      
+      // 确保所有字段都存在（即使为空值）
+      console.log('[ItineraryAPI] 转换 activity 到 timeSlot:', {
+        time: slot.time,
+        title: slot.title,
+        type: slot.type,
+        hasNotes: !!slot.notes,
+        hasCost: slot.cost > 0,
+        hasDuration: slot.duration > 0,
+        hasCoordinates: !!slot.coordinates
+      })
+      
+      return slot
+    })
   }))
 
   // 确保 totalCost 是有效的数字
@@ -451,10 +469,15 @@ async function enrichItineraryWithLocationInfo(
               ...(slot.details?.address || {}),
               ...locationDetails.address
             },
-            // 合并其他字段（如果原有字段不存在，则使用新字段）
+            // 合并其他字段（openingHours、transportation、pricing 等优先使用位置信息）
             ...Object.keys(locationDetails).reduce((acc, key) => {
-              if (key !== 'name' && key !== 'address' && !slot.details?.[key]) {
-                acc[key] = locationDetails[key]
+              if (key !== 'name' && key !== 'address') {
+                // 对于 openingHours、transportation、pricing、rating、recommendations 等字段，优先使用位置信息
+                if (['openingHours', 'transportation', 'pricing', 'rating', 'recommendations', 'contact', 'accessibility'].includes(key)) {
+                  acc[key] = locationDetails[key] || slot.details?.[key]
+                } else if (!slot.details?.[key]) {
+                  acc[key] = locationDetails[key]
+                }
               }
               return acc
             }, {} as any)

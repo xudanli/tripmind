@@ -2,7 +2,8 @@
 import { onMounted, ref, computed, watch, nextTick } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useI18nStore } from './stores/i18n'
-import { UserOutlined } from '@ant-design/icons-vue'
+import { useUserStore } from './stores/user'
+import { UserOutlined, GlobalOutlined } from '@ant-design/icons-vue'
 import { PRESET_COUNTRIES } from '@/config/location'
 import { 
   getUserProfile, 
@@ -21,6 +22,7 @@ import { getUserPreferences, updateUserPreferences } from '@/services/userPrefer
 import { getEventbriteAuthUrl, getEventbriteStatus, disconnectEventbrite, type EventbriteStatus } from '@/services/eventbriteAPI'
 
 const i18nStore = useI18nStore()
+const userStore = useUserStore()
 const { t } = useI18n()
 
 // 用户个人信息设置
@@ -347,6 +349,19 @@ const userProfileDisplay = computed(() => {
   return parts.length > 0 ? parts.join(' · ') : '个人偏好'
 })
 
+// 语言切换相关
+const languageSwitchTooltip = computed(() => {
+  const currentLang = i18nStore.currentLocale === 'zh-CN' ? '中文' : 'English'
+  const nextLang = i18nStore.currentLocale === 'zh-CN' ? 'English' : '中文'
+  return `${currentLang} · 点击切换到 ${nextLang}`
+})
+
+const handleLanguageSwitch = () => {
+  const nextLang = i18nStore.currentLocale === 'zh-CN' ? 'en-US' : 'zh-CN'
+  i18nStore.setLocale(nextLang)
+  message.success(nextLang === 'zh-CN' ? '已切换到中文' : 'Switched to English')
+}
+
 watch(
   () => route.query.eventbrite,
   (value) => {
@@ -370,8 +385,9 @@ onMounted(() => {
 
 <template>
   <div id="app">
-    <!-- 用户个人信息设置按钮（个人中心） -->
+    <!-- 用户个人信息设置按钮（个人中心）- 仅登录时显示 -->
     <a-float-button 
+      v-if="userStore.isLoggedIn"
       :key="`user-btn-${reactiveUserProfile.nationality?.countryCode || 'none'}-${reactiveUserProfile.location?.countryCode || 'none'}`"
       :style="{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }"
       type="primary"
@@ -380,6 +396,19 @@ onMounted(() => {
     >
       <template #icon>
         <user-outlined />
+      </template>
+    </a-float-button>
+    
+    <!-- 语言切换按钮 - 未登录时显示 -->
+    <a-float-button 
+      v-if="!userStore.isLoggedIn"
+      :style="{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }"
+      type="default"
+      @click="handleLanguageSwitch"
+      :tooltip="languageSwitchTooltip"
+    >
+      <template #icon>
+        <global-outlined />
       </template>
     </a-float-button>
     

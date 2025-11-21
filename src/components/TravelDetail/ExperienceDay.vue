@@ -27,6 +27,7 @@
                 :platform="getRatingPlatform(slot)"
                 :expanded="isSlotExpanded(day.day, slotIndex, slot)"
                 :is-inspiration-mode="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
+                :is-planner-mode="travel?.mode === 'planner'"
                 @navigate="handleNavigate(slot)"
                 @book="handleBook(slot)"
                 @search="openSearchModal(day.day, slotIndex, slot)"
@@ -465,25 +466,38 @@ const travel = computed(() => travelListStore.getTravel(route.params.id as strin
 // 检查数据是否为行程计划格式（有days数组）
 const itineraryData = computed(() => {
   const data = travel.value?.data
-  if (!data) return null
+  if (!data) {
+    console.log('⚠️ travel.value?.data 不存在')
+    return null
+  }
   
-  // 如果直接是行程计划格式（有days数组）- 新生成的灵感行程通常是这种格式
+  console.log('🔍 [ExperienceDay] 检查数据格式:', {
+    hasDays: !!data.days,
+    hasPlannerItinerary: !!data.plannerItinerary,
+    hasItineraryData: !!data.itineraryData,
+    itineraryDataDays: data.itineraryData?.days?.length,
+    dataKeys: Object.keys(data)
+  })
+  
+  // 优先级1: 如果直接是行程计划格式（有days数组）- 新生成的灵感行程通常是这种格式
   if (data.days && Array.isArray(data.days) && data.days.length > 0) {
     console.log('✅ 从 data.days 获取行程数据，天数:', data.days.length)
     return data
   }
-  // 如果存储在plannerItinerary中
-  if (data.plannerItinerary?.days && Array.isArray(data.plannerItinerary.days)) {
-    console.log('✅ 从 data.plannerItinerary.days 获取行程数据')
-    return data.plannerItinerary
-  }
-  // 如果存储在itineraryData中
-  if (data.itineraryData?.days && Array.isArray(data.itineraryData.days)) {
-    console.log('✅ 从 data.itineraryData.days 获取行程数据')
+  // 优先级2: 如果存储在itineraryData中（后端返回的格式）
+  if (data.itineraryData?.days && Array.isArray(data.itineraryData.days) && data.itineraryData.days.length > 0) {
+    console.log('✅ 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length)
     return data.itineraryData
   }
+  // 优先级3: 如果存储在plannerItinerary中
+  if (data.plannerItinerary?.days && Array.isArray(data.plannerItinerary.days) && data.plannerItinerary.days.length > 0) {
+    console.log('✅ 从 data.plannerItinerary.days 获取行程数据，天数:', data.plannerItinerary.days.length)
+    return data.plannerItinerary
+  }
   
-  console.log('⚠️ 未找到行程数据（days数组）')
+  console.log('⚠️ 未找到行程数据（days数组）', {
+    dataStructure: JSON.stringify(data, null, 2).substring(0, 500)
+  })
   return null
 })
 
@@ -670,11 +684,36 @@ const coverImage = computed(() => {
 
 // 行程天数数据
 const itineraryDays = computed(() => {
-  if (!itineraryData.value?.days) return []
-  return itineraryData.value.days.map((day: any) => ({
-    ...day,
-    timeSlots: day.timeSlots || day.activities || []
-  }))
+  if (!itineraryData.value?.days) {
+    console.log('⚠️ [ExperienceDay] itineraryData.value?.days 不存在')
+    return []
+  }
+  
+  const days = itineraryData.value.days.map((day: any) => {
+    // 确保 timeSlots 存在
+    const timeSlots = day.timeSlots || day.activities || []
+    console.log(`📅 [ExperienceDay] Day ${day.day}: ${timeSlots.length} 个活动`)
+    
+    return {
+      ...day,
+      timeSlots: timeSlots.map((slot: any) => {
+        // 确保每个 slot 都有必要的字段
+        return {
+          ...slot,
+          // 确保 details 存在（如果后端已经返回了位置信息）
+          details: slot.details || {},
+          // 确保 coordinates 存在
+          coordinates: slot.coordinates || slot.location || {},
+          // 确保 title 和 activity 存在
+          title: slot.title || slot.activity || '',
+          activity: slot.activity || slot.title || ''
+        }
+      })
+    }
+  })
+  
+  console.log(`✅ [ExperienceDay] 总共 ${days.length} 天，${days.reduce((sum, d) => sum + d.timeSlots.length, 0)} 个活动`)
+  return days
 })
 
 const primaryDay = computed(() => {
@@ -1728,6 +1767,10 @@ const getCurrentSlot = () => {
 const expandedDetails = ref<Record<string, boolean>>({})
 
 const isSlotExpanded = (day: number, slotIndex: number, slot: any): boolean => {
+  // planner 模式默认展开详细信息
+  if (travel.value?.mode === 'planner') {
+    return true
+  }
   const key = getSlotKey(day, slotIndex, slot)
   return !!expandedDetails.value[key]
 }

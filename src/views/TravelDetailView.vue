@@ -134,6 +134,13 @@
             :initial-spent="travel?.spent || 0"
             :initial-total="travel?.budget || 0"
           />
+
+          <!-- 讨论区 -->
+          <DiscussionArea 
+            class="sidebar-block"
+            :travel-id="travel?.id"
+            :mode="travel?.mode || 'default'"
+          />
         </aside>
       </div>
     </div>
@@ -157,6 +164,7 @@ import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
+import DiscussionArea from '@/components/TravelDetail/DiscussionArea.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
 import { getVisaInfo, analyzeMultiDestinationVisa, extractAllDestinationCountries } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
@@ -173,8 +181,8 @@ const travelStore = useTravelStore()
 
 const travel = ref<Travel | null>(null)
 const shouldShowSidebar = computed(() => {
-  // 只对灵感模式显示侧边栏
-  return Boolean(travel.value && (travel.value.mode === 'inspiration' || travel.value.mode === 'classic'))
+  // 对灵感模式、经典模式和 planner 模式显示侧边栏
+  return Boolean(travel.value && (travel.value.mode === 'inspiration' || travel.value.mode === 'classic' || travel.value.mode === 'planner'))
 })
 
 // 开发环境标识
@@ -472,8 +480,105 @@ watch([destinationCountry, multiDestinationVisaAnalysis], () => {
 }, { immediate: true })
 
 
+// 从后端加载行程详情并获取位置信息
+const loadItineraryFromBackend = async (backendItineraryId: string) => {
+  try {
+    console.log('[TravelDetailView] 从后端加载行程详情:', backendItineraryId)
+    const { getItineraryDetail } = await import('@/services/itineraryAPI')
+    const { enrichItineraryWithLocationInfo } = await import('@/services/itineraryAPI')
+    
+    // 1. 获取后端行程详情
+    const backendItinerary = await getItineraryDetail(backendItineraryId)
+    console.log('[TravelDetailView] 后端行程详情获取成功:', {
+      id: backendItinerary.id,
+      destination: backendItinerary.destination,
+      daysCount: backendItinerary.daysCount
+    })
+    
+    // 2. 将后端数据转换为前端格式（直接转换，不需要通过 convertAPIResponseToFrontendFormat）
+    const days = backendItinerary.days.map((day) => ({
+      day: day.day,
+      date: day.date,
+      timeSlots: day.activities.map((activity) => ({
+        time: activity.time,
+        title: activity.title,
+        activity: activity.title,
+        type: activity.type,
+        coordinates: activity.location,
+        notes: activity.notes || '',
+        details: {
+          notes: activity.notes || '',
+          description: activity.notes || ''
+        },
+        cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+        duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+      }))
+    }))
+    
+    const frontendData = {
+      title: travel.value?.title || `${backendItinerary.destination}之旅`,
+      destination: backendItinerary.destination,
+      days,
+      totalCost: backendItinerary.totalCost || 0,
+      summary: backendItinerary.summary || '',
+      duration: backendItinerary.daysCount || days.length,
+      budget: backendItinerary.totalCost || 0
+    }
+    
+    console.log('[TravelDetailView] 转换为前端格式成功:', {
+      daysCount: frontendData.days.length,
+      totalCost: frontendData.totalCost
+    })
+    
+    // 3. 获取并合并位置信息
+    console.log('[TravelDetailView] 开始获取位置信息...')
+    const enrichedData = await enrichItineraryWithLocationInfo(
+      frontendData,
+      backendItinerary.destination,
+      (message) => {
+        console.log('[TravelDetailView] 位置信息获取进度:', message)
+      }
+    )
+    
+    console.log('[TravelDetailView] 位置信息获取完成')
+    
+    // 4. 更新 travel 数据
+    if (travel.value) {
+      const updatedData = {
+        ...travel.value.data,
+        backendItineraryId: backendItineraryId,
+        days: enrichedData.days,
+        destination: enrichedData.destination,
+        title: travel.value.title || `${backendItinerary.destination}之旅`,
+        totalCost: enrichedData.totalCost,
+        summary: backendItinerary.summary || '',
+        itineraryData: {
+          days: enrichedData.days,
+          destination: enrichedData.destination,
+          title: travel.value.title || `${backendItinerary.destination}之旅`,
+          totalCost: enrichedData.totalCost,
+          duration: enrichedData.duration,
+          budget: enrichedData.budget,
+          preferences: backendItinerary.preferences || {}
+        }
+      }
+      
+      travelListStore.updateTravel(travel.value.id, {
+        data: updatedData
+      })
+      
+      // 重新获取更新后的 travel
+      travel.value = travelListStore.getTravel(travel.value.id)
+      console.log('[TravelDetailView] 行程数据已更新，包含位置信息')
+    }
+  } catch (error: any) {
+    console.error('[TravelDetailView] 从后端加载行程详情失败:', error)
+    // 失败不影响显示，继续使用本地数据
+  }
+}
+
 // 加载旅程数据
-onMounted(() => {
+onMounted(async () => {
   const id = route.params.id as string
   console.log('TravelDetailView mounted, id:', id)
   travel.value = travelListStore.getTravel(id)
@@ -484,6 +589,17 @@ onMounted(() => {
   if (travel.value) {
     console.log('📋 原始 Travel 数据 (JSON):', JSON.stringify(travel.value, null, 2))
     console.log('📋 原始 Travel.data 数据 (JSON):', JSON.stringify(travel.value.data, null, 2))
+    
+    // 如果是 planner 模式且有 backendItineraryId，从后端加载完整数据
+    if (travel.value.mode === 'planner') {
+      const backendItineraryId = travel.value.data?.backendItineraryId
+      if (backendItineraryId) {
+        console.log('[TravelDetailView] 检测到 backendItineraryId，从后端加载行程详情:', backendItineraryId)
+        await loadItineraryFromBackend(backendItineraryId)
+      } else {
+        console.log('[TravelDetailView] 未找到 backendItineraryId，使用本地数据')
+      }
+    }
   }
   
   // 修复Inspiration和Classic模式的滚动问题

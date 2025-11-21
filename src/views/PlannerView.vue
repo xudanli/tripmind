@@ -324,6 +324,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
+import { createItinerary, convertFrontendDataToCreateRequest } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 import PlannerDemo from '@/components/TravelDetail/PlannerDemo.vue'
@@ -497,13 +498,51 @@ const handleSubmit = async () => {
       totalCost: itineraryData.totalCost
     })
     
-    // 创建 Travel 并保存到列表
-    console.log('💾 [Planner] 步骤 3/3: 创建 Travel 并保存到列表...')
+    // 步骤 3/4: 保存行程到后端数据库
+    console.log('💾 [Planner] 步骤 3/4: 保存行程到后端数据库...')
+    let backendItineraryId: string | undefined
+    try {
+      // 将前端数据转换为创建行程的API请求格式
+      const createRequest = convertFrontendDataToCreateRequest(
+        itineraryData as any,
+        formData.value.destination,
+        formData.value.startDate,
+        formData.value.preferences,
+        'draft' // 默认保存为草稿状态
+      )
+      
+      console.log('📤 [Planner] 创建行程请求数据:', {
+        destination: createRequest.destination,
+        daysCount: createRequest.days?.length || 0,
+        startDate: createRequest.startDate
+      })
+      
+      // 调用创建行程接口
+      const backendItinerary = await createItinerary(createRequest)
+      backendItineraryId = backendItinerary.id
+      console.log('✅ [Planner] 步骤 3/4: 行程已保存到后端', {
+        id: backendItineraryId,
+        destination: backendItinerary.destination
+      })
+      message.success('行程已保存到数据库')
+    } catch (err: any) {
+      console.error('❌ [Planner] 步骤 3/4: 保存到后端失败', {
+        error: err.message,
+        stack: err.stack
+      })
+      message.warning('保存到数据库失败，已保存到本地。错误：' + (err.message || '未知错误'))
+      // 保存到后端失败不影响整体流程，继续使用本地存储
+    }
+    
+    // 步骤 4/4: 创建 Travel 并保存到本地列表
+    console.log('💾 [Planner] 步骤 4/4: 创建 Travel 并保存到本地列表...')
     
     // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
     // 方式1: data.days (直接存储)
     // 方式2: data.itineraryData.days (嵌套存储)
     const travelData: any = {
+      // 保存后端行程ID（如果创建成功）
+      backendItineraryId: backendItineraryId,
       // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
       days: (itineraryData as any).days || [],
       destination: itineraryData.destination,
@@ -535,10 +574,11 @@ const handleSubmit = async () => {
       budget: (itineraryData as any).totalCost || 0,
       data: travelData // 保存详细的行程数据
     })
-    console.log('✅ [Planner] 步骤 3/3: Travel 创建成功', {
+    console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
       id: newTravel.id,
       title: newTravel.title,
-      mode: newTravel.mode
+      mode: newTravel.mode,
+      backendItineraryId: backendItineraryId
     })
     
     console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页')

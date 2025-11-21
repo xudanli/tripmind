@@ -49,11 +49,20 @@ export const getActivitySummary = (slot: any, t: TranslateFn): string | null => 
   if (typeof scenicIntro === 'string' && scenicIntro.trim()) {
     return scenicIntro.trim()
   }
+  // 优先使用 notes（planner 模式的主要数据源）
   if (slot.notes && slot.notes.trim()) {
     return slot.notes.trim()
   }
+  // 如果 notes 不存在，尝试从 details.notes 获取
+  if (slot.details?.notes && typeof slot.details.notes === 'string' && slot.details.notes.trim()) {
+    return slot.details.notes.trim()
+  }
+  // 如果 notes 都不存在，尝试从 details.description 获取
+  if (slot.details?.description && typeof slot.details.description === 'string' && slot.details.description.trim()) {
+    return slot.details.description.trim()
+  }
   const desc = slot.details?.description
-  if (desc) {
+  if (desc && typeof desc === 'object') {
     const parts: string[] = []
     if (desc.specialty) parts.push(`${t('travelDetail.experienceDay.specialty')}：${desc.specialty}`)
     if (desc.atmosphere) parts.push(`${t('travelDetail.experienceDay.atmosphere')}：${desc.atmosphere}`)
@@ -129,6 +138,13 @@ export const buildBookingText = (slot: any, t: TranslateFn): string | null => {
   if (!rec) {
     return null
   }
+  
+  // 优先使用 bookingInfo 字段（后端接口返回）
+  if (rec.bookingInfo && typeof rec.bookingInfo === 'string' && rec.bookingInfo.trim()) {
+    return rec.bookingInfo.trim()
+  }
+  
+  // 如果没有 bookingInfo，使用原有逻辑
   if (rec.bookingRequired) {
     return `${t('travelDetail.experienceDay.bookingRequired')}${rec.bookingAdvance || t('travelDetail.experienceDay.bookingAdvanceDefault')}`
   }
@@ -155,6 +171,13 @@ export const buildPreTrip = (recommendations: any, t: TranslateFn): string | nul
 
 export const buildPricing = (pricing: any, currency: CurrencyInfo, t: TranslateFn): string | null => {
   if (!pricing) return null
+  
+  // 优先使用 pricing.detail 字段（如果是字符串）
+  if (typeof pricing.detail === 'string' && pricing.detail.trim()) {
+    return pricing.detail.trim()
+  }
+  
+  // 如果 pricing.detail 是对象，按原有逻辑处理
   const parts: string[] = []
   if (pricing.general) {
     parts.push(`${t('travelDetail.experienceDay.transportationCost')}：${formatCurrency(pricing.general, currency)}`)
@@ -203,6 +226,15 @@ export const buildTransportText = (transport: any, t: TranslateFn): string | nul
 export const buildTransportInfo = (transport: any, t: TranslateFn): TransportInfo | null => {
   if (!transport) return null
 
+  // 如果 transportation 是字符串，直接使用
+  if (typeof transport === 'string' && transport.trim()) {
+    return {
+      summary: transport.trim(),
+      items: [],
+    }
+  }
+
+  // 如果 transportation 是对象，按原有逻辑处理
   const summary =
     typeof transport.enhancedSummary === 'string' && transport.enhancedSummary.trim()
       ? transport.enhancedSummary.trim()
@@ -403,8 +435,17 @@ export const buildNotes = (slot: any): string[] => {
     }
   }
 
-  pushValue(slot?.details?.recommendations?.specialNotes)
+  // 优先从多个位置提取 notes，确保 planner 模式能显示所有 AI 返回的信息
+  // 1. 直接从 slot.notes（planner 模式的主要数据源）
   pushValue(slot?.notes)
+  // 2. 从 details.notes（planner 模式的数据）
+  pushValue(slot?.details?.notes)
+  // 3. 从 details.description（如果 notes 不存在，使用 description）
+  if (!slot?.notes && !slot?.details?.notes) {
+    pushValue(slot?.details?.description)
+  }
+  // 4. 从 recommendations.specialNotes（灵感模式的数据）
+  pushValue(slot?.details?.recommendations?.specialNotes)
 
   return collected
 }

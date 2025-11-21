@@ -69,6 +69,7 @@ import {
   BulbOutlined,
   CompassOutlined,
   CrownOutlined,
+  DollarOutlined,
   EnvironmentOutlined,
   ScheduleOutlined,
   SmileOutlined,
@@ -390,6 +391,29 @@ const travelMood = computed(() => {
   return data?.mood || data?.journeyMood || ''
 })
 
+// 获取总费用（planner 模式显示）
+const totalCost = computed(() => {
+  const mode = props.travel?.mode
+  if (mode !== 'planner') return null
+  
+  const data: any = travelData.value
+  // 优先级：data.totalCost > itineraryData.totalCost > travel.budget
+  const cost = data?.totalCost || 
+               itineraryData.value?.totalCost || 
+               props.travel?.budget || 
+               0
+  
+  if (cost <= 0) return null
+  
+  // 格式化货币显示
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(cost)
+})
+
 const heroMetaItems = computed(() => {
   const items: Array<{ icon: any; label: string }> = []
 
@@ -410,6 +434,14 @@ const heroMetaItems = computed(() => {
     items.push({
       icon: ScheduleOutlined,
       label: normalizedDuration
+    })
+  }
+
+  // planner 模式显示总费用
+  if (totalCost.value) {
+    items.push({
+      icon: DollarOutlined,
+      label: totalCost.value
     })
   }
 

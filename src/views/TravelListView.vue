@@ -227,9 +227,23 @@ const currentUser = computed(() => userStore.user)
 
 // 创建模态框显示状态
 const createModalVisible = ref(false)
+const loading = ref(false)
 
-// 组件挂载时检查是否有待处理的意图
-onMounted(() => {
+// 组件挂载时从后端同步数据
+onMounted(async () => {
+  // 如果用户已登录，从后端同步行程列表
+  if (userStore.isLoggedIn) {
+    loading.value = true
+    try {
+      await travelListStore.syncFromBackend()
+    } catch (error) {
+      console.error('同步行程列表失败:', error)
+    } finally {
+      loading.value = false
+    }
+  }
+  
+  // 检查是否有待处理的意图
   const pendingIntent = userStore.pendingIntent
   if (pendingIntent && userStore.isLoggedIn) {
     // 根据意图创建旅程

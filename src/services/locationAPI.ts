@@ -47,6 +47,9 @@ export interface LocationInfo {
   visitDuration: string
   bestTimeToVisit: string
   accessibility?: string
+  dressingTips?: string // 着装建议
+  culturalTips?: string // 文化提示
+  bookingInfo?: string // 预订信息
 }
 
 export interface GenerateLocationResponse {
@@ -221,7 +224,11 @@ export function convertLocationInfoToDetails(locationInfo: LocationInfo): any {
       visitTips: locationInfo.visitTips,
       bestTimeToVisit: locationInfo.bestTimeToVisit,
       nearbyAttractions: locationInfo.nearbyAttractions,
-      visitDuration: locationInfo.visitDuration
+      visitDuration: locationInfo.visitDuration,
+      // 新增字段
+      outfitSuggestions: locationInfo.dressingTips, // 着装建议
+      culturalTips: locationInfo.culturalTips, // 文化提示
+      bookingInfo: locationInfo.bookingInfo // 预订信息
     },
     // 联系方式
     contact: locationInfo.contactInfo ? {

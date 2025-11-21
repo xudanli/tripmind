@@ -7,10 +7,34 @@ export interface EditingSlot {
 }
 
 export interface EditingData {
+  // 基础字段
+  time: string
   title: string
-  notes: string
+  activity: string
   type: string
+  category: string
+  duration: number | null
   cost: number | null
+  location: string
+  coordinates: { lat: number; lng: number } | null
+  
+  // details 对象中的字段
+  nameChinese: string
+  nameEnglish: string
+  rating: number | null
+  transportation: string
+  openingHours: string
+  pricingDetail: string
+  bookingInfo: string
+  visitTips: string
+  outfitSuggestions: string
+  culturalTips: string
+  accessibility: string
+  scenicIntro: string
+  highlights: string
+  notes: string
+  
+  // 其他字段
   bookingLinks: Array<{ name: string; url: string }>
   transportModes: string[]
 }
@@ -39,10 +63,34 @@ export function useItineraryModals() {
   const editModalVisible = ref(false)
   const editingSlot = ref<EditingSlot | null>(null)
   const editingData = ref<EditingData>({
+    // 基础字段
+    time: '',
     title: '',
-    notes: '',
+    activity: '',
     type: 'attraction',
+    category: 'attraction',
+    duration: null,
     cost: null,
+    location: '',
+    coordinates: null,
+    
+    // details 对象中的字段
+    nameChinese: '',
+    nameEnglish: '',
+    rating: null,
+    transportation: '',
+    openingHours: '',
+    pricingDetail: '',
+    bookingInfo: '',
+    visitTips: '',
+    outfitSuggestions: '',
+    culturalTips: '',
+    accessibility: '',
+    scenicIntro: '',
+    highlights: '',
+    notes: '',
+    
+    // 其他字段
     bookingLinks: [],
     transportModes: [],
   })

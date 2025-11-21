@@ -162,97 +162,271 @@
     <a-modal
       v-model:open="editModalVisible"
       title="编辑活动"
-      width="600px"
+      width="800px"
       :ok-text="t('travelDetail.experienceDay.save')"
       :cancel-text="t('travelDetail.experienceDay.cancel')"
       @ok="handleSaveEdit"
       @cancel="handleCancelEdit"
+      :body-style="{ maxHeight: '70vh', overflowY: 'auto' }"
     >
       <div class="edit-modal-content">
-        <div class="edit-form-item">
-          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityName') }}</label>
-          <a-input
-            v-model:value="editingData.title" 
-            :placeholder="t('travelDetail.experienceDay.activityName')"
-          />
-        </div>
-        
-        <div class="edit-form-item">
-          <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityType') }}</label>
-          <a-select 
-            v-model:value="editingData.type" 
-            :placeholder="t('travelDetail.experienceDay.activityType')"
-            style="width: 100%"
-          >
-            <a-select-option value="attraction">{{ t('travelDetail.experienceDay.attraction') }}</a-select-option>
-            <a-select-option value="restaurant">{{ t('travelDetail.experienceDay.restaurant') }}</a-select-option>
-            <a-select-option value="accommodation">{{ t('travelDetail.experienceDay.accommodation') }}</a-select-option>
-            <a-select-option value="shopping">{{ t('travelDetail.experienceDay.shopping') }}</a-select-option>
-            <a-select-option value="transport">{{ t('travelDetail.experienceDay.transport') }}</a-select-option>
-          </a-select>
-        </div>
-        
-        <div class="edit-form-item">
-          <label class="edit-form-label">{{ t('travelDetail.experienceDay.cost') }}</label>
-          <a-input-number 
-            v-model:value="editingData.cost" 
-            :min="0"
-            :precision="2"
-            :placeholder="t('travelDetail.experienceDay.cost')"
-            style="width: 100%"
-          >
-            <template #addonBefore>{{ editingSlot ? getSlotCurrency(getCurrentSlot()).symbol : getOverallCurrency().symbol }}</template>
-          </a-input-number>
-          <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
-            {{ editingSlot ? 
-              `${t('travelDetail.currencyHint') || '使用'}${getSlotCurrency(getCurrentSlot()).name}${t('travelDetail.record') || '记录'}` :
-              `${t('travelDetail.currencyHint') || '使用'}${getOverallCurrency().name}${t('travelDetail.record') || '记录'}` 
-            }}
-          </div>
-        </div>
-        <!-- Booking链接管理 -->
-        <div class="edit-form-item">
-          <div class="booking-links-header">
-            <label class="edit-form-label">🔗 预订链接</label>
-            <a-button 
-              type="dashed" 
-              size="small" 
-              @click="addBookingLink"
-            >
-              <template #icon><plus-outlined /></template>
-              添加链接
-            </a-button>
-          </div>
-          <div v-if="editingData.bookingLinks.length === 0" class="booking-links-empty">
-            <span style="color: #999; font-size: 12px;">暂无预订链接</span>
-          </div>
-          <div v-else class="booking-links-list">
-            <div 
-              v-for="(link, linkIndex) in editingData.bookingLinks" 
-              :key="linkIndex"
-              class="booking-link-item"
-            >
-              <a-input 
-                v-model:value="link.name" 
-                placeholder="链接名称（如：Booking.com、官网预订等）"
-                style="flex: 1; margin-right: 8px;"
+        <a-collapse v-model:activeKey="editFormActiveKeys" :bordered="false">
+          <!-- 基础信息 -->
+          <a-collapse-panel key="basic" header="基础信息">
+            <div class="edit-form-item">
+              <label class="edit-form-label">时间</label>
+              <a-input
+                v-model:value="editingData.time" 
+                placeholder="HH:mm"
               />
-              <a-input 
-                v-model:value="link.url" 
-                placeholder="https://..."
-                style="flex: 2; margin-right: 8px;"
-              />
-              <a-button 
-                type="text" 
-                danger 
-                size="small"
-                @click="removeBookingLink(linkIndex)"
-              >
-                <template #icon><delete-outlined /></template>
-              </a-button>
             </div>
-          </div>
-        </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityName') }}</label>
+              <a-input
+                v-model:value="editingData.title" 
+                :placeholder="t('travelDetail.experienceDay.activityName')"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">中文名称</label>
+              <a-input
+                v-model:value="editingData.nameChinese" 
+                placeholder="中文名称"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">英文名称</label>
+              <a-input
+                v-model:value="editingData.nameEnglish" 
+                placeholder="English Name"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">{{ t('travelDetail.experienceDay.activityType') }}</label>
+              <a-select 
+                v-model:value="editingData.type" 
+                :placeholder="t('travelDetail.experienceDay.activityType')"
+                style="width: 100%"
+              >
+                <a-select-option value="attraction">{{ t('travelDetail.experienceDay.attraction') }}</a-select-option>
+                <a-select-option value="restaurant">{{ t('travelDetail.experienceDay.restaurant') }}</a-select-option>
+                <a-select-option value="accommodation">{{ t('travelDetail.experienceDay.accommodation') }}</a-select-option>
+                <a-select-option value="shopping">{{ t('travelDetail.experienceDay.shopping') }}</a-select-option>
+                <a-select-option value="transport">{{ t('travelDetail.experienceDay.transport') }}</a-select-option>
+              </a-select>
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">类别</label>
+              <a-input
+                v-model:value="editingData.category" 
+                placeholder="类别"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">时长（分钟）</label>
+              <a-input-number 
+                v-model:value="editingData.duration" 
+                :min="0"
+                :placeholder="时长"
+                style="width: 100%"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">{{ t('travelDetail.experienceDay.cost') }}</label>
+              <a-input-number 
+                v-model:value="editingData.cost" 
+                :min="0"
+                :precision="2"
+                :placeholder="t('travelDetail.experienceDay.cost')"
+                style="width: 100%"
+              >
+                <template #addonBefore>{{ editingSlot ? getSlotCurrency(getCurrentSlot()).symbol : getOverallCurrency().symbol }}</template>
+              </a-input-number>
+              <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
+                {{ editingSlot ? 
+                  `${t('travelDetail.currencyHint') || '使用'}${getSlotCurrency(getCurrentSlot()).name}${t('travelDetail.record') || '记录'}` :
+                  `${t('travelDetail.currencyHint') || '使用'}${getOverallCurrency().name}${t('travelDetail.record') || '记录'}` 
+                }}
+              </div>
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">位置</label>
+              <a-input
+                v-model:value="editingData.location" 
+                placeholder="位置"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">评分</label>
+              <a-input-number 
+                v-model:value="editingData.rating" 
+                :min="0"
+                :max="5"
+                :step="0.1"
+                :precision="1"
+                placeholder="评分 (0-5)"
+                style="width: 100%"
+              />
+            </div>
+          </a-collapse-panel>
+          
+          <!-- 详细信息 -->
+          <a-collapse-panel key="details" header="详细信息">
+            <div class="edit-form-item">
+              <label class="edit-form-label">交通信息</label>
+              <a-textarea
+                v-model:value="editingData.transportation" 
+                :rows="3"
+                placeholder="交通信息"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">开放时间</label>
+              <a-textarea
+                v-model:value="editingData.openingHours" 
+                :rows="3"
+                placeholder="开放时间"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">票价详情</label>
+              <a-textarea
+                v-model:value="editingData.pricingDetail" 
+                :rows="3"
+                placeholder="票价详情"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">预订信息</label>
+              <a-textarea
+                v-model:value="editingData.bookingInfo" 
+                :rows="3"
+                placeholder="预订信息"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">游览建议</label>
+              <a-textarea
+                v-model:value="editingData.visitTips" 
+                :rows="3"
+                placeholder="游览建议"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">无障碍设施</label>
+              <a-textarea
+                v-model:value="editingData.accessibility" 
+                :rows="3"
+                placeholder="无障碍设施"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">穿搭建议</label>
+              <a-textarea
+                v-model:value="editingData.outfitSuggestions" 
+                :rows="3"
+                placeholder="穿搭建议"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">当地文化提示</label>
+              <a-textarea
+                v-model:value="editingData.culturalTips" 
+                :rows="3"
+                placeholder="当地文化提示"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">景点介绍</label>
+              <a-textarea
+                v-model:value="editingData.scenicIntro" 
+                :rows="4"
+                placeholder="景点介绍"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">亮点</label>
+              <a-textarea
+                v-model:value="editingData.highlights" 
+                :rows="4"
+                placeholder="亮点（每行一个）"
+              />
+            </div>
+            
+            <div class="edit-form-item">
+              <label class="edit-form-label">备注</label>
+              <a-textarea
+                v-model:value="editingData.notes" 
+                :rows="4"
+                placeholder="备注"
+              />
+            </div>
+          </a-collapse-panel>
+          
+          <!-- 预订链接 -->
+          <a-collapse-panel key="booking" header="预订链接">
+            <div class="edit-form-item">
+              <div class="booking-links-header">
+                <label class="edit-form-label">🔗 预订链接</label>
+                <a-button 
+                  type="dashed" 
+                  size="small" 
+                  @click="addBookingLink"
+                >
+                  <template #icon><plus-outlined /></template>
+                  添加链接
+                </a-button>
+              </div>
+              <div v-if="editingData.bookingLinks.length === 0" class="booking-links-empty">
+                <span style="color: #999; font-size: 12px;">暂无预订链接</span>
+              </div>
+              <div v-else class="booking-links-list">
+                <div 
+                  v-for="(link, linkIndex) in editingData.bookingLinks" 
+                  :key="linkIndex"
+                  class="booking-link-item"
+                >
+                  <a-input 
+                    v-model:value="link.name" 
+                    placeholder="链接名称（如：Booking.com、官网预订等）"
+                    style="flex: 1; margin-right: 8px;"
+                  />
+                  <a-input 
+                    v-model:value="link.url" 
+                    placeholder="https://..."
+                    style="flex: 2; margin-right: 8px;"
+                  />
+                  <a-button 
+                    type="text" 
+                    danger 
+                    size="small"
+                    @click="removeBookingLink(linkIndex)"
+                  >
+                    <template #icon><delete-outlined /></template>
+                  </a-button>
+                </div>
+              </div>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
       </div>
     </a-modal>
     
@@ -1607,6 +1781,9 @@ const {
   currentPreviewSlot,
 } = useItineraryModals()
 
+// 编辑表单折叠面板的展开状态
+const editFormActiveKeys = ref<string[]>(['basic', 'details', 'booking'])
+
 const durationLabel = computed(() => {
   const key = durationLabelKey.value
   const translated = t(key)
@@ -1817,7 +1994,7 @@ const handleEdit = (day: number, slotIndex: number, slot: any) => {
 
   const descriptionText = extractSlotDescription(slot)
   const reminderText = typeof slot.notes === 'string' ? slot.notes.trim() : ''
-
+  
   const notesPieces: string[] = []
   if (descriptionText) notesPieces.push(descriptionText)
   if (reminderText) {
@@ -1830,11 +2007,43 @@ const handleEdit = (day: number, slotIndex: number, slot: any) => {
 
   const existingTransportModes = normalizeTransportModes(slot.details?.transportation?.options as any)
 
+  // 提取坐标
+  const coords = slot.coordinates || slot.details?.coordinates || null
+  const coordinates = coords && typeof coords.lat === 'number' && typeof coords.lng === 'number'
+    ? { lat: coords.lat, lng: coords.lng }
+    : null
+
   editingData.value = {
+    // 基础字段
+    time: slot.time || '',
     title: slot.title || slot.activity || '',
-    notes: combinedNotes || reminderText || '',
+    activity: slot.activity || slot.title || '',
     type: slot.type || slot.category || 'attraction',
+    category: slot.category || slot.type || 'attraction',
+    duration: slot.duration || null,
     cost: slot.cost || null,
+    location: slot.location || '',
+    coordinates: coordinates,
+    
+    // details 对象中的字段
+    nameChinese: slot.details?.name?.chinese || '',
+    nameEnglish: slot.details?.name?.english || '',
+    rating: slot.details?.rating || null,
+    transportation: slot.details?.transportation || '',
+    openingHours: slot.details?.openingHours || '',
+    pricingDetail: slot.details?.pricing?.detail || '',
+    bookingInfo: slot.details?.recommendations?.bookingInfo || '',
+    visitTips: slot.details?.recommendations?.visitTips || '',
+    outfitSuggestions: slot.details?.recommendations?.outfitSuggestions || '',
+    culturalTips: slot.details?.recommendations?.culturalTips || '',
+    accessibility: slot.details?.accessibility || '',
+    scenicIntro: slot.details?.description?.scenicIntro || '',
+    highlights: Array.isArray(slot.details?.description?.highlights) 
+      ? slot.details.description.highlights.join('\n')
+      : (typeof slot.details?.description?.highlights === 'string' ? slot.details.description.highlights : ''),
+    notes: combinedNotes || reminderText || '',
+    
+    // 其他字段
     bookingLinks: slot.bookingLinks || [],
     transportModes: existingTransportModes,
   }
@@ -2290,10 +2499,34 @@ const handleCancelEdit = () => {
   editModalVisible.value = false
   editingSlot.value = null
   editingData.value = {
-      title: '',
-    notes: '',
+    // 基础字段
+    time: '',
+    title: '',
+    activity: '',
     type: 'attraction',
+    category: 'attraction',
+    duration: null,
     cost: null,
+    location: '',
+    coordinates: null,
+    
+    // details 对象中的字段
+    nameChinese: '',
+    nameEnglish: '',
+    rating: null,
+    transportation: '',
+    openingHours: '',
+    pricingDetail: '',
+    bookingInfo: '',
+    visitTips: '',
+    outfitSuggestions: '',
+    culturalTips: '',
+    accessibility: '',
+    scenicIntro: '',
+    highlights: '',
+    notes: '',
+    
+    // 其他字段
     bookingLinks: [],
     transportModes: [],
   }
@@ -2312,16 +2545,92 @@ const handleSaveEdit = async () => {
   const slot = itineraryData.value.days[dayIndex].timeSlots?.[slotIndex]
   if (!slot) return
   
-  // 更新数据
+  // 更新基础字段
+  slot.time = editingData.value.time
   slot.title = editingData.value.title
-  slot.activity = editingData.value.title
+  slot.activity = editingData.value.activity || editingData.value.title
   slot.type = editingData.value.type
-  slot.category = editingData.value.type
+  slot.category = editingData.value.category || editingData.value.type
+  slot.duration = editingData.value.duration
   slot.cost = editingData.value.cost
+  slot.location = editingData.value.location
+  slot.coordinates = editingData.value.coordinates
   slot.bookingLinks = editingData.value.bookingLinks || []
 
+  // 更新 details 对象
   if (!slot.details) {
     slot.details = {}
+  }
+  
+  // 更新名称
+  if (!slot.details.name) {
+    slot.details.name = {}
+  }
+  if (editingData.value.nameChinese) {
+    slot.details.name.chinese = editingData.value.nameChinese
+  }
+  if (editingData.value.nameEnglish) {
+    slot.details.name.english = editingData.value.nameEnglish
+  }
+  
+  // 更新其他 details 字段
+  if (editingData.value.rating !== null) {
+    slot.details.rating = editingData.value.rating
+  }
+  if (editingData.value.transportation) {
+    slot.details.transportation = editingData.value.transportation
+  }
+  if (editingData.value.openingHours) {
+    slot.details.openingHours = editingData.value.openingHours
+  }
+  if (editingData.value.pricingDetail) {
+    if (!slot.details.pricing) {
+      slot.details.pricing = {}
+    }
+    slot.details.pricing.detail = editingData.value.pricingDetail
+  }
+  if (editingData.value.bookingInfo) {
+    if (!slot.details.recommendations) {
+      slot.details.recommendations = {}
+    }
+    slot.details.recommendations.bookingInfo = editingData.value.bookingInfo
+  }
+  if (editingData.value.visitTips) {
+    if (!slot.details.recommendations) {
+      slot.details.recommendations = {}
+    }
+    slot.details.recommendations.visitTips = editingData.value.visitTips
+  }
+  if (editingData.value.outfitSuggestions) {
+    if (!slot.details.recommendations) {
+      slot.details.recommendations = {}
+    }
+    slot.details.recommendations.outfitSuggestions = editingData.value.outfitSuggestions
+  }
+  if (editingData.value.culturalTips) {
+    if (!slot.details.recommendations) {
+      slot.details.recommendations = {}
+    }
+    slot.details.recommendations.culturalTips = editingData.value.culturalTips
+  }
+  if (editingData.value.accessibility) {
+    slot.details.accessibility = editingData.value.accessibility
+  }
+  if (editingData.value.scenicIntro) {
+    if (!slot.details.description) {
+      slot.details.description = {}
+    }
+    slot.details.description.scenicIntro = editingData.value.scenicIntro
+  }
+  if (editingData.value.highlights) {
+    if (!slot.details.description) {
+      slot.details.description = {}
+    }
+    slot.details.description.highlights = editingData.value.highlights.split('\n').filter(Boolean)
+  }
+  if (editingData.value.notes) {
+    slot.notes = editingData.value.notes
+    slot.details.notes = editingData.value.notes
   }
   
   // 保存到 store

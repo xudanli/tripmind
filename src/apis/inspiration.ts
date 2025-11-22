@@ -1,6 +1,7 @@
 /**
  * 灵感模式 API 编排层
  * 保持原有导出签名不变，内部使用新的服务层
+ * 支持后端API调用，失败时fallback到前端实现
  */
 
 import { createIntentService } from '@/services/intentService'
@@ -12,6 +13,9 @@ import { extractDaysFromInput } from '@/utils/extractDays'
 import { validateInspirationItinerary } from '@/validators/validateInspirationItinerary'
 import { fallbackRecommendations } from '@/utils/inspirationCore'
 import type { TravelContext } from '@/types/travel'
+
+// 是否使用后端API（可通过环境变量控制）
+const USE_BACKEND_API = import.meta.env.VITE_USE_INSPIRATION_BACKEND_API !== 'false' // 默认启用
 
 // ==================== 向后兼容的导出函数 ====================
 
@@ -43,11 +47,36 @@ export async function generateInspirationHint(
 
 /**
  * 检测灵感意图（向后兼容）
+ * 优先使用后端API，失败时fallback到前端实现
  */
 export async function detectInspirationIntent(
   userInput: string,
   language: string = 'zh-CN'
 ): Promise<any> {
+  // 如果启用后端API，优先使用后端接口
+  if (USE_BACKEND_API) {
+    try {
+      const { detectIntent } = await import('@/services/inspirationBackendAPI')
+      const backendResult = await detectIntent({
+        input: userInput,
+        language
+      })
+      
+      // 转换后端响应格式到前端格式
+      return {
+        intentType: backendResult.intentType,
+        keywords: backendResult.keywords,
+        emotionTone: backendResult.emotionTone,
+        description: backendResult.description,
+        confidence: backendResult.confidence
+      }
+    } catch (error: any) {
+      console.warn('[InspirationAPI] 后端意图识别失败，使用前端实现:', error.message)
+      // Fallback 到前端实现
+    }
+  }
+  
+  // 使用前端实现
   const intentService = createIntentService()
   return intentService.detect(userInput, language)
 }
@@ -77,7 +106,113 @@ export async function generateInspirationJourney(
   logger.log(`🌍 语言: ${language}`)
   logger.log(`📍 目的地: ${selectedDestination || '未指定'}`)
   logger.log(`🎯 生成模式: ${mode}`)
+  logger.log(`🔧 使用后端API: ${USE_BACKEND_API}`)
   
+  // 如果启用后端API，优先使用后端接口
+  if (USE_BACKEND_API) {
+    try {
+      // 检测输入中是否包含目的地
+      let detectedDestinationInInput = selectedDestination
+      if (!detectedDestinationInInput) {
+        try {
+          const { PRESET_COUNTRIES } = await import('@/constants/countries')
+          const inputLower = input.toLowerCase()
+          
+          // 检查输入中是否包含国家名称
+          // 使用更适合中文的匹配方式：直接检查是否包含国家名称
+          // 优先匹配较长的国家名称，避免短名称被误匹配
+          const countries = Object.values(PRESET_COUNTRIES as any) as any[]
+          const sortedCountries = countries.sort((a, b) => b.name.length - a.name.length) // 按长度降序排序
+          const countryMatch = sortedCountries.find((country: any) => {
+            const countryName = country.name
+            // 对于中文，直接检查是否包含国家名称（不区分大小写）
+            // 使用 includes 更简单可靠
+            return input.toLowerCase().includes(countryName.toLowerCase())
+          }) as any
+          
+          if (countryMatch) {
+            detectedDestinationInInput = countryMatch.name
+            logger.log(`📍 检测到输入包含目的地: ${detectedDestinationInInput}`)
+          }
+        } catch (error) {
+          logger.warn('⚠️ 检测目的地失败:', error)
+        }
+      }
+      
+      // 如果输入包含目的地，强制使用 'full' 模式，不调用推荐目的地接口
+      const actualMode = detectedDestinationInInput ? 'full' : mode
+      if (detectedDestinationInInput && mode === 'candidates') {
+        logger.log('📍 输入包含目的地，跳过推荐目的地接口，直接生成完整行程')
+      }
+      
+      // 先获取意图（如果后端需要）
+      let intent = null
+      try {
+        const { detectIntent } = await import('@/services/inspirationBackendAPI')
+        const backendIntent = await detectIntent({ input, language })
+        intent = {
+          intentType: backendIntent.intentType,
+          keywords: backendIntent.keywords,
+          emotionTone: backendIntent.emotionTone
+        }
+      } catch (intentError) {
+        logger.warn('⚠️ 后端意图识别失败，继续生成行程')
+      }
+      
+      // 提取天数（如果后端需要）
+      let userRequestedDays: number | undefined
+      try {
+        const { extractDays } = await import('@/services/inspirationBackendAPI')
+        const daysResult = await extractDays({ input, language })
+        userRequestedDays = daysResult.days || undefined
+      } catch (daysError) {
+        logger.warn('⚠️ 后端天数提取失败，使用前端提取')
+        userRequestedDays = extractDaysFromInput(input, language) || undefined
+      }
+      
+      // 调用后端生成行程接口（如果检测到目的地，直接生成完整行程，不调用推荐接口）
+      const { generateItinerary: generateItineraryBackend } = await import('@/services/inspirationBackendAPI')
+      logger.log(`📡 调用后端API生成行程... (模式: ${actualMode})`)
+      const backendResult = await generateItineraryBackend({
+        input,
+        selectedDestination: detectedDestinationInInput || selectedDestination,  // 使用检测到的目的地
+        intent: intent || undefined,
+        language,
+        userCountry,
+        userNationality,
+        userPermanentResidency,
+        heldVisas,
+        visaFreeDestinations,
+        visaInfoSummary: visaInfoSummary || undefined,
+        transportPreference,
+        userRequestedDays,
+        mode: actualMode  // 使用实际模式
+      })
+      
+      logger.log('✅ 后端API生成成功')
+      
+      // 转换后端响应格式到前端格式
+      return {
+        ...backendResult,
+        // 确保格式兼容
+        subtitle: backendResult.title || '',
+        budget: 'medium',
+        highlights: backendResult.highlights || [],
+        // 保持原有字段
+        hasFullItinerary: backendResult.hasFullItinerary ?? (mode === 'full'),
+        generationMode: backendResult.generationMode || mode
+      }
+    } catch (error: any) {
+      logger.warn('⚠️ 后端API生成失败，使用前端实现:', error.message)
+      console.warn('[InspirationAPI] 后端API失败详情:', {
+        error: error.message,
+        stack: error.stack
+      })
+      // Fallback 到前端实现
+    }
+  }
+  
+  // 使用前端实现（原有逻辑）
   try {
     const intentService = createIntentService({ logger })
     const journeyService = createJourneyService({ logger })

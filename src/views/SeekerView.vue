@@ -356,14 +356,159 @@ const handleSubmit = async () => {
 }
 
 // 创建 Travel 并跳转到详情页
-const goToDetail = () => {
+const goToDetail = async () => {
   const data = travelStore.itineraryData
   if (!data) {
     message.error('数据未生成')
     return
   }
   
-  // 创建 Travel 并保存到列表
+  // 步骤1: 保存到后端数据库（与 Planner 和 Inspiration 模式相同）
+  let backendItineraryId: string | undefined
+  try {
+    const { convertFrontendDataToCreateRequest, createItinerary } = await import('@/services/itineraryAPI')
+    
+    // 将 Seeker 模式数据转换为与 Planner 模式相同的格式
+    // Seeker 模式的数据结构可能来自后端API响应或前端实现
+    const backendResponse = (data as any).backendResponse
+    
+    let frontendItineraryData: any
+    
+    if (backendResponse) {
+      // 如果数据来自后端API，使用后端响应格式
+      const days = backendResponse.itinerary?.map((day: any, index: number) => {
+        // 计算日期（从今天开始）
+        const date = new Date()
+        date.setDate(date.getDate() + index)
+        const dateStr = date.toISOString().split('T')[0]
+        
+        return {
+          day: day.day || index + 1,
+          date: dateStr,
+          timeSlots: (day.activities || []).map((activity: any) => ({
+            time: activity.time,
+            coordinates: activity.location ? { lat: 0, lng: 0 } : { lat: 0, lng: 0 }, // 需要根据location获取坐标
+            title: activity.activity || '',
+            type: (activity.type || 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+            duration: 120, // 默认2小时，需要根据实际情况调整
+            cost: 0, // 需要根据预算计算
+            details: {
+              notes: activity.notes || '',
+              description: '',
+              images: [],
+              photos: []
+            }
+          }))
+        }
+      }) || []
+      
+      frontendItineraryData = {
+        days,
+        totalCost: 0, // 需要根据预算和活动计算
+        summary: backendResponse.recommendations?.tips || ''
+      }
+    } else {
+      // 如果数据来自前端实现，使用现有的itinerary结构
+      const days = (data.itinerary || []).map((day, index) => {
+        // 计算日期（从今天开始）
+        const date = new Date()
+        date.setDate(date.getDate() + index)
+        const dateStr = date.toISOString().split('T')[0]
+        
+        return {
+          day: day.day || index + 1,
+          date: dateStr,
+          timeSlots: (day.activities || []).map((activity) => ({
+            time: activity.time,
+            coordinates: { lat: 0, lng: 0 }, // 需要根据location获取坐标
+            title: activity.activity || '',
+            type: (activity.type || 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+            duration: 120, // 默认2小时
+            cost: 0, // 需要根据预算计算
+            details: {
+              notes: '',
+              description: '',
+              images: [],
+              photos: []
+            }
+          }))
+        }
+      })
+      
+      frontendItineraryData = {
+        days,
+        totalCost: 0,
+        summary: data.recommendations?.tips || ''
+      }
+    }
+    
+    // 转换为后端请求格式
+    const destination = data.destination || '待定'
+    
+    // 确保 startDate 是有效的 ISO 8601 格式（YYYY-MM-DD）
+    let startDate = frontendItineraryData.days[0]?.date
+    if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      startDate = new Date().toISOString().split('T')[0]
+      console.warn('⚠️ [Seeker] 日期格式不正确，使用今天日期:', startDate)
+    }
+    
+    // 构建预算映射
+    const budgetMap: Record<string, 'low' | 'medium' | 'high'> = {
+      economy: 'low',
+      comfort: 'medium',
+      luxury: 'high'
+    }
+    
+    const preferences = {
+      budget: budgetMap[data.budget] || 'medium',
+      travelStyle: 'relaxed' as const // Seeker 模式通常是放松型
+    }
+    
+    const createRequest = convertFrontendDataToCreateRequest(
+      frontendItineraryData,
+      destination,
+      startDate,
+      preferences,
+      'draft'
+    )
+    
+    // 注意：不要向 createRequest.data 添加额外字段
+    // CreateItineraryRequest 的 data 字段只包含 days、totalCost、summary
+    // 模式特有字段（seekerConfig）应该保存在本地 Travel.data 中，而不是后端
+    
+    // 注意：CreateItineraryRequest 接口中没有 mode 字段
+    // 模式信息应该保存在数据库的其他地方（如果后端需要的话）
+    // 当前后端接口不支持 mode 字段，所以不添加
+    
+    console.log('📤 [Seeker] 创建行程请求数据:', {
+      destination: createRequest.destination,
+      daysCount: createRequest.days,
+      startDate: createRequest.startDate
+    })
+    
+    // 调用创建行程接口
+    const backendItinerary = await createItinerary(createRequest)
+    backendItineraryId = backendItinerary.id
+    console.log('✅ [Seeker] 行程已保存到后端', {
+      id: backendItineraryId,
+      destination: backendItinerary.destination
+    })
+    message.success('行程已保存到数据库')
+  } catch (err: any) {
+    console.error('❌ [Seeker] 保存到后端失败', {
+      error: err.message,
+      stack: err.stack
+    })
+    message.warning('保存到数据库失败，已保存到本地。错误：' + (err.message || '未知错误'))
+    // 保存到后端失败不影响整体流程，继续使用本地存储
+  }
+  
+  // 步骤2: 创建 Travel 并保存到本地列表
+  const travelDataWithBackendId: any = {
+    ...data,
+    backendItineraryId: backendItineraryId
+  }
+  
   const newTravel = travelListStore.createTravel({
     title: '随心而行的旅程',
     location: data.destination || '待定',
@@ -373,7 +518,7 @@ const goToDetail = () => {
     duration: data.duration || 5,
     participants: 1,
     budget: 0,
-    data: data // 保存详细的行程数据
+    data: travelDataWithBackendId // 保存详细的行程数据（包含后端ID）
   })
   
   // 跳转到旅行详情页

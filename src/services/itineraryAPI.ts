@@ -378,7 +378,7 @@ async function generateTravelSummaryForItinerary(
  * @param onProgress 进度回调
  * @returns 增强后的行程数据
  */
-async function enrichItineraryWithLocationInfo(
+export async function enrichItineraryWithLocationInfo(
   itineraryData: FrontendItineraryData,
   destination: string,
   onProgress?: (message: string) => void
@@ -448,40 +448,99 @@ async function enrichItineraryWithLocationInfo(
       })
     }
 
-    // 将位置信息合并到 timeSlots 中
+    // 对于景点类型的活动，额外获取门票价格信息
+    const attractionActivities = activities.filter(a => a.activityType === 'attraction')
+    const pricingResults: Map<string, string | null> = new Map()
+    
+    if (attractionActivities.length > 0) {
+      log(`准备获取 ${attractionActivities.length} 个景点的门票价格信息...`)
+      const { getAttractionPricingBySearch } = await import('./externalAPI')
+      
+      // 并行获取门票价格信息（但限制并发数，避免过多请求）
+      const CONCURRENT_LIMIT = 3
+      for (let i = 0; i < attractionActivities.length; i += CONCURRENT_LIMIT) {
+        const batch = attractionActivities.slice(i, i + CONCURRENT_LIMIT)
+        const pricingPromises = batch.map(async (activity) => {
+          try {
+            const pricing = await getAttractionPricingBySearch(
+              activity.activityName,
+              activity.destination,
+              'zh-CN'
+            )
+            return { activityName: activity.activityName, pricing }
+          } catch (error: any) {
+            console.warn('[ItineraryAPI] 获取门票价格失败:', {
+              activityName: activity.activityName,
+              error: error.message
+            })
+            return { activityName: activity.activityName, pricing: null }
+          }
+        })
+        
+        const results = await Promise.all(pricingPromises)
+        results.forEach(({ activityName, pricing }) => {
+          if (pricing) {
+            pricingResults.set(activityName, pricing)
+          }
+        })
+        
+        if (i + CONCURRENT_LIMIT < attractionActivities.length) {
+          log(`已获取 ${Math.min(i + CONCURRENT_LIMIT, attractionActivities.length)}/${attractionActivities.length} 个景点的门票价格信息...`)
+        }
+      }
+      
+      log(`成功获取 ${pricingResults.size} 个景点的门票价格信息`)
+    }
+
+    // 将位置信息和门票价格信息合并到 timeSlots 中
     const enrichedDays = itineraryData.days.map((day, dayIndex) => ({
       ...day,
       timeSlots: day.timeSlots.map((slot, slotIndex) => {
         const locationInfo = locationResults.get(slot.title || '')
-        if (locationInfo) {
+        const pricingDetail = pricingResults.get(slot.title || '')
+        
+        if (locationInfo || pricingDetail) {
           // 合并位置信息到 details 中
-          const locationDetails = convertLocationInfoToDetails(locationInfo)
-          // 深度合并 details，保留原有字段
-          const mergedDetails = {
-            ...(slot.details || {}),
-            // 合并 name 对象
-            name: {
-              ...(slot.details?.name || {}),
-              ...locationDetails.name
-            },
-            // 合并 address 对象
-            address: {
-              ...(slot.details?.address || {}),
-              ...locationDetails.address
-            },
-            // 合并其他字段（openingHours、transportation、pricing 等优先使用位置信息）
-            ...Object.keys(locationDetails).reduce((acc, key) => {
-              if (key !== 'name' && key !== 'address') {
-                // 对于 openingHours、transportation、pricing、rating、recommendations 等字段，优先使用位置信息
-                if (['openingHours', 'transportation', 'pricing', 'rating', 'recommendations', 'contact', 'accessibility'].includes(key)) {
-                  acc[key] = locationDetails[key] || slot.details?.[key]
-                } else if (!slot.details?.[key]) {
-                  acc[key] = locationDetails[key]
+          let mergedDetails = { ...(slot.details || {}) }
+          
+          if (locationInfo) {
+            const locationDetails = convertLocationInfoToDetails(locationInfo)
+            // 深度合并 details，保留原有字段
+            mergedDetails = {
+              ...mergedDetails,
+              // 合并 name 对象
+              name: {
+                ...(mergedDetails.name || {}),
+                ...locationDetails.name
+              },
+              // 合并 address 对象
+              address: {
+                ...(mergedDetails.address || {}),
+                ...locationDetails.address
+              },
+              // 合并其他字段（openingHours、transportation、pricing 等优先使用位置信息）
+              ...Object.keys(locationDetails).reduce((acc, key) => {
+                if (key !== 'name' && key !== 'address') {
+                  // 对于 openingHours、transportation、pricing、rating、recommendations 等字段，优先使用位置信息
+                  if (['openingHours', 'transportation', 'pricing', 'rating', 'recommendations', 'contact', 'accessibility'].includes(key)) {
+                    acc[key] = locationDetails[key] || mergedDetails[key]
+                  } else if (!mergedDetails[key]) {
+                    acc[key] = locationDetails[key]
+                  }
                 }
-              }
-              return acc
-            }, {} as any)
+                return acc
+              }, {} as any)
+            }
           }
+          
+          // 如果有门票价格信息，合并到 pricing.detail 中（优先使用 TripAdvisor 数据）
+          if (pricingDetail) {
+            if (!mergedDetails.pricing) {
+              mergedDetails.pricing = {}
+            }
+            mergedDetails.pricing.detail = pricingDetail
+          }
+          
           return {
             ...slot,
             details: mergedDetails
@@ -1001,20 +1060,27 @@ export function convertFrontendDataToCreateRequest(
   },
   status: 'draft' | 'published' | 'archived' = 'draft'
 ): CreateItineraryRequest {
+  // 确保 startDate 是有效的 ISO 8601 格式（YYYY-MM-DD）
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    startDate = new Date().toISOString().split('T')[0]
+    console.warn('[ItineraryAPI] 日期格式不正确，使用今天日期:', startDate)
+  }
+  
   // 将 timeSlots 转换为 activities
-  const days = frontendData.days.map((day) => ({
-    day: day.day,
-    date: day.date,
+  // 确保 day.day 是数字类型
+  const days = frontendData.days.map((day, index) => ({
+    day: typeof day.day === 'number' ? day.day : (index + 1), // 确保是数字
+    date: day.date || startDate, // 如果没有日期，使用开始日期
     activities: day.timeSlots
-      .filter((slot) => slot.title && slot.type && slot.coordinates) // 只包含有效的活动
+      .filter((slot) => slot.title !== undefined && slot.type && slot.coordinates) // 只包含有效的活动
       .map((slot) => ({
         time: slot.time,
         title: slot.title || '',
         type: (slot.type || 'attraction') as Activity['type'],
-        duration: slot.duration || 60, // 默认 60 分钟
+        duration: typeof slot.duration === 'number' ? slot.duration : 60, // 确保是数字
         location: slot.coordinates!,
         notes: slot.details?.notes || slot.details?.description || '',
-        cost: slot.cost || 0
+        cost: typeof slot.cost === 'number' ? slot.cost : 0 // 确保是数字
       }))
   }))
 

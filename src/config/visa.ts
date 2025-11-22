@@ -403,7 +403,7 @@ export function isValidVisaInfo(visaInfo: any): visaInfo is VisaInfo {
 /**
  * 从静态数据获取签证信息（向后兼容）
  */
-function getVisaInfoFromStaticData(
+export function getVisaInfoFromStaticData(
   destinationCountry: string,
   nationalityCode?: string | null,
   permanentResidencyCode?: string | null
@@ -570,9 +570,15 @@ export function getVisaInfo(
         }
         
         // 如果后端返回空或校验失败，回退到静态数据
-        console.warn('⚠️ getVisaInfo: 后端API返回的数据未通过校验或为空，回退到静态数据', {
-          原始数据: results,
-          校验失败原因: results.map(info => {
+        if (results.length === 0) {
+          console.warn('⚠️ getVisaInfo: 后端API返回空数组，回退到静态数据', {
+            目的地国家: destinationCountry,
+            国籍代码: nationalityCode || '未设置',
+            永久居民代码: permanentResidencyCode || '未设置'
+          })
+        } else {
+          // 有数据但校验失败
+          const failedChecks = results.map((info: any) => {
             const checks = {
               hasDestinationCountry: !!info?.destinationCountry,
               hasDestinationName: !!info?.destinationName,
@@ -582,7 +588,11 @@ export function getVisaInfo(
             }
             return { info, checks }
           })
-        })
+          console.warn('⚠️ getVisaInfo: 后端API返回的数据未通过校验，回退到静态数据', {
+            原始数据数量: results.length,
+            校验失败详情: failedChecks
+          })
+        }
         return getVisaInfoFromStaticData(destinationCountry, nationalityCode, permanentResidencyCode)
       } catch (error) {
         console.error('❌ getVisaInfo: 后端API调用失败，回退到静态数据', error)

@@ -656,24 +656,38 @@ const createTravel = async () => {
   
   // 创建 Travel 并保存到列表
   // 将选中的地点和配置文件保存到 data 中
-  // 移除时间线文本内容和封面数据，只保留图片
+  // 注意：需要保留完整的活动信息（title、type、activity等），以便详情页正确显示
   const travelDataWithSelection: any = {
     ...data,
     selectedLocation: selectedLocation.value, // 保存用户选择的地点
     inspirationConfig, // 保存动态生成的配置
     // 移除封面图片
     coverImage: undefined,
-    // 清理时间线文本内容，只保留图片数据
+    // 保留完整的 days 数据，包括所有必要的字段（title、type、activity等）
+    // 只清理 details 中的文本描述，但保留图片和必要的结构
     days: data.days?.map((day: any) => ({
       day: day.day,
       date: day.date,
       timeSlots: day.timeSlots?.map((slot: any) => ({
         time: slot.time,
         coordinates: slot.coordinates,
-        // 只保留图片相关数据
+        // 保留必要的字段，确保详情页能正确显示
+        title: slot.title || slot.activity || slot.details?.title || '',
+        activity: slot.activity || slot.title || slot.details?.title || '',
+        type: slot.type || slot.details?.type || 'attraction',
+        duration: slot.duration || slot.details?.duration || 60,
+        cost: slot.cost || slot.details?.cost || 0,
+        // 保留 details 结构，但只保留图片数据（不保留文本描述）
         details: slot.details ? {
           images: slot.details.images,
-          photos: slot.details.photos
+          photos: slot.details.photos,
+          // 保留其他可能需要的结构字段（但不包含文本描述）
+          name: slot.details.name,
+          address: slot.details.address,
+          rating: slot.details.rating,
+          pricing: slot.details.pricing,
+          transportation: slot.details.transportation,
+          openingHours: slot.details.openingHours
         } : undefined
       })) || []
     })) || []
@@ -690,6 +704,95 @@ const createTravel = async () => {
     actualDuration: actualDuration
   })
   
+  // 步骤1: 保存到后端数据库（与 Planner 模式相同）
+  let backendItineraryId: string | undefined
+  try {
+    const { convertFrontendDataToCreateRequest, createItinerary } = await import('@/services/itineraryAPI')
+    
+    // 将灵感模式数据转换为与 Planner 模式相同的格式
+    const frontendItineraryData = {
+      days: data.days?.map(day => ({
+        day: day.day,
+        date: day.date,
+        timeSlots: day.timeSlots?.map(slot => ({
+          time: slot.time,
+          coordinates: slot.coordinates || { lat: 0, lng: 0 },
+          // 转换为 activities 需要的字段
+          // 注意：灵感模式可能没有 title，但必须填充（可以为空字符串）
+          title: slot.details?.title || slot.title || slot.activity || '活动',  // 确保至少有默认值
+          type: (slot.details?.type || slot.type || 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+          duration: slot.details?.duration || slot.duration || 60,
+          cost: slot.details?.cost || slot.cost || 0,
+          details: {
+            notes: '',  // 灵感模式不保存文本描述
+            description: '',
+            // 但可以保留图片
+            images: slot.details?.images,
+            photos: slot.details?.photos
+          }
+        })).filter(slot => slot.coordinates) || []  // 只保留有坐标的slot
+      })) || [],
+      totalCost: 0,  // 灵感模式可能没有成本信息
+      summary: ''  // 灵感模式不保存文本摘要
+    }
+    
+    // 转换为后端请求格式（与 Planner 模式使用相同的转换函数）
+    const destination = selectedLocation.value || data.location || data.destination || '待定'
+    
+    // 确保 startDate 是有效的 ISO 8601 格式（YYYY-MM-DD）
+    let startDate = data.days?.[0]?.date
+    if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      // 如果日期格式不正确，使用今天的日期
+      startDate = new Date().toISOString().split('T')[0]
+      console.warn('⚠️ [Inspiration] 日期格式不正确，使用今天日期:', startDate)
+    }
+    
+    const createRequest = convertFrontendDataToCreateRequest(
+      frontendItineraryData as any,
+      destination,
+      startDate,
+      undefined,  // preferences 可以为空
+      'draft'  // 默认保存为草稿状态
+    )
+    
+    // 注意：不要向 createRequest.data 添加额外字段
+    // CreateItineraryRequest 的 data 字段只包含 days、totalCost、summary
+    // 模式特有字段（selectedLocation、inspirationConfig）应该保存在本地 Travel.data 中，而不是后端
+    
+    // 注意：CreateItineraryRequest 接口中没有 mode 字段
+    // 模式信息应该保存在数据库的其他地方（如果后端需要的话）
+    // 当前后端接口不支持 mode 字段，所以不添加
+    
+    console.log('📤 [Inspiration] 创建行程请求数据:', {
+      destination: createRequest.destination,
+      daysCount: createRequest.days,
+      startDate: createRequest.startDate
+    })
+    
+    // 调用创建行程接口
+    const backendItinerary = await createItinerary(createRequest)
+    backendItineraryId = backendItinerary.id
+    console.log('✅ [Inspiration] 行程已保存到后端', {
+      id: backendItineraryId,
+      destination: backendItinerary.destination
+    })
+    message.success('行程已保存到数据库')
+  } catch (err: any) {
+    console.error('❌ [Inspiration] 保存到后端失败', {
+      error: err.message,
+      stack: err.stack
+    })
+    message.warning('保存到数据库失败，已保存到本地。错误：' + (err.message || '未知错误'))
+    // 保存到后端失败不影响整体流程，继续使用本地存储
+  }
+  
+  // 步骤2: 创建 Travel 并保存到本地列表
+  // 将后端行程ID保存到 data 中
+  const travelDataWithBackendId: any = {
+    ...travelDataWithSelection,
+    backendItineraryId: backendItineraryId  // 保存后端行程ID
+  }
+  
   const newTravel = travelListStore.createTravel({
     title: data.title || '灵感之旅',
     location: selectedLocation.value || data.location || '待定',
@@ -700,7 +803,14 @@ const createTravel = async () => {
     participants: 1,
     budget: 0,
     coverImage: undefined, // 不保存封面图片
-    data: travelDataWithSelection // 保存详细的灵感数据（包含选中的地点和配置，已移除文本内容）
+    data: travelDataWithBackendId // 保存详细的灵感数据（包含后端行程ID）
+  })
+  
+  console.log('✅ [Inspiration] Travel 创建成功', {
+    id: newTravel.id,
+    title: newTravel.title,
+    mode: newTravel.mode,
+    backendItineraryId: backendItineraryId
   })
   
   message.success('旅程创建成功！')

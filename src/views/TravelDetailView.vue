@@ -18,36 +18,20 @@
         {{ t('travelDetail.backToJourney') }}
       </a-button>
     </div>
-    <!-- Hero 区域：灵感模式和 planner 模式 -->
+    <!-- Hero 区域：所有模式统一显示 -->
     <InspirationHero
-      v-if="travel?.mode === 'inspiration' || travel?.mode === 'classic' || travel?.mode === 'planner'"
+      v-if="travel?.mode"
       :travel="travel"
     />
-    
-    <!-- seeker 模式不显示详情页 -->
-    <template v-if="travel?.mode === 'seeker'">
-      <div class="mode-not-supported">
-        <a-result
-          status="info"
-          title="该模式暂不支持详情页"
-          sub-title="请使用灵感模式查看详情"
-        >
-          <template #extra>
-            <a-button type="primary" @click="router.push('/inspiration')">
-              前往灵感模式
-            </a-button>
-          </template>
-        </a-result>
-      </div>
-    </template>
 
-    <!-- 主要内容区域：灵感模式和 planner 模式 -->
+    <!-- 主要内容区域：所有模式统一显示 -->
     <div 
-      v-else-if="travel?.mode === 'inspiration' || travel?.mode === 'classic' || travel?.mode === 'planner'" 
+      v-if="travel?.mode"
       class="main-content"
       :class="{
         'inspiration-mode': travel?.mode === 'inspiration' || travel?.mode === 'classic',
-        'planner-mode': travel?.mode === 'planner'
+        'planner-mode': travel?.mode === 'planner',
+        'seeker-mode': travel?.mode === 'seeker'
       }"
     >
       <div
@@ -58,7 +42,7 @@
         }"
       >
         <section class="primary-panel">
-          <!-- 只保留 Inspiration 或 Classic 模式：体验日 -->
+          <!-- 所有模式统一显示：体验日 -->
           <ExperienceDay />
         </section>
 
@@ -542,25 +526,27 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
     
     console.log('[TravelDetailView] 位置信息获取完成')
     
-    // 4. 更新 travel 数据
+    // 4. 更新 travel 数据（只更新 itineraryData，保留其他本地数据如 personaProfile、journeyDesign 等）
     if (travel.value) {
       const updatedData = {
         ...travel.value.data,
         backendItineraryId: backendItineraryId,
-        days: enrichedData.days,
-        destination: enrichedData.destination,
-        title: travel.value.title || `${backendItinerary.destination}之旅`,
-        totalCost: enrichedData.totalCost,
-        summary: backendItinerary.summary || '',
+        // 只更新 itineraryData，不更新 data.days，这样 ExperienceDay 会优先读取 itineraryData（后端数据）
         itineraryData: {
           days: enrichedData.days,
           destination: enrichedData.destination,
           title: travel.value.title || `${backendItinerary.destination}之旅`,
           totalCost: enrichedData.totalCost,
+          summary: backendItinerary.summary || '',
           duration: enrichedData.duration,
           budget: enrichedData.budget,
           preferences: backendItinerary.preferences || {}
-        }
+        },
+        // 同时更新顶层字段，用于兼容性
+        destination: enrichedData.destination,
+        title: travel.value.title || `${backendItinerary.destination}之旅`,
+        totalCost: enrichedData.totalCost,
+        summary: backendItinerary.summary || ''
       }
       
       travelListStore.updateTravel(travel.value.id, {
@@ -569,7 +555,7 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       
       // 重新获取更新后的 travel
       travel.value = travelListStore.getTravel(travel.value.id)
-      console.log('[TravelDetailView] 行程数据已更新，包含位置信息')
+      console.log('[TravelDetailView] 行程数据已更新，只使用后端数据（itineraryData）')
     }
   } catch (error: any) {
     console.error('[TravelDetailView] 从后端加载行程详情失败:', error)
@@ -577,7 +563,7 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
   }
 }
 
-// 加载旅程数据
+  // 加载旅程数据
 onMounted(async () => {
   const id = route.params.id as string
   console.log('TravelDetailView mounted, id:', id)
@@ -590,15 +576,14 @@ onMounted(async () => {
     console.log('📋 原始 Travel 数据 (JSON):', JSON.stringify(travel.value, null, 2))
     console.log('📋 原始 Travel.data 数据 (JSON):', JSON.stringify(travel.value.data, null, 2))
     
-    // 如果是 planner 模式且有 backendItineraryId，从后端加载完整数据
-    if (travel.value.mode === 'planner') {
-      const backendItineraryId = travel.value.data?.backendItineraryId
-      if (backendItineraryId) {
-        console.log('[TravelDetailView] 检测到 backendItineraryId，从后端加载行程详情:', backendItineraryId)
-        await loadItineraryFromBackend(backendItineraryId)
-      } else {
-        console.log('[TravelDetailView] 未找到 backendItineraryId，使用本地数据')
-      }
+    // 所有模式统一处理：如果有 backendItineraryId，从后端加载完整数据
+    // 不再区分模式，详情页统一使用相同的后端接口
+    const backendItineraryId = travel.value.data?.backendItineraryId
+    if (backendItineraryId) {
+      console.log(`[TravelDetailView] 检测到 backendItineraryId (模式: ${travel.value.mode})，从后端加载行程详情:`, backendItineraryId)
+      await loadItineraryFromBackend(backendItineraryId)
+    } else {
+      console.log(`[TravelDetailView] 未找到 backendItineraryId (模式: ${travel.value.mode})，使用本地数据`)
     }
   }
   

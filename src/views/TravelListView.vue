@@ -194,13 +194,13 @@
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { Modal, message } from 'ant-design-vue'
-import { getVisaInfo } from '@/config/visa'
+import { getVisaInfo, type VisaInfo } from '@/config/visa'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 
@@ -225,9 +225,53 @@ const travelListStore = useTravelListStore()
 const travelList = computed(() => travelListStore.travelList)
 const currentUser = computed(() => userStore.user)
 
+// 签证信息缓存（key: travelId, value: VisaInfo | null）
+const visaInfoCache = ref<Map<string, VisaInfo | null>>(new Map())
+const visaInfoLoading = ref<Set<string>>(new Set())
+
 // 创建模态框显示状态
 const createModalVisible = ref(false)
 const loading = ref(false)
+
+// 加载单个行程的签证信息
+const loadVisaInfoForTravel = async (travel: Travel) => {
+  const travelId = travel.id
+  const countryCode = extractDestinationCountry(travel)
+  
+  if (!countryCode) {
+    visaInfoCache.value.set(travelId, null)
+    return
+  }
+  
+  // 如果正在加载或已缓存，跳过
+  if (visaInfoLoading.value.has(travelId) || visaInfoCache.value.has(travelId)) {
+    return
+  }
+  
+  const nationalityCode = getUserNationalityCode()
+  if (!nationalityCode) {
+    visaInfoCache.value.set(travelId, null)
+    return
+  }
+  
+  visaInfoLoading.value.add(travelId)
+  try {
+    const result = await getVisaInfo(countryCode, nationalityCode, null)
+    const visaInfo = Array.isArray(result) && result.length > 0 ? result[0] : null
+    visaInfoCache.value.set(travelId, visaInfo)
+  } catch (error) {
+    console.error(`加载行程 ${travelId} 的签证信息失败:`, error)
+    visaInfoCache.value.set(travelId, null)
+  } finally {
+    visaInfoLoading.value.delete(travelId)
+  }
+}
+
+// 批量加载所有行程的签证信息
+const loadAllVisaInfo = async () => {
+  const promises = travelList.value.map(travel => loadVisaInfoForTravel(travel))
+  await Promise.all(promises)
+}
 
 // 组件挂载时从后端同步数据
 onMounted(async () => {
@@ -250,7 +294,20 @@ onMounted(async () => {
     handleCreateFromIntent(pendingIntent)
     userStore.clearIntent()
   }
+  
+  // 加载所有行程的签证信息
+  await loadAllVisaInfo()
 })
+
+// 监听行程列表变化，自动加载新行程的签证信息
+watch(travelList, (newList, oldList) => {
+  const oldIds = new Set(oldList?.map(t => t.id) || [])
+  const newTravels = newList?.filter(t => !oldIds.has(t.id)) || []
+  
+  if (newTravels.length > 0) {
+    newTravels.forEach(travel => loadVisaInfoForTravel(travel))
+  }
+}, { deep: true })
 
 // 从意图创建旅程
 const handleCreateFromIntent = (intent: any) => {
@@ -506,18 +563,10 @@ const extractDestinationCountry = (travel: Travel) => {
   return null
 }
 
-// 获取签证状态
+// 获取签证状态（从缓存中读取）
 const getVisaStatus = (travel: Travel) => {
-  const countryCode = extractDestinationCountry(travel)
-  if (!countryCode) return null
-  
-  const nationalityCode = getUserNationalityCode()
-  if (!nationalityCode) return null
-  
-  const visaInfos = getVisaInfo(countryCode, nationalityCode, null)
-  if (visaInfos.length === 0) return null
-  
-  return visaInfos[0]
+  const visaInfo = visaInfoCache.value.get(travel.id)
+  return visaInfo || null
 }
 
 // 获取签证状态文本

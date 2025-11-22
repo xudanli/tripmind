@@ -571,22 +571,99 @@ export const useTravelStore = defineStore('travel', () => {
         ;(generatedData as any).summary = apiResponse.summary
         ;(generatedData as any).title = apiResponse.title
       } else {
-        const { detectInspirationIntent } = await import('@/services/deepseekAPI')
+        // Seeker 模式：优先使用后端API，失败时回退到前端实现
+        const USE_BACKEND_API = import.meta.env.VITE_USE_SEEKER_BACKEND_API !== 'false' // 默认启用
+        
         const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
         const userContext = `${safeStr(moodData.value.currentMood)} ${safeStr(moodData.value.desiredExperience)}`
-        pushGenerationLog('🧭 正在识别旅行意图...')
-        const intent = await detectInspirationIntent(userContext, currentLanguage)
         
-        pushGenerationLog('📡 Seeker：正在生成情绪化旅程草稿...')
-        const aiData: any = await emotionalTravelAPI.generateTravelPlan({
-          mood: moodData.value.currentMood,
-          experience: moodData.value.desiredExperience,
-          budget: moodData.value.budget,
-          duration: moodData.value.duration
-        } as any)
+        // 获取用户上下文信息
+        const { getUserLocationCode, getUserNationalityCode } = await import('@/config/userProfile')
+        const userCountry = getUserLocationCode() || undefined
+        const userNationality = getUserNationalityCode() || undefined
         
-        pushGenerationLog(`✅ Seeker：行程草稿已生成，AI 返回 ${Array.isArray(aiData?.data?.itinerary) ? aiData.data.itinerary.length : 0} 天数据`)
-        generatedData = toItineraryFromSeeker(aiData, moodData.value, intent)
+        if (USE_BACKEND_API) {
+          try {
+            // 调用后端 Seeker API
+            const { generateSeekerTravelPlan } = await import('@/services/seekerBackendAPI')
+            pushGenerationLog('📡 调用后端API生成 Seeker 旅行计划...')
+            
+            const backendResult = await generateSeekerTravelPlan({
+              currentMood: moodData.value.currentMood,
+              desiredExperience: moodData.value.desiredExperience,
+              budget: moodData.value.budget,
+              duration: moodData.value.duration,
+              language: currentLanguage,
+              userCountry: userCountry || undefined,
+              userNationality: userNationality || undefined
+            })
+            
+            pushGenerationLog(`✅ 后端API生成成功，共 ${backendResult.duration} 天行程`)
+            
+            // 将后端响应转换为 ItineraryData 格式
+            const days = backendResult.itinerary || []
+            const itinerary = days.map((day) => ({
+              day: day.day,
+              title: day.title || `第${day.day}天`,
+              activities: (day.activities || []).map((a) => ({
+                time: a.time,
+                activity: a.activity,
+                type: a.type
+              }))
+            }))
+            
+            generatedData = {
+              destination: backendResult.destination,
+              duration: backendResult.duration,
+              budget: moodData.value.budget,
+              preferences: getPreferencesByMood(moodData.value.currentMood),
+              travelStyle: 'slow',
+              itinerary,
+              recommendations: {
+                accommodation: backendResult.recommendations?.accommodation || '推荐当地特色住宿',
+                transportation: backendResult.recommendations?.transportation || '建议使用当地交通工具',
+                food: backendResult.recommendations?.food || '品尝当地特色美食',
+                tips: backendResult.recommendations?.tips || '注意当地文化和习俗'
+              },
+              detectedIntent: backendResult.detectedIntent ? {
+                intentType: backendResult.detectedIntent.intentType,
+                keywords: backendResult.detectedIntent.keywords || [],
+                emotionTone: backendResult.detectedIntent.emotionTone,
+                description: backendResult.detectedIntent.description
+              } : {
+                intentType: 'seeker',
+                keywords: [],
+                emotionTone: moodData.value.currentMood,
+                description: '疗愈型旅行体验'
+              }
+            }
+            
+            // 保存完整的后端响应数据（用于后续保存到数据库）
+            ;(generatedData as any).backendResponse = backendResult
+          } catch (error: any) {
+            console.warn('⚠️ Seeker 后端API调用失败，使用前端实现:', error.message)
+            pushGenerationLog('⚠️ 后端API调用失败，使用前端实现...')
+            // Fallback to frontend implementation
+          }
+        }
+        
+        // 如果后端API未启用或调用失败，使用前端实现
+        if (!USE_BACKEND_API || !generatedData) {
+          const { detectInspirationIntent } = await import('@/services/deepseekAPI')
+          pushGenerationLog('🧭 正在识别旅行意图...')
+          const intent = await detectInspirationIntent(userContext, currentLanguage)
+          
+          pushGenerationLog('📡 Seeker：正在生成情绪化旅程草稿...')
+          const aiData: any = await emotionalTravelAPI.generateTravelPlan({
+            mood: moodData.value.currentMood,
+            experience: moodData.value.desiredExperience,
+            budget: moodData.value.budget,
+            duration: moodData.value.duration
+          } as any)
+          
+          pushGenerationLog(`✅ Seeker：行程草稿已生成，AI 返回 ${Array.isArray(aiData?.data?.itinerary) ? aiData.data.itinerary.length : 0} 天数据`)
+          generatedData = toItineraryFromSeeker(aiData, moodData.value, intent)
+        }
       }
       
       setItineraryData(generatedData)
@@ -737,7 +814,41 @@ export const useTravelStore = defineStore('travel', () => {
     clearGenerationLogs()
     const normalizedInput = safeStr(input)
     const selectedDestinationCandidate = options?.selectedDestination?.trim()
-    const generationMode: 'full' | 'candidates' = selectedDestinationCandidate ? 'full' : 'candidates'
+    
+    // 检测输入是否包含目的地（优先使用用户选择的目的地）
+    let detectedDestination: string | null = null
+    if (selectedDestinationCandidate) {
+      detectedDestination = selectedDestinationCandidate
+    } else {
+      // 检查输入中是否包含目的地名称
+      try {
+        const { PRESET_COUNTRIES } = await import('@/constants/countries')
+        const inputLower = normalizedInput.toLowerCase()
+        
+        // 检查输入中是否包含国家名称
+        // 使用更适合中文的匹配方式：直接检查是否包含国家名称
+        // 优先匹配较长的国家名称，避免短名称被误匹配
+        const countries = Object.values(PRESET_COUNTRIES as any) as any[]
+        const sortedCountries = countries.sort((a, b) => b.name.length - a.name.length) // 按长度降序排序
+        const countryMatch = sortedCountries.find((country: any) => {
+          const countryName = country.name
+          // 对于中文，直接检查是否包含国家名称（不区分大小写）
+          // 使用 includes 更简单可靠
+          return normalizedInput.toLowerCase().includes(countryName.toLowerCase())
+        }) as any
+        
+        if (countryMatch) {
+          detectedDestination = countryMatch.name
+          console.log('✅ [Inspiration] 检测到输入包含目的地:', detectedDestination)
+        }
+      } catch (error) {
+        console.warn('⚠️ [Inspiration] 检测目的地失败:', error)
+      }
+    }
+    
+    // 如果输入包含目的地，直接生成完整行程；否则生成候选目的地列表
+    const generationMode: 'full' | 'candidates' = detectedDestination ? 'full' : (options?.mode || 'candidates')
+    const finalSelectedDestination = detectedDestination || selectedDestinationCandidate
     pushGenerationLog(
       generationMode === 'full'
         ? '🚀 开始生成灵感旅程详情...'
@@ -764,8 +875,8 @@ export const useTravelStore = defineStore('travel', () => {
     lastInspirationInput.value = effectiveInput
     if (generationMode === 'candidates') {
       inspirationSelectedDestination.value = null
-    } else if (selectedDestinationCandidate) {
-      inspirationSelectedDestination.value = selectedDestinationCandidate
+    } else if (finalSelectedDestination) {
+      inspirationSelectedDestination.value = finalSelectedDestination
     }
     
     let autoDestinationAfterRun: string | null = null
@@ -825,7 +936,7 @@ export const useTravelStore = defineStore('travel', () => {
 
         const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) => {
           if (safeStr(effectiveInput).includes(country.name)) return true
-          if (selectedDestinationCandidate && selectedDestinationCandidate.includes(country.name)) return true
+          if (finalSelectedDestination && finalSelectedDestination.includes(country.name)) return true
           return false
         }) as any
         if (destCountryInfo) {
@@ -847,7 +958,7 @@ export const useTravelStore = defineStore('travel', () => {
         effectiveInput,
         currentLanguage,
         userCountry,
-        selectedDestinationCandidate,
+        finalSelectedDestination || undefined,  // 使用检测到的目的地
         userNationality,
         userPermanentResidency,
         heldVisas,

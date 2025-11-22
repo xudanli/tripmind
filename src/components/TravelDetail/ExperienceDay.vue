@@ -645,7 +645,10 @@ const itineraryData = computed(() => {
     return null
   }
   
+  const hasBackendId = !!data.backendItineraryId
+  
   console.log('🔍 [ExperienceDay] 检查数据格式:', {
+    hasBackendId,
     hasDays: !!data.days,
     hasPlannerItinerary: !!data.plannerItinerary,
     hasItineraryData: !!data.itineraryData,
@@ -653,6 +656,13 @@ const itineraryData = computed(() => {
     dataKeys: Object.keys(data)
   })
   
+  // 如果有 backendItineraryId，优先使用后端数据（itineraryData）
+  if (hasBackendId && data.itineraryData?.days && Array.isArray(data.itineraryData.days) && data.itineraryData.days.length > 0) {
+    console.log('✅ [后端数据优先] 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length)
+    return data.itineraryData
+  }
+  
+  // 如果没有 backendItineraryId，按原优先级读取
   // 优先级1: 如果直接是行程计划格式（有days数组）- 新生成的灵感行程通常是这种格式
   if (data.days && Array.isArray(data.days) && data.days.length > 0) {
     console.log('✅ 从 data.days 获取行程数据，天数:', data.days.length)

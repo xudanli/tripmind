@@ -574,7 +574,6 @@ export default {
       category: 'Category',
       recommendations: 'Recommendations',
       visitTips: 'Visit Tips',
-      recommendedDuration: 'Recommended Duration',
       bookingInfo: 'Booking Information',
       pricingStructure: 'Pricing Structure',
       bookingMethod: 'Booking Method',

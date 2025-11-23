@@ -3,7 +3,19 @@
     <h3>{{ t('planner.step5.title') }}</h3>
     <p>{{ t('planner.step5.description') }}</p>
     <a-form-item :rules="[{ required: true, message: t('planner.step5.rules') }]">
-      <a-select :value="formData.preferences" @update:value="(v)=>travelStore.setPlannerData({ preferences: v as string[] })" mode="multiple" size="large" :placeholder="t('planner.step5.placeholder')" style="width:100%">
+      <a-select 
+        :value="formData.preferences?.interests || []" 
+        @update:value="(v)=>travelStore.setPlannerData({ 
+          preferences: { 
+            ...formData.preferences, 
+            interests: v as string[] 
+          } 
+        })" 
+        mode="multiple" 
+        size="large" 
+        :placeholder="t('planner.step5.placeholder')" 
+        style="width:100%"
+      >
         <a-select-option v-for="o in preferenceOptions" :key="o.value" :value="o.value">
           <a-space><span>{{ o.icon }}</span><span>{{ o.label }}</span></a-space>
         </a-select-option>

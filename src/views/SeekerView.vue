@@ -469,16 +469,13 @@ const goToDetail = async () => {
       destination,
       startDate,
       preferences,
-      'draft'
+      'draft',
+      'seeker' // 模式标识
     )
     
     // 注意：不要向 createRequest.data 添加额外字段
     // CreateItineraryRequest 的 data 字段只包含 days、totalCost、summary
     // 模式特有字段（seekerConfig）应该保存在本地 Travel.data 中，而不是后端
-    
-    // 注意：CreateItineraryRequest 接口中没有 mode 字段
-    // 模式信息应该保存在数据库的其他地方（如果后端需要的话）
-    // 当前后端接口不支持 mode 字段，所以不添加
     
     console.log('📤 [Seeker] 创建行程请求数据:', {
       destination: createRequest.destination,
@@ -491,29 +488,25 @@ const goToDetail = async () => {
     backendItineraryId = backendItinerary.id
     console.log('✅ [Seeker] 行程已保存到后端', {
       id: backendItineraryId,
-      destination: backendItinerary.destination
+      destination: backendItinerary.destination,
+      mode: backendItinerary.mode
     })
     message.success('行程已保存到数据库')
-  } catch (err: any) {
-    console.error('❌ [Seeker] 保存到后端失败', {
-      error: err.message,
-      stack: err.stack
-    })
-    message.warning('保存到数据库失败，已保存到本地。错误：' + (err.message || '未知错误'))
-    // 保存到后端失败不影响整体流程，继续使用本地存储
-  }
-  
-  // 步骤2: 创建 Travel 并保存到本地列表
-  const travelDataWithBackendId: any = {
-    ...data,
-    backendItineraryId: backendItineraryId
-  }
-  
-  const newTravel = travelListStore.createTravel({
-    title: '随心而行的旅程',
-    location: data.destination || '待定',
-    description: `${t('seeker.title')} - 基于你当前心情的旅行推荐`,
-    mode: 'seeker',
+    
+    // 步骤2: 创建 Travel 对象用于立即显示（最终数据从后端获取）
+    const travelDataWithBackendId: any = {
+      ...data,
+      backendItineraryId: backendItineraryId
+    }
+    
+    // 使用后端返回的 mode（如果存在），否则使用默认值
+    const travelMode = backendItinerary.mode || 'seeker'
+    
+    const newTravel = travelListStore.createTravel({
+      title: '随心而行的旅程',
+      location: data.destination || '待定',
+      description: `${t('seeker.title')} - 基于你当前心情的旅行推荐`,
+      mode: travelMode as 'planner' | 'seeker' | 'inspiration',
     status: 'active',
     duration: data.duration || 5,
     participants: 1,

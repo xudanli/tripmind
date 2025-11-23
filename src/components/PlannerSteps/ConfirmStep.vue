@@ -78,7 +78,8 @@ const handleSubmit = async () => {
             budget: formData.value.budget as any,
             travelStyle: formData.value.travelStyle as any
           } : undefined,
-          'draft' // 默认保存为草稿状态
+          'draft', // 默认保存为草稿状态
+          'planner' // 模式标识
         )
         
         console.log('📤 [Planner ConfirmStep] 创建行程请求数据:', {

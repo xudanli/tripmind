@@ -501,6 +501,7 @@ const handleSubmit = async () => {
     // 步骤 3/4: 保存行程到后端数据库
     console.log('💾 [Planner] 步骤 3/4: 保存行程到后端数据库...')
     let backendItineraryId: string | undefined
+    let backendItinerary: any = undefined
     try {
       // 将前端数据转换为创建行程的API请求格式
       const createRequest = convertFrontendDataToCreateRequest(
@@ -508,7 +509,8 @@ const handleSubmit = async () => {
         formData.value.destination,
         formData.value.startDate,
         formData.value.preferences,
-        'draft' // 默认保存为草稿状态
+        'draft', // 默认保存为草稿状态
+        'planner' // 模式标识
       )
       
       console.log('📤 [Planner] 创建行程请求数据:', {
@@ -518,11 +520,12 @@ const handleSubmit = async () => {
       })
       
       // 调用创建行程接口
-      const backendItinerary = await createItinerary(createRequest)
+      backendItinerary = await createItinerary(createRequest)
       backendItineraryId = backendItinerary.id
       console.log('✅ [Planner] 步骤 3/4: 行程已保存到后端', {
         id: backendItineraryId,
-        destination: backendItinerary.destination
+        destination: backendItinerary.destination,
+        mode: backendItinerary.mode
       })
       message.success('行程已保存到数据库')
     } catch (err: any) {
@@ -530,12 +533,12 @@ const handleSubmit = async () => {
         error: err.message,
         stack: err.stack
       })
-      message.warning('保存到数据库失败，已保存到本地。错误：' + (err.message || '未知错误'))
-      // 保存到后端失败不影响整体流程，继续使用本地存储
+      message.warning('保存到数据库失败，将使用临时数据。错误：' + (err.message || '未知错误'))
+      // 保存到后端失败不影响整体流程，继续创建临时 Travel 对象用于显示
     }
     
-    // 步骤 4/4: 创建 Travel 并保存到本地列表
-    console.log('💾 [Planner] 步骤 4/4: 创建 Travel 并保存到本地列表...')
+    // 步骤 4/4: 创建 Travel 对象用于立即显示（最终数据从后端获取）
+    console.log('💾 [Planner] 步骤 4/4: 创建 Travel 对象用于显示...')
     
     // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
     // 方式1: data.days (直接存储)
@@ -563,11 +566,14 @@ const handleSubmit = async () => {
       }
     }
     
+    // 使用后端返回的 mode（如果存在），否则使用默认值
+    const travelMode = backendItinerary?.mode || 'planner'
+    
     const newTravel = travelListStore.createTravel({
       title: (itineraryData as any).title || `${formData.value.destination}之旅`,
       location: formData.value.destination,
       description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
-      mode: 'planner',
+      mode: travelMode as 'planner' | 'seeker' | 'inspiration',
       status: 'active',
       duration: formData.value.days,
       participants: 1,

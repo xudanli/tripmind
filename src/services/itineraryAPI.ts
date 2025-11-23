@@ -599,6 +599,7 @@ export interface CreateItineraryRequest {
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
   status?: 'draft' | 'published' | 'archived'
+  // 注意：后端不接受 mode 字段，mode 信息只在本地 Travel 对象中保存
 }
 
 /**
@@ -620,6 +621,7 @@ export interface CreateItineraryResponse {
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
     status: 'draft' | 'published' | 'archived'
+    mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
     updatedAt: string
   }
@@ -647,6 +649,7 @@ export interface GetItineraryListResponse {
     summary?: string
     totalCost?: number
     status: 'draft' | 'published' | 'archived'
+    mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
     updatedAt: string
   }>
@@ -674,6 +677,7 @@ export interface GetItineraryDetailResponse {
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
     status: 'draft' | 'published' | 'archived'
+    mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
     updatedAt: string
   }
@@ -715,6 +719,7 @@ export interface UpdateItineraryResponse {
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
     status: 'draft' | 'published' | 'archived'
+    mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
     updatedAt: string
   }
@@ -938,14 +943,14 @@ export async function updateItinerary(
       cleanedRequest.status = request.status
     }
 
-    // 处理 preferences：只包含有值的字段，不包含 interests
+    // 处理 preferences：包含所有支持的字段（根据接口文档，支持 interests）
     if (request.preferences) {
       const cleanedPreferences: any = {}
       
-      // 注意：后端不接受 interests 字段
-      // if (request.preferences.interests && request.preferences.interests.length > 0) {
-      //   cleanedPreferences.interests = request.preferences.interests
-      // }
+      // 根据接口文档，更新接口支持 interests 字段
+      if (request.preferences.interests && Array.isArray(request.preferences.interests) && request.preferences.interests.length > 0) {
+        cleanedPreferences.interests = request.preferences.interests
+      }
       
       if (request.preferences.budget) {
         cleanedPreferences.budget = request.preferences.budget
@@ -1058,19 +1063,22 @@ export function convertFrontendDataToCreateRequest(
     budget?: 'low' | 'medium' | 'high'
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   },
-  status: 'draft' | 'published' | 'archived' = 'draft'
+  status: 'draft' | 'published' | 'archived' = 'draft',
+  mode?: 'planner' | 'seeker' | 'inspiration'
 ): CreateItineraryRequest {
   // 确保 startDate 是有效的 ISO 8601 格式（YYYY-MM-DD）
-  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-    startDate = new Date().toISOString().split('T')[0]
-    console.warn('[ItineraryAPI] 日期格式不正确，使用今天日期:', startDate)
+  let validStartDate: string = startDate
+  if (!validStartDate || !/^\d{4}-\d{2}-\d{2}$/.test(validStartDate)) {
+    const today = new Date().toISOString().split('T')[0]
+    validStartDate = today || new Date().toISOString().substring(0, 10)
+    console.warn('[ItineraryAPI] 日期格式不正确，使用今天日期:', validStartDate)
   }
   
   // 将 timeSlots 转换为 activities
   // 确保 day.day 是数字类型
   const days = frontendData.days.map((day, index) => ({
     day: typeof day.day === 'number' ? day.day : (index + 1), // 确保是数字
-    date: day.date || startDate, // 如果没有日期，使用开始日期
+    date: day.date || validStartDate, // 如果没有日期，使用开始日期
     activities: day.timeSlots
       .filter((slot) => slot.title !== undefined && slot.type && slot.coordinates) // 只包含有效的活动
       .map((slot) => ({
@@ -1090,9 +1098,9 @@ export function convertFrontendDataToCreateRequest(
     travelStyle: preferences.travelStyle
   } : undefined
 
-  return {
+  const request: CreateItineraryRequest = {
     destination,
-    startDate,
+    startDate: validStartDate,
     days: frontendData.days.length,
     data: {
       days,
@@ -1101,6 +1109,118 @@ export function convertFrontendDataToCreateRequest(
     },
     preferences: cleanedPreferences,
     status
+    // 注意：后端不接受 mode 字段，mode 信息只在本地 Travel 对象中保存
   }
+  
+  return request
+}
+
+/**
+ * 将 Travel 更新数据转换为更新行程的 API 请求格式
+ * @param travel Travel 对象
+ * @param updates 要更新的字段
+ * @returns UpdateItineraryRequest 格式
+ */
+export function convertTravelToUpdateRequest(
+  travel: { data?: any; location?: string; description?: string; duration?: number; budget?: number; startDate?: string; endDate?: string },
+  updates: Partial<{ location?: string; description?: string; duration?: number; budget?: number; startDate?: string; endDate?: string; data?: any; status?: string }>
+): UpdateItineraryRequest {
+  const request: UpdateItineraryRequest = {}
+  
+  // 处理目的地
+  if (updates.location !== undefined) {
+    request.destination = updates.location
+  } else if (updates.data?.destination !== undefined) {
+    request.destination = updates.data.destination
+  } else if (updates.data?.itineraryData?.destination !== undefined) {
+    request.destination = updates.data.itineraryData.destination
+  } else if (travel.location) {
+    request.destination = travel.location
+  }
+  
+  // 处理开始日期
+  if (updates.startDate !== undefined) {
+    request.startDate = updates.startDate
+  } else if (updates.data?.startDate !== undefined) {
+    request.startDate = updates.data.startDate
+  } else if (travel.startDate) {
+    request.startDate = travel.startDate
+  } else if (travel.data?.itineraryData?.days?.[0]?.date) {
+    const firstDayDate = travel.data.itineraryData.days[0].date
+    if (firstDayDate) {
+      request.startDate = firstDayDate
+    }
+  }
+  
+  // 处理天数
+  if (updates.duration !== undefined) {
+    request.days = updates.duration
+  } else if (updates.data?.itineraryData?.days?.length !== undefined) {
+    request.days = updates.data.itineraryData.days.length
+  } else if (updates.data?.days?.length !== undefined) {
+    request.days = updates.data.days.length
+  } else if (travel.duration) {
+    request.days = travel.duration
+  } else if (travel.data?.itineraryData?.days?.length) {
+    request.days = travel.data.itineraryData.days.length
+  }
+  
+  // 处理摘要
+  if (updates.description !== undefined) {
+    request.summary = updates.description
+  } else if (updates.data?.summary !== undefined) {
+    request.summary = updates.data.summary
+  } else if (updates.data?.itineraryData?.summary !== undefined) {
+    request.summary = updates.data.itineraryData.summary
+  } else if (travel.description) {
+    request.summary = travel.description
+  }
+  
+  // 处理总费用
+  if (updates.budget !== undefined) {
+    request.totalCost = updates.budget
+  } else if (updates.data?.totalCost !== undefined) {
+    request.totalCost = updates.data.totalCost
+  } else if (updates.data?.itineraryData?.totalCost !== undefined) {
+    request.totalCost = updates.data.itineraryData.totalCost
+  } else if (travel.budget) {
+    request.totalCost = travel.budget
+  }
+  
+  // 处理偏好
+  const preferences = updates.data?.itineraryData?.preferences || 
+                      updates.data?.preferences || 
+                      travel.data?.itineraryData?.preferences
+  if (preferences) {
+    request.preferences = {
+      interests: preferences.interests,
+      budget: preferences.budget,
+      travelStyle: preferences.travelStyle
+    }
+  }
+  
+  // 处理状态
+  if (updates.status !== undefined) {
+    // 将前端状态转换为后端状态
+    if (updates.status === 'active') {
+      request.status = 'published'
+    } else if (updates.status === 'completed') {
+      request.status = 'archived'
+    } else {
+      request.status = updates.status as 'draft' | 'published' | 'archived'
+    }
+  }
+  
+  // 只返回有值的字段
+  const cleanedRequest: UpdateItineraryRequest = {}
+  if (request.destination !== undefined) cleanedRequest.destination = request.destination
+  if (request.startDate !== undefined) cleanedRequest.startDate = request.startDate
+  if (request.days !== undefined) cleanedRequest.days = request.days
+  if (request.summary !== undefined) cleanedRequest.summary = request.summary
+  if (request.totalCost !== undefined) cleanedRequest.totalCost = request.totalCost
+  if (request.preferences !== undefined) cleanedRequest.preferences = request.preferences
+  if (request.status !== undefined) cleanedRequest.status = request.status
+  
+  return cleanedRequest
 }
 

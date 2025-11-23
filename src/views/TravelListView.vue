@@ -203,6 +203,7 @@ import { Modal, message } from 'ant-design-vue'
 import { getVisaInfo, type VisaInfo } from '@/config/visa'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { deleteItinerary } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 import {
@@ -275,16 +276,20 @@ const loadAllVisaInfo = async () => {
 
 // 组件挂载时从后端同步数据
 onMounted(async () => {
-  // 如果用户已登录，从后端同步行程列表
-  if (userStore.isLoggedIn) {
-    loading.value = true
-    try {
+  // 总是从后端获取行程列表（不再从本地存储加载）
+  loading.value = true
+  try {
+    if (userStore.isLoggedIn) {
       await travelListStore.syncFromBackend()
-    } catch (error) {
-      console.error('同步行程列表失败:', error)
-    } finally {
-      loading.value = false
+    } else {
+      // 如果未登录，清空列表
+      travelListStore.clearAll()
     }
+  } catch (error) {
+    console.error('同步行程列表失败:', error)
+    message.error('加载行程列表失败，请稍后重试')
+  } finally {
+    loading.value = false
   }
   
   // 检查是否有待处理的意图
@@ -397,7 +402,7 @@ const handleEditCover = (travel: Travel, e: Event) => {
 }
 
 // 删除旅程
-const handleDelete = (travel: Travel, e: Event) => {
+const handleDelete = async (travel: Travel, e: Event) => {
   e.stopPropagation()
   
   Modal.confirm({
@@ -406,12 +411,33 @@ const handleDelete = (travel: Travel, e: Event) => {
     okText: t('travelList.deleteJourney'),
     okType: 'danger',
     cancelText: t('common.cancel'),
-    onOk: () => {
-      const success = travelListStore.deleteTravel(travel.id)
-      if (success) {
-        message.success(t('travelList.deleteSuccess'))
-      } else {
-        message.error(t('travelList.deleteFailed'))
+    onOk: async () => {
+      try {
+        // 如果行程有后端ID，先调用后端API删除
+        const backendId = travel.data?.backendItineraryId || travel.id
+        if (userStore.isLoggedIn && backendId) {
+          try {
+            await deleteItinerary(backendId)
+          } catch (error) {
+            // 如果后端删除失败，但可能是本地创建的行程，继续从本地删除
+            console.warn('后端删除失败，尝试从本地删除:', error)
+          }
+        }
+        
+        // 从本地列表移除
+        const success = travelListStore.deleteTravel(travel.id)
+        if (success) {
+          message.success(t('travelList.deleteSuccess'))
+          // 刷新列表以确保数据同步
+          if (userStore.isLoggedIn) {
+            await travelListStore.syncFromBackend()
+          }
+        } else {
+          message.error(t('travelList.deleteFailed'))
+        }
+      } catch (error: any) {
+        console.error('删除行程失败:', error)
+        message.error(t('travelList.deleteFailed') + ': ' + (error.message || '未知错误'))
       }
     }
   })

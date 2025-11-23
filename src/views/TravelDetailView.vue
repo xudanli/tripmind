@@ -549,9 +549,15 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
         summary: backendItinerary.summary || ''
       }
       
-      travelListStore.updateTravel(travel.value.id, {
+      // 如果后端返回了 mode 字段，更新本地的 mode（确保数据一致性）
+      const updates: any = {
         data: updatedData
-      })
+      }
+      if (backendItinerary.mode) {
+        updates.mode = backendItinerary.mode
+      }
+      
+      travelListStore.updateTravel(travel.value.id, updates)
       
       // 重新获取更新后的 travel
       travel.value = travelListStore.getTravel(travel.value.id)

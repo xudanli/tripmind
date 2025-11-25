@@ -18,8 +18,8 @@
 ### 1. 创建行程接口 (POST /api/itinerary)
 
 #### Planner 模式
-- ✅ **生成阶段**: 调用 `POST /api/itinerary/generate`
-- ✅ **保存阶段**: 调用 `POST /api/itinerary`
+- ✅ **生成阶段**: 调用 `POST /api/v1/journeys/generate`
+- ✅ **保存阶段**: 调用 `POST /api/v1/journeys`
 - ✅ **数据转换**: 使用 `convertFrontendDataToCreateRequest`
 - ✅ **错误处理**: 有 try-catch，失败时创建临时 Travel 对象
 - ✅ **后端ID保存**: 保存 `backendItineraryId` 到 `travel.data`

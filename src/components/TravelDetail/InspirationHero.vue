@@ -327,14 +327,14 @@ const findSafetyNotice = (data: any): string => {
 const heroItinerarySummary = computed(() => {
   const mode = props.travel?.mode
   if (mode === 'planner') {
-    const data: any = travelData.value
+  const data: any = travelData.value
     return (
       data?.summary ||
       itineraryData.value?.summary ||
       props.travel?.description ||
       ''
     )
-  }
+    }
   return ''
 })
 

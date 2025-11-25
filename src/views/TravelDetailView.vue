@@ -111,6 +111,13 @@
             </div>
           </a-card>
 
+          <!-- 天气信息 -->
+          <WeatherCard
+            :destination-id="destinationId"
+            :destination-name="destinationName || travel?.destination || travel?.location"
+            class="sidebar-block"
+          />
+
           <TravelSidebar 
             class="sidebar-block"
             :travel-id="travel?.id"
@@ -145,6 +152,7 @@ import { useI18n } from 'vue-i18n'
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
 import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
+import WeatherCard from '@/components/TravelDetail/WeatherCard.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
@@ -348,6 +356,30 @@ const destinationName = computed(() => {
   if (!destinationCountry.value) return ''
   const country = PRESET_COUNTRIES[destinationCountry.value as keyof typeof PRESET_COUNTRIES]
   return country?.name || ''
+})
+
+// 获取目的地ID（用于天气接口）
+// 注意：天气接口需要目的地ID（UUID），如果travel数据中没有存储目的地ID，这里返回null
+// 未来可能需要通过目的地名称查询后端获取目的地ID
+const destinationId = computed(() => {
+  if (!travel.value) return null
+  
+  // 尝试从不同数据源获取目的地ID
+  const data = travel.value.data as any
+  
+  // 1. 从 data.backendDestinationId 获取（如果后端返回了目的地ID）
+  if (data?.backendDestinationId) {
+    return data.backendDestinationId
+  }
+  
+  // 2. 从 data.destinationId 获取
+  if (data?.destinationId) {
+    return data.destinationId
+  }
+  
+  // 3. 暂时返回null，等后端提供通过目的地名称查询ID的接口后再实现
+  // TODO: 实现通过目的地名称查询目的地ID的逻辑
+  return null
 })
 
 // 分析多目的地签证需求

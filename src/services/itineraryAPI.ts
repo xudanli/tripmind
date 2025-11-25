@@ -1,6 +1,6 @@
 /**
  * 行程 API 服务
- * 对接后端 /api/itinerary 接口（包括生成和 CRUD 操作）
+ * 对接后端 /api/v1/journeys 接口（包括生成和 CRUD 操作）
  */
 
 import { API_CONFIG } from '@/config/api'
@@ -111,19 +111,19 @@ export function convertAPIResponseToFrontendFormat(
     timeSlots: day.activities.map((activity) => {
       // 确保所有字段都被正确映射
       const slot = {
-        time: activity.time,
-        title: activity.title,
-        activity: activity.title, // 使用 title 作为 activity
-        type: activity.type,
-        coordinates: activity.location,
-        // 将 notes 同时映射到多个位置，确保所有组件都能访问到
+      time: activity.time,
+      title: activity.title,
+      activity: activity.title, // 使用 title 作为 activity
+      type: activity.type,
+      coordinates: activity.location,
+      // 将 notes 同时映射到多个位置，确保所有组件都能访问到
         notes: activity.notes || '', // 直接映射到 slot.notes，供 buildNotes 使用
-        details: {
+      details: {
           notes: activity.notes || '', // 保留在 details.notes 中
           description: activity.notes || '' // 使用 notes 作为 description
-        },
-        cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-        duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+      },
+      cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+      duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
       }
       
       // 确保所有字段都存在（即使为空值）
@@ -190,7 +190,7 @@ export async function generateItinerary(
   }
 ): Promise<FrontendItineraryData> {
   const { enrichWithLocationInfo = true, generateSummary = true, onProgress } = options || {}
-  const endpoint = '/itinerary/generate'
+  const endpoint = '/v1/journeys/generate'
   const url = buildUrl(endpoint)
 
   const log = (message: string) => {
@@ -504,33 +504,33 @@ export async function enrichItineraryWithLocationInfo(
           let mergedDetails = { ...(slot.details || {}) }
           
           if (locationInfo) {
-            const locationDetails = convertLocationInfoToDetails(locationInfo)
-            // 深度合并 details，保留原有字段
+          const locationDetails = convertLocationInfoToDetails(locationInfo)
+          // 深度合并 details，保留原有字段
             mergedDetails = {
               ...mergedDetails,
-              // 合并 name 对象
-              name: {
+            // 合并 name 对象
+            name: {
                 ...(mergedDetails.name || {}),
-                ...locationDetails.name
-              },
-              // 合并 address 对象
-              address: {
+              ...locationDetails.name
+            },
+            // 合并 address 对象
+            address: {
                 ...(mergedDetails.address || {}),
-                ...locationDetails.address
-              },
+              ...locationDetails.address
+            },
               // 合并其他字段（openingHours、transportation、pricing 等优先使用位置信息）
-              ...Object.keys(locationDetails).reduce((acc, key) => {
+            ...Object.keys(locationDetails).reduce((acc, key) => {
                 if (key !== 'name' && key !== 'address') {
                   // 对于 openingHours、transportation、pricing、rating、recommendations 等字段，优先使用位置信息
                   if (['openingHours', 'transportation', 'pricing', 'rating', 'recommendations', 'contact', 'accessibility'].includes(key)) {
                     acc[key] = locationDetails[key] || mergedDetails[key]
                   } else if (!mergedDetails[key]) {
-                    acc[key] = locationDetails[key]
+                acc[key] = locationDetails[key]
                   }
-                }
-                return acc
-              }, {} as any)
-            }
+              }
+              return acc
+            }, {} as any)
+          }
           }
           
           // 如果有门票价格信息，合并到 pricing.detail 中（优先使用 TripAdvisor 数据）
@@ -741,7 +741,7 @@ export interface DeleteItineraryResponse {
 export async function createItinerary(
   request: CreateItineraryRequest
 ): Promise<CreateItineraryResponse['data']> {
-  const endpoint = '/itinerary'
+  const endpoint = '/v1/journeys'
   const url = buildUrl(endpoint)
 
   console.log('[ItineraryAPI] 创建行程:', {
@@ -794,7 +794,7 @@ export async function createItinerary(
 export async function getItineraryList(
   params?: GetItineraryListParams
 ): Promise<GetItineraryListResponse> {
-  const endpoint = '/itinerary'
+  const endpoint = '/v1/journeys'
   const url = buildUrl(endpoint)
 
   // 构建查询参数
@@ -859,7 +859,7 @@ export async function getItineraryList(
 export async function getItineraryDetail(
   id: string
 ): Promise<GetItineraryDetailResponse['data']> {
-  const endpoint = `/itinerary/${id}`
+  const endpoint = `/v1/journeys/${id}`
   const url = buildUrl(endpoint)
 
   console.log('[ItineraryAPI] 获取行程详情:', {
@@ -911,7 +911,7 @@ export async function updateItinerary(
   id: string,
   request: UpdateItineraryRequest
 ): Promise<UpdateItineraryResponse['data']> {
-  const endpoint = `/itinerary/${id}`
+  const endpoint = `/v1/journeys/${id}`
   const url = buildUrl(endpoint)
 
   console.log('[ItineraryAPI] 更新行程:', {
@@ -1005,7 +1005,7 @@ export async function updateItinerary(
  * @returns 删除结果
  */
 export async function deleteItinerary(id: string): Promise<void> {
-  const endpoint = `/itinerary/${id}`
+  const endpoint = `/v1/journeys/${id}`
   const url = buildUrl(endpoint)
 
   console.log('[ItineraryAPI] 删除行程:', {

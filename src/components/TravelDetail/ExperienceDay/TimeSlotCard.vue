@@ -90,17 +90,17 @@
             title="编辑"
           >
             ✏️
-          </a-button>
-          <a-button
+        </a-button>
+        <a-button
             type="text"
-            size="small"
+          size="small"
             danger
             class="time-slot__action-button"
             @click.stop="$emit('remove')"
             title="删除"
-          >
+        >
             🗑️
-          </a-button>
+        </a-button>
         </div>
       </div>
 

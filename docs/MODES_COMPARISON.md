@@ -14,7 +14,7 @@
 
 | 模式 | 生成接口 | 输入参数 | 说明 |
 |------|---------|---------|------|
-| **Planner** | `POST /api/itinerary/generate` | `{ destination, days, startDate, preferences }` | 结构化表单输入 |
+| **Planner** | `POST /api/v1/journeys/generate` | `{ destination, days, startDate, preferences }` | 结构化表单输入 |
 | **Inspiration** | `POST /api/inspiration/generate-itinerary` | `{ input, selectedDestination, intent, language, ... }` | 自然语言输入 |
 | **Seeker** | `POST /api/seeker/generate-travel-plan` | `{ currentMood, desiredExperience, budget, duration, ... }` | 心情和体验输入 |
 
@@ -24,7 +24,7 @@
 
 | 接口 | 方法 | 路径 | 输入参数 |
 |------|------|------|---------|
-| **创建行程** | POST | `/api/itinerary` | `CreateItineraryRequest`（统一格式） |
+| **创建行程** | POST | `/api/v1/journeys` | `CreateItineraryRequest`（统一格式） |
 
 ---
 
@@ -34,7 +34,7 @@
 
 #### 1. Planner 模式
 
-**接口：** `POST /api/itinerary/generate`
+**接口：** `POST /api/v1/journeys/generate`
 
 **输入参数：**
 ```typescript
@@ -193,7 +193,7 @@ interface CreateItineraryRequest {
 **答：是的，但调用的接口不同**
 
 1. **生成阶段（创建行程之前）**：
-   - ✅ Planner 模式：调用 `POST /api/itinerary/generate`
+   - ✅ Planner 模式：调用 `POST /api/v1/journeys/generate`
    - ✅ Inspiration 模式：调用 `POST /api/inspiration/generate-itinerary`
    - ✅ Seeker 模式：调用 `POST /api/seeker/generate-travel-plan`
    - **每个模式都有自己的生成接口**
@@ -211,7 +211,7 @@ interface CreateItineraryRequest {
 ```
 用户填写表单
   ↓
-调用生成接口：POST /api/itinerary/generate
+调用生成接口：POST /api/v1/journeys/generate
   { destination, days, startDate, preferences }
   ↓
 返回：FrontendItineraryData（包含 days 和 timeSlots）
@@ -220,7 +220,7 @@ interface CreateItineraryRequest {
   ↓
 转换为 CreateItineraryRequest 格式
   ↓
-调用保存接口：POST /api/itinerary
+调用保存接口：POST /api/v1/journeys
   ↓
 保存到数据库
 ```
@@ -243,7 +243,7 @@ interface CreateItineraryRequest {
   ↓
 转换为 CreateItineraryRequest 格式
   ↓
-调用保存接口：POST /api/itinerary
+调用保存接口：POST /api/v1/journeys
   ↓
 保存到数据库
 ```
@@ -262,7 +262,7 @@ interface CreateItineraryRequest {
   ↓
 转换为 CreateItineraryRequest 格式
   ↓
-调用保存接口：POST /api/itinerary
+调用保存接口：POST /api/v1/journeys
   ↓
 保存到数据库
 ```
@@ -274,10 +274,10 @@ interface CreateItineraryRequest {
 | 方面 | Planner | Inspiration | Seeker |
 |------|---------|-------------|--------|
 | **输入方式** | 结构化表单 | 自然语言文本 | 心情和体验选择 |
-| **生成接口** | `/api/itinerary/generate` | `/api/inspiration/generate-itinerary` | `/api/seeker/generate-travel-plan` |
+| **生成接口** | `/api/v1/journeys/generate` | `/api/inspiration/generate-itinerary` | `/api/seeker/generate-travel-plan` |
 | **输入参数** | `{ destination, days, startDate, preferences }` | `{ input, selectedDestination, mode, ... }` | `{ currentMood, desiredExperience, budget, duration }` |
 | **输出格式** | `FrontendItineraryData` | `InspirationData` | `SeekerTravelPlanData` |
-| **保存接口** | ✅ 相同：`POST /api/itinerary` | ✅ 相同：`POST /api/itinerary` | ✅ 相同：`POST /api/itinerary` |
+| **保存接口** | ✅ 相同：`POST /api/v1/journeys` | ✅ 相同：`POST /api/v1/journeys` | ✅ 相同：`POST /api/v1/journeys` |
 | **保存参数** | ✅ 相同：`CreateItineraryRequest` | ✅ 相同：`CreateItineraryRequest` | ✅ 相同：`CreateItineraryRequest` |
 
 ---

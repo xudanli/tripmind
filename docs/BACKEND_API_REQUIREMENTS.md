@@ -16,11 +16,11 @@
 
 | 接口 | 方法 | 路径 | 说明 | 优先级 |
 |------|------|------|------|--------|
-| 创建行程 | POST | `/api/itinerary` | 创建新行程 | ⭐⭐⭐ 必须 |
-| 获取行程详情 | GET | `/api/itinerary/:id` | 获取行程详细信息 | ⭐⭐⭐ 必须 |
-| 获取行程列表 | GET | `/api/itinerary` | 获取用户行程列表 | ⭐⭐ 推荐 |
-| 更新行程 | PUT | `/api/itinerary/:id` | 更新行程信息 | ⭐ 可选 |
-| 删除行程 | DELETE | `/api/itinerary/:id` | 删除行程 | ⭐ 可选 |
+| 创建行程 | POST | `/api/v1/journeys` | 创建新行程 | ⭐⭐⭐ 必须 |
+| 获取行程详情 | GET | `/api/v1/journeys/:id` | 获取行程详细信息 | ⭐⭐⭐ 必须 |
+| 获取行程列表 | GET | `/api/v1/journeys` | 获取用户行程列表 | ⭐⭐ 推荐 |
+| 更新行程 | PUT | `/api/v1/journeys/:id` | 更新行程信息 | ⭐ 可选 |
+| 删除行程 | DELETE | `/api/v1/journeys/:id` | 删除行程 | ⭐ 可选 |
 
 ### 二、生成阶段接口（每种模式独立）
 
@@ -39,7 +39,7 @@
 
 ### 1. 创建行程接口
 
-**接口路径：** `POST /api/itinerary`
+**接口路径：** `POST /api/v1/journeys`
 
 **请求头：**
 ```

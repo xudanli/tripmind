@@ -1,6 +1,6 @@
 /**
  * 外部 API 服务
- * 对接后端 /api/external 接口（包括 TripAdvisor 等外部数据源）
+ * 对接后端 /api/external 和 /api/v1 接口（包括 TripAdvisor、天气等外部数据源）
  */
 
 import { API_CONFIG } from '@/config/api'
@@ -361,6 +361,110 @@ export async function getAttractionPricingBySearch(
       activityName,
       destination,
       error: error.message
+    })
+    return null
+  }
+}
+
+/**
+ * 天气预报项
+ */
+export interface WeatherForecast {
+  date: string // YYYY-MM-DD
+  temperature: number
+  condition: string
+}
+
+/**
+ * 目的地天气信息
+ */
+export interface DestinationWeather {
+  temperature: number // 当前温度（摄氏度）
+  condition: string // 天气状况（如：晴天、多云、雨天等）
+  humidity?: number // 湿度（百分比，可选）
+  windSpeed?: number // 风速（可选）
+  forecast?: WeatherForecast[] // 天气预报（可选）
+}
+
+/**
+ * 获取目的地天气信息
+ * @param destinationId 目的地ID（UUID）
+ * @returns 天气信息，如果失败则返回 null
+ */
+export async function getDestinationWeather(
+  destinationId: string
+): Promise<DestinationWeather | null> {
+  // 注意：这是公开接口，不需要认证
+  const endpoint = `/v1/destinations/${destinationId}/weather`
+  const url = buildUrl(endpoint)
+
+  console.log('[ExternalAPI] 获取目的地天气信息:', {
+    url,
+    destinationId
+  })
+
+  try {
+    // 使用普通 fetch，因为这是公开接口
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include' // 如果需要 Cookie，保留这个选项
+    })
+
+    if (!response.ok) {
+      // 如果是 404，说明目的地不存在
+      if (response.status === 404) {
+        console.warn('[ExternalAPI] 目的地不存在:', destinationId)
+        return null
+      }
+      
+      // 如果是 501，说明天气 API 未配置，返回占位符数据
+      if (response.status === 501) {
+        console.info('[ExternalAPI] 天气 API 未配置，返回占位符数据')
+        // 返回占位符数据
+        return {
+          temperature: 20,
+          condition: '晴天',
+          humidity: 60,
+          windSpeed: 10,
+          forecast: [
+            {
+              date: new Date().toISOString().split('T')[0],
+              temperature: 20,
+              condition: '晴天'
+            }
+          ]
+        }
+      }
+      
+      // 其他错误，尝试解析错误信息
+      const errorText = await response.text()
+      console.warn('[ExternalAPI] 获取天气信息失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      })
+      return null
+    }
+
+    const weatherData: DestinationWeather = await response.json()
+
+    console.log('[ExternalAPI] 天气信息获取成功:', {
+      destinationId,
+      temperature: weatherData.temperature,
+      condition: weatherData.condition,
+      hasForecast: !!weatherData.forecast && weatherData.forecast.length > 0
+    })
+
+    return weatherData
+  } catch (error: any) {
+    // 网络错误或其他异常，不抛出错误，只记录警告
+    console.warn('[ExternalAPI] 获取天气信息失败（不影响主流程）:', {
+      error: error.message,
+      destinationId,
+      url
     })
     return null
   }

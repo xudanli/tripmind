@@ -32,7 +32,7 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
-import { createItinerary, convertFrontendDataToCreateRequest } from '@/services/itineraryAPI'
+import { createItinerary, convertFrontendDataToCreateRequest, updateJourneyFromFrontendData } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -69,8 +69,8 @@ const handleSubmit = async () => {
     let backendItineraryId: string | undefined
     try {
       if (itineraryData) {
-        // 将前端数据转换为创建行程的API请求格式
-        const createRequest = convertFrontendDataToCreateRequest(
+        // 先创建一个基础行程，获取 journeyId
+        const baseCreateRequest = convertFrontendDataToCreateRequest(
           itineraryData as any,
           formData.value.destination,
           formData.value.startDate || new Date().toISOString().split('T')[0],
@@ -82,18 +82,84 @@ const handleSubmit = async () => {
           'planner' // 模式标识
         )
         
-        console.log('📤 [Planner ConfirmStep] 创建行程请求数据:', {
-          destination: createRequest.destination,
-          daysCount: createRequest.days,
-          startDate: createRequest.startDate
+        // 创建一个基础行程（不包含详细的 days 数据）
+        const baseRequest = {
+          destination: baseCreateRequest.destination,
+          startDate: baseCreateRequest.startDate,
+          days: baseCreateRequest.days,
+          preferences: baseCreateRequest.preferences,
+          status: baseCreateRequest.status,
+          data: {
+            days: [], // 先创建空数组，后续用新接口更新
+            totalCost: 0,
+            summary: ''
+          }
+        }
+        
+        console.log('📤 [Planner ConfirmStep] 创建基础行程请求数据:', {
+          destination: baseRequest.destination,
+          daysCount: baseRequest.days,
+          startDate: baseRequest.startDate
         })
         
-        // 调用创建行程接口
-        const backendItinerary = await createItinerary(createRequest)
-        backendItineraryId = backendItinerary.id
+        // 调用创建行程接口，获取 journeyId
+        const baseJourney = await createItinerary(baseRequest as any)
+        backendItineraryId = baseJourney.id
+        console.log('✅ [Planner ConfirmStep] 基础行程已创建，journeyId:', backendItineraryId)
+        
+        // 使用新接口从前端数据格式更新行程
+        // 处理 preferences：优先使用 itineraryData 中的 preferences，否则使用 formData 中的
+        let preferences: string[] | { interests?: string[]; budget?: string; travelStyle?: string } | undefined
+        if ((itineraryData as any).preferences) {
+          if (Array.isArray((itineraryData as any).preferences)) {
+            preferences = (itineraryData as any).preferences
+          } else if (typeof (itineraryData as any).preferences === 'object') {
+            preferences = (itineraryData as any).preferences
+          }
+        } else if (formData.value.preferences) {
+          // 如果 formData 中有 preferences，转换为数组格式（如果后端支持）或对象格式
+          const prefs: string[] = []
+          if (formData.value.budget) {
+            prefs.push(formData.value.budget)
+          }
+          if (formData.value.travelStyle) {
+            prefs.push(formData.value.travelStyle)
+          }
+          preferences = prefs.length > 0 ? prefs : {
+            budget: formData.value.budget as any,
+            travelStyle: formData.value.travelStyle as any
+          }
+        }
+        
+        const updateRequest = {
+          itineraryData: {
+            destination: itineraryData.destination,
+            duration: itineraryData.days?.length || formData.value.duration,
+            budget: (itineraryData as any).budget || formData.value.budget,
+            preferences: preferences,
+            travelStyle: (itineraryData as any).travelStyle || formData.value.travelStyle,
+            itinerary: [],
+            recommendations: (itineraryData as any).recommendations || {},
+            days: (itineraryData as any).days || [],
+            totalCost: (itineraryData as any).totalCost || 0,
+            summary: (itineraryData as any).summary || '',
+            title: (itineraryData as any).title || `${formData.value.destination}之旅`
+          },
+          startDate: formData.value.startDate || new Date().toISOString().split('T')[0]
+        }
+        
+        console.log('📤 [Planner ConfirmStep] 从前端数据格式更新行程请求数据:', {
+          journeyId: backendItineraryId,
+          destination: updateRequest.itineraryData.destination,
+          daysCount: updateRequest.itineraryData.days.length
+        })
+        
+        // 调用新接口更新行程
+        const backendItinerary = await updateJourneyFromFrontendData(backendItineraryId, updateRequest)
         console.log('✅ [Planner ConfirmStep] 步骤 3/4: 行程已保存到后端', {
-          id: backendItineraryId,
-          destination: backendItinerary.destination
+          id: backendItinerary.id,
+          destination: backendItinerary.destination,
+          daysCount: backendItinerary.daysCount
         })
         message.success('行程已保存到数据库')
       } else {

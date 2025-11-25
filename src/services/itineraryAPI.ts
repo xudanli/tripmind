@@ -42,12 +42,14 @@ export interface GenerateItineraryResponse {
 }
 
 export interface ItineraryDay {
+  id?: string // 天数ID（可选，后端可能返回）
   day: number
   date: string // YYYY-MM-DD
   activities: Activity[]
 }
 
 export interface Activity {
+  id?: string // 活动ID（可选，后端可能返回）
   time: string // HH:mm
   title: string
   type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
@@ -58,6 +60,9 @@ export interface Activity {
   }
   notes: string
   cost: number
+  details?: {
+    [key: string]: any
+  }
 }
 
 /**
@@ -734,6 +739,68 @@ export interface DeleteItineraryResponse {
 }
 
 /**
+ * 从前端数据格式更新行程请求参数
+ */
+export interface UpdateJourneyFromFrontendDataRequest {
+  itineraryData: {
+    destination: string
+    duration: number
+    budget?: string
+    preferences?: string[] | {
+      interests?: string[]
+      budget?: 'low' | 'medium' | 'high'
+      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+    }
+    travelStyle?: string
+    itinerary?: any[]
+    recommendations?: {
+      accommodation?: string
+      transportation?: string
+      food?: string
+      tips?: string
+      [key: string]: any
+    }
+    days: Array<{
+      day: number
+      date: string // YYYY-MM-DD
+      timeSlots: Array<{
+        time: string // HH:MM
+        title: string
+        activity?: string
+        type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+        coordinates: { lat: number; lng: number }
+        notes?: string
+        details?: {
+          [key: string]: any
+        }
+        cost?: number
+        duration?: number
+      }>
+    }>
+    totalCost?: number
+    summary?: string
+    title: string
+  }
+  tasks?: Array<{
+    title: string
+    completed?: boolean
+    links?: Array<{
+      label: string
+      url: string
+    }>
+  }>
+  startDate?: string // YYYY-MM-DD
+}
+
+/**
+ * 从前端数据格式更新行程响应
+ */
+export interface UpdateJourneyFromFrontendDataResponse {
+  success: boolean
+  data: CreateItineraryResponse['data']
+}
+
+/**
  * 创建行程
  * @param request 请求参数
  * @returns 创建的行程数据
@@ -774,6 +841,38 @@ export async function createItinerary(
       id: apiData.data.id,
       destination: apiData.data.destination
     })
+
+    // 如果请求中包含 days 数据，需要单独调用 days 接口保存
+    if (request.data?.days && request.data.days.length > 0) {
+      try {
+        console.log('[ItineraryAPI] 开始保存行程天数数据...', {
+          journeyId: apiData.data.id,
+          daysCount: request.data.days.length,
+          firstDay: request.data.days[0] ? {
+            day: request.data.days[0].day,
+            date: request.data.days[0].date,
+            activitiesCount: request.data.days[0].activities?.length || 0
+          } : null
+        })
+        await createJourneyDays(apiData.data.id, request.data.days)
+        console.log('[ItineraryAPI] 行程天数数据保存成功')
+      } catch (daysError: any) {
+        console.error('[ItineraryAPI] 保存行程天数失败，但行程已创建:', {
+          error: daysError.message,
+          stack: daysError.stack,
+          journeyId: apiData.data.id,
+          daysCount: request.data.days.length
+        })
+        // 天数保存失败不影响行程创建，但记录详细错误以便调试
+      }
+    } else {
+      console.warn('[ItineraryAPI] 创建行程请求中没有 days 数据，跳过保存天数步骤', {
+        journeyId: apiData.data.id,
+        hasData: !!request.data,
+        hasDays: !!request.data?.days,
+        daysLength: request.data?.days?.length || 0
+      })
+    }
 
     return apiData.data
   } catch (error: any) {
@@ -887,8 +986,27 @@ export async function getItineraryDetail(
 
     console.log('[ItineraryAPI] 获取行程详情成功:', {
       id: apiData.data.id,
-      destination: apiData.data.destination
+      destination: apiData.data.destination,
+      hasDays: !!apiData.data.days && apiData.data.days.length > 0
     })
+
+    // 如果主接口返回的 days 为空或不存在，尝试从 days 接口获取
+    if (!apiData.data.days || apiData.data.days.length === 0) {
+      try {
+        console.log('[ItineraryAPI] 主接口未返回 days 数据，尝试从 days 接口获取...')
+        const days = await getJourneyDays(id)
+        if (days && days.length > 0) {
+          apiData.data.days = days
+          console.log('[ItineraryAPI] 从 days 接口获取成功，共', days.length, '天')
+        }
+      } catch (daysError: any) {
+        console.warn('[ItineraryAPI] 从 days 接口获取失败:', {
+          error: daysError.message,
+          journeyId: id
+        })
+        // days 获取失败不影响主流程，只记录警告
+      }
+    }
 
     return apiData.data
   } catch (error: any) {
@@ -1152,18 +1270,19 @@ export function convertTravelToUpdateRequest(
     }
   }
   
-  // 处理天数
-  if (updates.duration !== undefined) {
+  // 处理天数（避免传递 days=0）
+  if (updates.duration !== undefined && updates.duration > 0) {
     request.days = updates.duration
-  } else if (updates.data?.itineraryData?.days?.length !== undefined) {
+  } else if (updates.data?.itineraryData?.days?.length !== undefined && updates.data.itineraryData.days.length > 0) {
     request.days = updates.data.itineraryData.days.length
-  } else if (updates.data?.days?.length !== undefined) {
+  } else if (updates.data?.days?.length !== undefined && updates.data.days.length > 0) {
     request.days = updates.data.days.length
-  } else if (travel.duration) {
+  } else if (travel.duration && travel.duration > 0) {
     request.days = travel.duration
-  } else if (travel.data?.itineraryData?.days?.length) {
+  } else if (travel.data?.itineraryData?.days?.length && travel.data.itineraryData.days.length > 0) {
     request.days = travel.data.itineraryData.days.length
   }
+  // 如果 days 为 0 或无效，不传递该字段，让后端自动计算
   
   // 处理摘要
   if (updates.description !== undefined) {
@@ -1222,5 +1341,434 @@ export function convertTravelToUpdateRequest(
   if (request.status !== undefined) cleanedRequest.status = request.status
   
   return cleanedRequest
+}
+
+// ==================== Days 相关接口 ====================
+
+/**
+ * 获取行程的所有天数
+ * @param journeyId 行程ID
+ * @returns 天数列表
+ */
+export async function getJourneyDays(
+  journeyId: string
+): Promise<ItineraryDay[]> {
+  const endpoint = `/v1/journeys/${journeyId}/days`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取行程天数:', {
+    url,
+    journeyId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取行程天数失败')
+    }
+
+    console.log('[ItineraryAPI] 获取行程天数成功:', {
+      journeyId,
+      daysCount: apiData.data?.length || 0
+    })
+
+    return apiData.data || []
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取行程天数失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 为行程添加天数
+ * @param journeyId 行程ID
+ * @param days 天数数据
+ * @returns 添加结果
+ */
+export async function createJourneyDays(
+  journeyId: string,
+  days: ItineraryDay[]
+): Promise<ItineraryDay[]> {
+  const endpoint = `/v1/journeys/${journeyId}/days`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 创建行程天数:', {
+    url,
+    journeyId,
+    daysCount: days.length,
+    firstDay: days[0] ? { day: days[0].day, date: days[0].date, activitiesCount: days[0].activities?.length || 0 } : null
+  })
+
+  try {
+    // 【优化】创建前检查重复天数（可选，后端已自动处理，但前端检查可以提供更好的用户体验）
+    let existingDays: ItineraryDay[] = []
+    let uniqueDays = days
+    
+    try {
+      // 尝试获取现有天数，检查重复
+      existingDays = await getJourneyDays(journeyId)
+      const existingDayNumbers = new Set(existingDays.map(d => d.day))
+      const requestedDayNumbers = new Set(days.map(d => d.day))
+      
+      // 找出重复的天数
+      const duplicateDays = days.filter(d => existingDayNumbers.has(d.day))
+      uniqueDays = days.filter(d => !existingDayNumbers.has(d.day))
+      
+      if (duplicateDays.length > 0) {
+        console.warn('[ItineraryAPI] 检测到重复天数，将被后端自动跳过:', {
+          duplicateDays: duplicateDays.map(d => `第 ${d.day} 天`).join(', '),
+          willCreate: uniqueDays.length,
+          willSkip: duplicateDays.length
+        })
+      }
+      
+      // 如果所有天数都重复，直接返回现有天数
+      if (uniqueDays.length === 0 && duplicateDays.length > 0) {
+        console.log('[ItineraryAPI] 所有天数都已存在，返回现有天数')
+        return existingDays.filter(d => requestedDayNumbers.has(d.day))
+      }
+    } catch (checkError: any) {
+      // 如果获取现有天数失败，继续创建（可能是第一次创建）
+      console.log('[ItineraryAPI] 无法获取现有天数（可能是首次创建），继续创建:', checkError.message)
+      uniqueDays = days
+    }
+
+    // 如果没有需要创建的天数，直接返回
+    if (uniqueDays.length === 0) {
+      console.log('[ItineraryAPI] 没有需要创建的新天数')
+      return existingDays.filter(d => days.some(day => day.day === d.day))
+    }
+
+    // 根据 Swagger 文档，POST /v1/journeys/{journeyId}/days 应该接收 days 数组
+    // 尝试两种格式：先尝试直接发送数组，如果失败再尝试包装格式
+    let response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(uniqueDays)
+    })
+
+    // 如果直接发送数组失败，尝试包装格式
+    if (!response.ok && response.status === 400) {
+      console.log('[ItineraryAPI] 直接发送数组失败，尝试包装格式...')
+      const errorText = await response.text()
+      console.log('[ItineraryAPI] 错误响应:', errorText)
+      
+      // 尝试包装格式 { days: [...] }
+      response = await authenticatedFetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ days: uniqueDays })
+      })
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 创建行程天数接口返回错误:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `创建行程天数失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`创建行程天数失败: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+    }
+
+    const apiData = await response.json()
+
+    if (!apiData.success) {
+      console.error('[ItineraryAPI] 创建行程天数接口返回失败:', {
+        success: apiData.success,
+        message: apiData.message,
+        data: apiData.data
+      })
+      throw new Error(apiData.message || '创建行程天数失败')
+    }
+
+    const createdDays = apiData.data || []
+    
+    // 检查是否有天数被跳过（部分创建的情况）
+    const createdDayNumbers = new Set(
+      Array.isArray(createdDays) 
+        ? createdDays.map((d: any) => d.day)
+        : [createdDays.day]
+    )
+    
+    const skippedDays = uniqueDays.filter(d => !createdDayNumbers.has(d.day))
+    
+    if (skippedDays.length > 0) {
+      console.warn('[ItineraryAPI] 部分天数创建失败或被跳过:', {
+        skippedDays: skippedDays.map(d => `第 ${d.day} 天`).join(', '),
+        createdCount: createdDays.length,
+        requestedCount: uniqueDays.length
+      })
+    }
+
+    console.log('[ItineraryAPI] 创建行程天数成功:', {
+      journeyId,
+      createdCount: Array.isArray(createdDays) ? createdDays.length : 1,
+      requestedCount: uniqueDays.length,
+      skippedCount: skippedDays.length
+    })
+    
+    // 返回所有创建的天数（包括后端返回的）
+    return Array.isArray(createdDays) ? createdDays : [createdDays]
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 创建行程天数失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 从前端数据格式更新行程请求参数
+ */
+export interface UpdateJourneyFromFrontendDataRequest {
+  itineraryData: {
+    destination: string
+    duration: number
+    budget?: string
+    preferences?: string[] | {
+      interests?: string[]
+      budget?: 'low' | 'medium' | 'high'
+      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+    }
+    travelStyle?: string
+    itinerary?: any[]
+    recommendations?: {
+      accommodation?: string
+      transportation?: string
+      food?: string
+      tips?: string
+      [key: string]: any
+    }
+    days: Array<{
+      day: number
+      date: string // YYYY-MM-DD
+      timeSlots: Array<{
+        time: string // HH:MM
+        title: string
+        activity?: string
+        type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+        coordinates: { lat: number; lng: number }
+        notes?: string
+        details?: {
+          [key: string]: any
+        }
+        cost?: number
+        duration?: number
+      }>
+    }>
+    totalCost?: number
+    summary?: string
+    title: string
+  }
+  tasks?: Array<{
+    title: string
+    completed?: boolean
+    links?: Array<{
+      label: string
+      url: string
+    }>
+  }>
+  startDate?: string // YYYY-MM-DD
+}
+
+/**
+ * 从前端数据格式更新行程响应
+ */
+export interface UpdateJourneyFromFrontendDataResponse {
+  success: boolean
+  data: CreateItineraryResponse['data']
+}
+
+/**
+ * 从前端数据格式更新行程
+ * @param journeyId 行程ID
+ * @param request 请求参数（前端数据格式）
+ * @returns 更新后的行程数据
+ */
+export async function updateJourneyFromFrontendData(
+  journeyId: string,
+  request: UpdateJourneyFromFrontendDataRequest
+): Promise<UpdateJourneyFromFrontendDataResponse['data']> {
+  const endpoint = `/v1/journeys/${journeyId}/from-frontend-data`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 从前端数据格式更新行程:', {
+    url,
+    journeyId,
+    destination: request.itineraryData.destination,
+    daysCount: request.itineraryData.days?.length || 0
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: UpdateJourneyFromFrontendDataResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('更新行程失败')
+    }
+
+    console.log('[ItineraryAPI] 从前端数据格式更新行程成功:', {
+      id: apiData.data.id,
+      destination: apiData.data.destination,
+      daysCount: apiData.data.daysCount,
+      hasDays: !!apiData.data.days && apiData.data.days.length > 0,
+      daysLength: apiData.data.days?.length || 0
+    })
+
+    // 如果返回的数据中没有 days 或 days 为空，尝试重新获取详情
+    if (!apiData.data.days || apiData.data.days.length === 0) {
+      console.log('[ItineraryAPI] 更新接口返回的 days 为空，尝试重新获取详情...')
+      try {
+        const fullDetail = await getItineraryDetail(journeyId)
+        console.log('[ItineraryAPI] 重新获取详情成功，days 数量:', fullDetail.days?.length || 0)
+        // 合并返回的数据，确保包含完整的 days
+        return {
+          ...apiData.data,
+          days: fullDetail.days || []
+        }
+      } catch (detailError: any) {
+        console.warn('[ItineraryAPI] 重新获取详情失败，使用更新接口返回的数据:', detailError.message)
+        // 如果重新获取失败，返回原始数据
+        return apiData.data
+      }
+    }
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 从前端数据格式更新行程失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+// ==================== 批量获取活动详情接口 ====================
+
+/**
+ * 批量获取活动详情请求参数
+ */
+export interface BatchGetActivitiesRequest {
+  dayIds?: string[]
+}
+
+/**
+ * 批量获取活动详情响应
+ */
+export interface BatchGetActivitiesResponse {
+  activities: {
+    [dayId: string]: Array<{
+      id: string
+      time: string
+      title: string
+      type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+      duration: number
+      location: {
+        lat: number
+        lng: number
+      }
+      notes: string
+      cost: number
+      details?: {
+        [key: string]: any
+      }
+    }>
+  }
+  totalCount: number
+}
+
+/**
+ * 批量获取活动详情
+ * @param journeyId 行程ID
+ * @param request 请求参数（可选，不传或传空数组则获取整个行程所有天的活动）
+ * @returns 活动详情数据
+ */
+export async function batchGetActivities(
+  journeyId: string,
+  request?: BatchGetActivitiesRequest
+): Promise<BatchGetActivitiesResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/activities/batch`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 批量获取活动详情:', {
+    url,
+    journeyId,
+    dayIds: request?.dayIds || '全部'
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request || {})
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: BatchGetActivitiesResponse = await response.json()
+
+    console.log('[ItineraryAPI] 批量获取活动详情成功:', {
+      journeyId,
+      dayCount: Object.keys(apiData.activities || {}).length,
+      totalCount: apiData.totalCount
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 批量获取活动详情失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
 }
 

@@ -324,7 +324,7 @@ import { useTravelListStore } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
-import { createItinerary, convertFrontendDataToCreateRequest } from '@/services/itineraryAPI'
+import { createItinerary, convertFrontendDataToCreateRequest, updateJourneyFromFrontendData } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 import PlannerDemo from '@/components/TravelDetail/PlannerDemo.vue'
@@ -503,8 +503,8 @@ const handleSubmit = async () => {
     let backendItineraryId: string | undefined
     let backendItinerary: any = undefined
     try {
-      // 将前端数据转换为创建行程的API请求格式
-      const createRequest = convertFrontendDataToCreateRequest(
+      // 先创建一个基础行程，获取 journeyId
+      const baseCreateRequest = convertFrontendDataToCreateRequest(
         itineraryData as any,
         formData.value.destination,
         formData.value.startDate,
@@ -513,19 +513,84 @@ const handleSubmit = async () => {
         'planner' // 模式标识
       )
       
-      console.log('📤 [Planner] 创建行程请求数据:', {
-        destination: createRequest.destination,
-        daysCount: createRequest.days?.length || 0,
-        startDate: createRequest.startDate
+      // 创建一个基础行程（不包含详细的 days 数据）
+      const baseRequest = {
+        destination: baseCreateRequest.destination,
+        startDate: baseCreateRequest.startDate,
+        days: baseCreateRequest.days,
+        preferences: baseCreateRequest.preferences,
+        status: baseCreateRequest.status,
+        data: {
+          days: [], // 先创建空数组，后续用新接口更新
+          totalCost: 0,
+          summary: ''
+        }
+      }
+      
+      console.log('📤 [Planner] 创建基础行程请求数据:', {
+        destination: baseRequest.destination,
+        daysCount: baseRequest.days,
+        startDate: baseRequest.startDate
       })
       
-      // 调用创建行程接口
-      backendItinerary = await createItinerary(createRequest)
-      backendItineraryId = backendItinerary.id
+      // 调用创建行程接口，获取 journeyId
+      const baseJourney = await createItinerary(baseRequest as any)
+      backendItineraryId = baseJourney.id
+      console.log('✅ [Planner] 基础行程已创建，journeyId:', backendItineraryId)
+      
+      // 使用新接口从前端数据格式更新行程
+      // 处理 preferences：优先使用 itineraryData 中的 preferences，否则使用 formData 中的
+      let preferences: string[] | { interests?: string[]; budget?: string; travelStyle?: string } | undefined
+      if ((itineraryData as any).preferences) {
+        if (Array.isArray((itineraryData as any).preferences)) {
+          preferences = (itineraryData as any).preferences
+        } else if (typeof (itineraryData as any).preferences === 'object') {
+          preferences = (itineraryData as any).preferences
+        }
+      } else if (formData.value.preferences) {
+        // 如果 formData 中有 preferences，转换为数组格式（如果后端支持）或对象格式
+        const prefs: string[] = []
+        if (formData.value.preferences.budget) {
+          prefs.push(formData.value.preferences.budget)
+        }
+        if (formData.value.preferences.travelStyle) {
+          prefs.push(formData.value.preferences.travelStyle)
+        }
+        preferences = prefs.length > 0 ? prefs : {
+          budget: formData.value.preferences.budget,
+          travelStyle: formData.value.preferences.travelStyle
+        }
+      }
+      
+      const updateRequest = {
+        itineraryData: {
+          destination: itineraryData.destination,
+          duration: itineraryData.days?.length || formData.value.days,
+          budget: (itineraryData as any).budget || formData.value.preferences?.budget,
+          preferences: preferences,
+          travelStyle: (itineraryData as any).travelStyle || formData.value.preferences?.travelStyle,
+          itinerary: [],
+          recommendations: (itineraryData as any).recommendations || {},
+          days: (itineraryData as any).days || [],
+          totalCost: (itineraryData as any).totalCost || 0,
+          summary: (itineraryData as any).summary || '',
+          title: (itineraryData as any).title || `${formData.value.destination}之旅`
+        },
+        startDate: formData.value.startDate
+      }
+      
+      console.log('📤 [Planner] 从前端数据格式更新行程请求数据:', {
+        journeyId: backendItineraryId,
+        destination: updateRequest.itineraryData.destination,
+        daysCount: updateRequest.itineraryData.days.length
+      })
+      
+      // 调用新接口更新行程
+      backendItinerary = await updateJourneyFromFrontendData(backendItineraryId, updateRequest)
       console.log('✅ [Planner] 步骤 3/4: 行程已保存到后端', {
-        id: backendItineraryId,
+        id: backendItinerary.id,
         destination: backendItinerary.destination,
-        mode: backendItinerary.mode
+        daysCount: backendItinerary.daysCount
       })
       message.success('行程已保存到数据库')
     } catch (err: any) {
@@ -540,58 +605,86 @@ const handleSubmit = async () => {
     // 步骤 4/4: 创建 Travel 对象用于立即显示（最终数据从后端获取）
     console.log('💾 [Planner] 步骤 4/4: 创建 Travel 对象用于显示...')
     
-    // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
-    // 方式1: data.days (直接存储)
-    // 方式2: data.itineraryData.days (嵌套存储)
-    const travelData: any = {
-      // 保存后端行程ID（如果创建成功）
-      backendItineraryId: backendItineraryId,
-      // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
-      days: (itineraryData as any).days || [],
-      destination: itineraryData.destination,
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      totalCost: (itineraryData as any).totalCost || 0,
-      summary: (itineraryData as any).summary || '',
-      // 同时存储为 itineraryData 格式，以兼容其他组件
-      itineraryData: {
+    let newTravel: any = null
+    try {
+      // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
+      // 方式1: data.days (直接存储)
+      // 方式2: data.itineraryData.days (嵌套存储)
+      const travelData: any = {
+        // 保存后端行程ID（如果创建成功）
+        backendItineraryId: backendItineraryId,
+        // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
         days: (itineraryData as any).days || [],
         destination: itineraryData.destination,
         title: (itineraryData as any).title || `${formData.value.destination}之旅`,
         totalCost: (itineraryData as any).totalCost || 0,
         summary: (itineraryData as any).summary || '',
-        duration: itineraryData.duration,
-        budget: itineraryData.budget,
-        preferences: itineraryData.preferences,
-        travelStyle: itineraryData.travelStyle
+        // 同时存储为 itineraryData 格式，以兼容其他组件
+        itineraryData: {
+          days: (itineraryData as any).days || [],
+          destination: itineraryData.destination,
+          title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+          totalCost: (itineraryData as any).totalCost || 0,
+          summary: (itineraryData as any).summary || '',
+          duration: itineraryData.duration,
+          budget: itineraryData.budget,
+          preferences: itineraryData.preferences,
+          travelStyle: itineraryData.travelStyle
+        }
       }
+      
+      // 使用后端返回的 mode（如果存在），否则使用默认值
+      const travelMode = backendItinerary?.mode || 'planner'
+      
+      newTravel = travelListStore.createTravel({
+        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+        location: formData.value.destination,
+        description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
+        mode: travelMode as 'planner' | 'seeker' | 'inspiration',
+        status: 'active',
+        duration: formData.value.days,
+        participants: 1,
+        budget: (itineraryData as any).totalCost || 0,
+        data: travelData // 保存详细的行程数据
+      })
+      console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
+        id: newTravel.id,
+        title: newTravel.title,
+        mode: newTravel.mode,
+        backendItineraryId: backendItineraryId
+      })
+    } catch (travelError: any) {
+      console.error('❌ [Planner] 步骤 4/4: 创建 Travel 失败', {
+        error: travelError.message,
+        stack: travelError.stack
+      })
+      message.warning('创建本地行程失败，但会尝试跳转')
+      // 即使创建失败，也尝试继续（虽然可能无法跳转）
     }
     
-    // 使用后端返回的 mode（如果存在），否则使用默认值
-    const travelMode = backendItinerary?.mode || 'planner'
-    
-    const newTravel = travelListStore.createTravel({
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      location: formData.value.destination,
-      description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
-      mode: travelMode as 'planner' | 'seeker' | 'inspiration',
-      status: 'active',
-      duration: formData.value.days,
-      participants: 1,
-      budget: (itineraryData as any).totalCost || 0,
-      data: travelData // 保存详细的行程数据
-    })
-    console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
-      id: newTravel.id,
-      title: newTravel.title,
-      mode: newTravel.mode,
-      backendItineraryId: backendItineraryId
-    })
-    
-    console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页')
-    message.success('行程生成成功！')
-    
-    // 跳转到旅行详情页
-    router.push(`/travel/${newTravel.id}`)
+    // 确保跳转到详情页
+    if (newTravel && newTravel.id) {
+      console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页', {
+        travelId: newTravel.id,
+        travelTitle: newTravel.title
+      })
+      message.success('行程生成成功！')
+      
+      // 跳转到旅行详情页
+      try {
+        await router.push(`/travel/${newTravel.id}`)
+        console.log('✅ [Planner] 跳转成功')
+      } catch (routerError: any) {
+        console.error('❌ [Planner] 跳转失败', {
+          error: routerError.message,
+          travelId: newTravel.id
+        })
+        message.error('跳转失败，请手动导航到行程详情页')
+      }
+    } else {
+      console.error('❌ [Planner] 无法跳转：Travel 对象创建失败或没有 ID')
+      message.error('行程创建失败，无法跳转到详情页')
+    }
   } catch (err) {
     console.error('❌ [Planner] 生成行程失败:', err)
     message.error('生成行程失败，请重试')

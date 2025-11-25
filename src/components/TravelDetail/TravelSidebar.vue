@@ -79,8 +79,15 @@ const activeKey = ref('discussion')
 // 从 travel 数据获取初始值
 const travel = computed(() => {
   if (props.travelId) {
-    return travelListStore.getTravel(props.travelId)
+    const travelData = travelListStore.getTravel(props.travelId)
+    console.log('[TravelSidebar] 获取 travel 数据:', {
+      travelId: props.travelId,
+      found: !!travelData,
+      hasId: !!travelData?.id
+    })
+    return travelData
   }
+  console.warn('[TravelSidebar] ⚠️ travelId 为空')
   return null
 })
 

@@ -671,6 +671,7 @@ export interface GetItineraryDetailResponse {
   data: {
     id: string
     destination: string
+    destinationId?: string // 目的地ID（UUID），可选，用于获取天气等信息
     startDate: string
     daysCount: number
     summary: string
@@ -1396,7 +1397,89 @@ export async function getJourneyDays(
 }
 
 /**
- * 为行程添加天数
+ * 为行程添加单个天数
+ * @param journeyId 行程ID
+ * @param dayData 天数数据（包含 day 和 date）
+ * @returns 创建后的天数对象
+ */
+export interface AddDayToJourneyRequest {
+  day: number
+  date: string // YYYY-MM-DD
+}
+
+export interface AddDayToJourneyResponse {
+  id: string
+  day: number
+  date: string
+  activities: Activity[]
+}
+
+export async function addDayToJourney(
+  journeyId: string,
+  dayData: AddDayToJourneyRequest
+): Promise<AddDayToJourneyResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 为行程添加天数:', {
+    url,
+    journeyId,
+    day: dayData.day,
+    date: dayData.date
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(dayData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 添加天数失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `添加天数失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`添加天数失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const day = await response.json()
+
+    console.log('[ItineraryAPI] 添加天数成功:', {
+      journeyId,
+      dayId: day.id,
+      day: day.day,
+      date: day.date,
+      activitiesCount: day.activities?.length || 0
+    })
+
+    return day
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 添加天数失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayData
+    })
+    throw error
+  }
+}
+
+/**
+ * 为行程添加天数（批量）
  * @param journeyId 行程ID
  * @param days 天数数据
  * @returns 添加结果
@@ -1542,6 +1625,762 @@ export async function createJourneyDays(
       error: error.message,
       stack: error.stack,
       url
+    })
+    throw error
+  }
+}
+
+/**
+ * 删除指定天数
+ * @param journeyId 行程ID
+ * @param dayId 天数ID
+ * @returns 删除结果
+ */
+export interface DeleteDayResponse {
+  success: boolean
+  message: string
+}
+
+export async function deleteDay(
+  journeyId: string,
+  dayId: string
+): Promise<DeleteDayResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days/${dayId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 删除天数:', {
+    url,
+    journeyId,
+    dayId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 删除天数失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `删除天数失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`删除天数失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result = await response.json()
+
+    console.log('[ItineraryAPI] 删除天数成功:', {
+      journeyId,
+      dayId,
+      message: result.message
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 删除天数失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayId
+    })
+    throw error
+  }
+}
+
+// ==================== Slots (Activities) 相关接口 ====================
+
+/**
+ * 为指定天数添加时间段（活动）
+ * @param journeyId 行程ID
+ * @param dayId 天数ID
+ * @param slotData 时间段数据
+ * @returns 创建后的活动对象
+ */
+export interface AddSlotToDayRequest {
+  time: string // HH:MM
+  title: string
+  type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+  duration: number // 分钟
+  location: { lat: number; lng: number }
+  notes?: string
+  cost?: number
+}
+
+export interface AddSlotToDayResponse {
+  id: string
+  time: string
+  title: string
+  type: string
+  duration: number
+  location: { lat: number; lng: number }
+  notes: string
+  cost: number
+}
+
+export async function addSlotToDay(
+  journeyId: string,
+  dayId: string,
+  slotData: AddSlotToDayRequest
+): Promise<AddSlotToDayResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days/${dayId}/slots`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 为天数添加时间段:', {
+    url,
+    journeyId,
+    dayId,
+    time: slotData.time,
+    title: slotData.title,
+    type: slotData.type
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(slotData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 添加时间段失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `添加时间段失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`添加时间段失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const activity = await response.json()
+
+    console.log('[ItineraryAPI] 添加时间段成功:', {
+      journeyId,
+      dayId,
+      activityId: activity.id,
+      title: activity.title
+    })
+
+    return activity
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 添加时间段失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayId,
+      slotData
+    })
+    throw error
+  }
+}
+
+/**
+ * 更新指定时间段（活动）
+ * @param journeyId 行程ID
+ * @param dayId 天数ID
+ * @param slotId 活动ID
+ * @param updateData 更新数据（所有字段都是可选的）
+ * @returns 更新后的活动对象
+ */
+export interface UpdateSlotRequest {
+  time?: string // HH:MM
+  title?: string
+  type?: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+  duration?: number // 分钟
+  location?: { lat: number; lng: number }
+  notes?: string
+  cost?: number
+}
+
+export interface UpdateSlotResponse {
+  id: string
+  time: string
+  title: string
+  type: string
+  duration: number
+  location: { lat: number; lng: number }
+  notes: string
+  cost: number
+}
+
+export async function updateSlot(
+  journeyId: string,
+  dayId: string,
+  slotId: string,
+  updateData: UpdateSlotRequest
+): Promise<UpdateSlotResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days/${dayId}/slots/${slotId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 更新时间段:', {
+    url,
+    journeyId,
+    dayId,
+    slotId,
+    updateFields: Object.keys(updateData)
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updateData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 更新时间段失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `更新时间段失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`更新时间段失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const activity = await response.json()
+
+    console.log('[ItineraryAPI] 更新时间段成功:', {
+      journeyId,
+      dayId,
+      slotId,
+      activityId: activity.id
+    })
+
+    return activity
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 更新时间段失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayId,
+      slotId,
+      updateData
+    })
+    throw error
+  }
+}
+
+/**
+ * 删除指定时间段（活动）
+ * @param journeyId 行程ID
+ * @param dayId 天数ID
+ * @param slotId 活动ID
+ * @returns 删除结果
+ */
+export interface DeleteSlotResponse {
+  success: boolean
+  message: string
+}
+
+export async function deleteSlot(
+  journeyId: string,
+  dayId: string,
+  slotId: string
+): Promise<DeleteSlotResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days/${dayId}/slots/${slotId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 删除时间段:', {
+    url,
+    journeyId,
+    dayId,
+    slotId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 删除时间段失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `删除时间段失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`删除时间段失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result = await response.json()
+
+    console.log('[ItineraryAPI] 删除时间段成功:', {
+      journeyId,
+      dayId,
+      slotId,
+      message: result.message
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 删除时间段失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayId,
+      slotId
+    })
+    throw error
+  }
+}
+
+// ==================== Expenses (支出) 相关接口 ====================
+
+/**
+ * 支出记录
+ */
+export interface Expense {
+  id: string
+  title: string
+  amount: number
+  currencyCode: string
+  category: '交通' | '住宿' | '餐饮' | '景点' | '购物' | '其他'
+  location?: string
+  payerId?: string
+  payerName?: string
+  splitType: 'none' | 'equal' | 'custom'
+  splitDetails?: { [memberId: string]: number } | null
+  date: string // YYYY-MM-DD
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * 获取支出列表查询参数
+ */
+export interface GetExpensesQueryParams {
+  category?: '交通' | '住宿' | '餐饮' | '景点' | '购物' | '其他'
+  startDate?: string // YYYY-MM-DD
+  endDate?: string // YYYY-MM-DD
+  payerId?: string
+}
+
+/**
+ * 获取支出列表响应
+ */
+export interface GetExpensesResponse {
+  success: boolean
+  data: Expense[]
+  total: number
+}
+
+/**
+ * 获取支出列表
+ * @param journeyId 行程ID
+ * @param queryParams 查询参数（可选）
+ * @returns 支出列表和总金额
+ */
+export async function getExpenses(
+  journeyId: string,
+  queryParams?: GetExpensesQueryParams
+): Promise<GetExpensesResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/expenses`
+  let url = buildUrl(endpoint)
+
+  // 构建查询参数
+  if (queryParams) {
+    const params = new URLSearchParams()
+    if (queryParams.category) params.append('category', queryParams.category)
+    if (queryParams.startDate) params.append('startDate', queryParams.startDate)
+    if (queryParams.endDate) params.append('endDate', queryParams.endDate)
+    if (queryParams.payerId) params.append('payerId', queryParams.payerId)
+    
+    const queryString = params.toString()
+    if (queryString) {
+      url += `?${queryString}`
+    }
+  }
+
+  console.log('[ItineraryAPI] 获取支出列表:', {
+    url,
+    journeyId,
+    queryParams
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GetExpensesResponse = await response.json()
+
+    console.log('[ItineraryAPI] 获取支出列表成功:', {
+      journeyId,
+      count: result.data?.length || 0,
+      total: result.total
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取支出列表失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+/**
+ * 创建支出请求参数
+ */
+export interface CreateExpenseRequest {
+  title: string
+  amount: number
+  currencyCode?: string // 默认 'USD'
+  category?: '交通' | '住宿' | '餐饮' | '景点' | '购物' | '其他'
+  location?: string
+  payerId?: string
+  payerName?: string
+  splitType?: 'none' | 'equal' | 'custom' // 默认 'none'
+  splitDetails?: { [memberId: string]: number } | null
+  date?: string // YYYY-MM-DD，默认今天
+  notes?: string
+}
+
+/**
+ * 创建支出响应
+ */
+export interface CreateExpenseResponse {
+  success: boolean
+  data: Expense
+  message: string
+}
+
+/**
+ * 创建支出
+ * @param journeyId 行程ID
+ * @param expenseData 支出数据
+ * @returns 创建的支出记录
+ */
+export async function createExpense(
+  journeyId: string,
+  expenseData: CreateExpenseRequest
+): Promise<Expense> {
+  const endpoint = `/v1/journeys/${journeyId}/expenses`
+  const url = buildUrl(endpoint)
+
+  // 清理数据：确保类型正确，移除空值
+  const cleanedData: any = {
+    title: expenseData.title,
+    amount: typeof expenseData.amount === 'number' ? expenseData.amount : Number(expenseData.amount)
+  }
+  
+  if (expenseData.currencyCode) cleanedData.currencyCode = expenseData.currencyCode
+  if (expenseData.category) cleanedData.category = expenseData.category
+  if (expenseData.location) cleanedData.location = expenseData.location
+  
+  // 处理付款人信息：如果 payerId 是临时生成的（不是有效的UUID），只发送 payerName
+  if (expenseData.payerId) {
+    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expenseData.payerId)
+    if (isValidUUID) {
+      cleanedData.payerId = expenseData.payerId
+    }
+  }
+  if (expenseData.payerName) cleanedData.payerName = expenseData.payerName
+  if (expenseData.splitType && expenseData.splitType !== 'none') {
+    cleanedData.splitType = expenseData.splitType
+    if (expenseData.splitType === 'custom' && expenseData.splitDetails) {
+      // 确保 splitDetails 中的值都是数字类型
+      const cleanedSplitDetails: { [key: string]: number } = {}
+      for (const [key, value] of Object.entries(expenseData.splitDetails)) {
+        if (value !== null && value !== undefined) {
+          cleanedSplitDetails[key] = typeof value === 'number' ? value : Number(value)
+        }
+      }
+      if (Object.keys(cleanedSplitDetails).length > 0) {
+        cleanedData.splitDetails = cleanedSplitDetails
+      }
+    }
+  }
+  if (expenseData.date) cleanedData.date = expenseData.date
+  if (expenseData.notes) cleanedData.notes = expenseData.notes
+
+  console.log('[ItineraryAPI] 创建支出:', {
+    url,
+    journeyId,
+    requestData: cleanedData,
+    originalData: expenseData
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(cleanedData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 创建支出失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        const errorMessage = Array.isArray(errorData.message) 
+          ? errorData.message.join(', ')
+          : errorData.message
+        throw new Error(errorMessage || `创建支出失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`创建支出失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: CreateExpenseResponse = await response.json()
+
+    console.log('[ItineraryAPI] 创建支出成功:', {
+      journeyId,
+      expenseId: result.data.id,
+      title: result.data.title,
+      amount: result.data.amount
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 创建支出失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      expenseData
+    })
+    throw error
+  }
+}
+
+/**
+ * 更新支出请求参数（所有字段都是可选的）
+ */
+export interface UpdateExpenseRequest {
+  title?: string
+  amount?: number
+  currencyCode?: string
+  category?: '交通' | '住宿' | '餐饮' | '景点' | '购物' | '其他'
+  location?: string
+  payerId?: string
+  payerName?: string
+  splitType?: 'none' | 'equal' | 'custom'
+  splitDetails?: { [memberId: string]: number } | null
+  date?: string // YYYY-MM-DD
+  notes?: string
+}
+
+/**
+ * 更新支出响应
+ */
+export interface UpdateExpenseResponse {
+  success: boolean
+  data: Expense
+  message: string
+}
+
+/**
+ * 更新支出
+ * @param journeyId 行程ID
+ * @param expenseId 支出ID
+ * @param updateData 更新数据（所有字段都是可选的）
+ * @returns 更新后的支出记录
+ */
+export async function updateExpense(
+  journeyId: string,
+  expenseId: string,
+  updateData: UpdateExpenseRequest
+): Promise<Expense> {
+  const endpoint = `/v1/journeys/${journeyId}/expenses/${expenseId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 更新支出:', {
+    url,
+    journeyId,
+    expenseId,
+    updateFields: Object.keys(updateData)
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updateData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 更新支出失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        const errorMessage = Array.isArray(errorData.message) 
+          ? errorData.message.join(', ')
+          : errorData.message
+        throw new Error(errorMessage || `更新支出失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`更新支出失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: UpdateExpenseResponse = await response.json()
+
+    console.log('[ItineraryAPI] 更新支出成功:', {
+      journeyId,
+      expenseId,
+      title: result.data.title,
+      amount: result.data.amount
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 更新支出失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      expenseId,
+      updateData
+    })
+    throw error
+  }
+}
+
+/**
+ * 删除支出响应
+ */
+export interface DeleteExpenseResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * 删除支出
+ * @param journeyId 行程ID
+ * @param expenseId 支出ID
+ * @returns 删除结果
+ */
+export async function deleteExpense(
+  journeyId: string,
+  expenseId: string
+): Promise<DeleteExpenseResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/expenses/${expenseId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 删除支出:', {
+    url,
+    journeyId,
+    expenseId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 删除支出失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `删除支出失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`删除支出失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: DeleteExpenseResponse = await response.json()
+
+    console.log('[ItineraryAPI] 删除支出成功:', {
+      journeyId,
+      expenseId,
+      message: result.message
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 删除支出失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      expenseId
     })
     throw error
   }
@@ -1767,6 +2606,425 @@ export async function batchGetActivities(
       stack: error.stack,
       url,
       journeyId
+    })
+    throw error
+  }
+}
+
+// ==================== Members (成员) 相关接口 ====================
+
+/**
+ * 成员信息
+ */
+export interface Member {
+  id: string
+  name: string
+  email?: string
+  role: 'owner' | 'admin' | 'member'
+  userId?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * 获取成员列表响应
+ */
+export interface GetMembersResponse {
+  success: boolean
+  data: Member[]
+}
+
+/**
+ * 获取成员列表
+ * @param journeyId 行程ID
+ * @returns 成员列表
+ */
+export async function getMembers(
+  journeyId: string
+): Promise<Member[]> {
+  const endpoint = `/v1/journeys/${journeyId}/members`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取成员列表:', {
+    url,
+    journeyId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GetMembersResponse = await response.json()
+
+    console.log('[ItineraryAPI] 获取成员列表成功:', {
+      journeyId,
+      count: result.data?.length || 0
+    })
+
+    return result.data || []
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取成员列表失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+/**
+ * 邀请成员请求参数
+ */
+export interface InviteMemberRequest {
+  email: string
+  role?: 'member' | 'admin' // 默认 'member'
+  message?: string // 最多500字符
+}
+
+/**
+ * 邀请成员响应
+ */
+export interface InviteMemberResponse {
+  success: boolean
+  message: string
+  data: {
+    id: string
+    email: string
+    role: string
+    status: 'pending'
+    expiresAt: string
+  }
+}
+
+/**
+ * 邀请成员
+ * @param journeyId 行程ID
+ * @param inviteData 邀请数据
+ * @returns 邀请信息
+ */
+export async function inviteMember(
+  journeyId: string,
+  inviteData: InviteMemberRequest
+): Promise<InviteMemberResponse['data']> {
+  const endpoint = `/v1/journeys/${journeyId}/members/invite`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 邀请成员:', {
+    url,
+    journeyId,
+    email: inviteData.email,
+    role: inviteData.role
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(inviteData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 邀请成员失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        const errorMessage = Array.isArray(errorData.message) 
+          ? errorData.message.join(', ')
+          : errorData.message
+        throw new Error(errorMessage || `邀请成员失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`邀请成员失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: InviteMemberResponse = await response.json()
+
+    console.log('[ItineraryAPI] 邀请成员成功:', {
+      journeyId,
+      invitationId: result.data.id,
+      email: result.data.email
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 邀请成员失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      inviteData
+    })
+    throw error
+  }
+}
+
+/**
+ * 添加成员请求参数
+ */
+export interface AddMemberRequest {
+  name: string
+  email?: string
+  role?: 'member' | 'admin' // 默认 'member'
+  userId?: string
+}
+
+/**
+ * 添加成员响应
+ */
+export interface AddMemberResponse {
+  success: boolean
+  message: string
+  data: Member
+}
+
+/**
+ * 添加成员
+ * @param journeyId 行程ID
+ * @param memberData 成员数据
+ * @returns 创建的成员信息
+ */
+export async function addMember(
+  journeyId: string,
+  memberData: AddMemberRequest
+): Promise<Member> {
+  const endpoint = `/v1/journeys/${journeyId}/members`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 添加成员:', {
+    url,
+    journeyId,
+    name: memberData.name,
+    email: memberData.email,
+    role: memberData.role
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(memberData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 添加成员失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        const errorMessage = Array.isArray(errorData.message) 
+          ? errorData.message.join(', ')
+          : errorData.message
+        throw new Error(errorMessage || `添加成员失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`添加成员失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: AddMemberResponse = await response.json()
+
+    console.log('[ItineraryAPI] 添加成员成功:', {
+      journeyId,
+      memberId: result.data.id,
+      name: result.data.name
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 添加成员失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      memberData
+    })
+    throw error
+  }
+}
+
+/**
+ * 更新成员请求参数（所有字段都是可选的）
+ */
+export interface UpdateMemberRequest {
+  name?: string
+  role?: 'admin' | 'member'
+  email?: string
+}
+
+/**
+ * 更新成员响应
+ */
+export interface UpdateMemberResponse {
+  success: boolean
+  message: string
+  data: Member
+}
+
+/**
+ * 更新成员信息
+ * @param journeyId 行程ID
+ * @param memberId 成员ID
+ * @param updateData 更新数据（所有字段都是可选的）
+ * @returns 更新后的成员信息
+ */
+export async function updateMember(
+  journeyId: string,
+  memberId: string,
+  updateData: UpdateMemberRequest
+): Promise<Member> {
+  const endpoint = `/v1/journeys/${journeyId}/members/${memberId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 更新成员信息:', {
+    url,
+    journeyId,
+    memberId,
+    updateFields: Object.keys(updateData)
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updateData)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 更新成员信息失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        const errorMessage = Array.isArray(errorData.message) 
+          ? errorData.message.join(', ')
+          : errorData.message
+        throw new Error(errorMessage || `更新成员信息失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`更新成员信息失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: UpdateMemberResponse = await response.json()
+
+    console.log('[ItineraryAPI] 更新成员信息成功:', {
+      journeyId,
+      memberId,
+      name: result.data.name,
+      role: result.data.role
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 更新成员信息失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      memberId,
+      updateData
+    })
+    throw error
+  }
+}
+
+/**
+ * 移除成员响应
+ */
+export interface RemoveMemberResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * 移除成员
+ * @param journeyId 行程ID
+ * @param memberId 成员ID
+ * @returns 删除结果
+ */
+export async function removeMember(
+  journeyId: string,
+  memberId: string
+): Promise<RemoveMemberResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/members/${memberId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 移除成员:', {
+    url,
+    journeyId,
+    memberId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 移除成员失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `移除成员失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`移除成员失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: RemoveMemberResponse = await response.json()
+
+    console.log('[ItineraryAPI] 移除成员成功:', {
+      journeyId,
+      memberId,
+      message: result.message
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 移除成员失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      memberId
     })
     throw error
   }

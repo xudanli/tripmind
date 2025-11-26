@@ -236,7 +236,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useTravelListStore } from '@/stores/travelList'
-import { message } from 'ant-design-vue'
+import { useUserStore } from '@/stores/user'
+import { message, Modal } from 'ant-design-vue'
 import {
   UserAddOutlined,
   MoreOutlined,
@@ -246,9 +247,11 @@ import {
 } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { getMembers, inviteMember, addMember, updateMember, removeMember as removeMemberAPI, type Member as APIMember } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 const travelListStore = useTravelListStore()
+const userStore = useUserStore()
 
 interface Props {
   travelId?: string
@@ -266,6 +269,9 @@ interface Member {
   tasksCount: number
   totalCost: number
   color: string
+  userId?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 interface Task {
@@ -332,27 +338,84 @@ const costSplitForm = ref({
 })
 
 // 加载成员数据
-const loadMembers = () => {
+const loadMembers = async () => {
   if (!props.travelId) {
     members.value = []
     return
   }
   
   const travel = travelListStore.getTravel(props.travelId)
-  const storedMembers = travel?.data?.members || []
+  const backendItineraryId = travel?.data?.backendItineraryId
   
-  if (storedMembers.length > 0) {
-    // 从store加载成员信息，并计算任务数和成本
+  if (!backendItineraryId) {
+    console.warn('[MemberManagement] 未找到 backendItineraryId，无法加载成员数据')
+    members.value = []
+    return
+  }
+  
+  try {
+    console.log('[MemberManagement] 从后端加载成员数据:', backendItineraryId)
+    let apiMembers = await getMembers(backendItineraryId)
+    
+    // 检查是否已有 owner 角色成员
+    const hasOwner = apiMembers.some(m => m.role === 'owner')
+    
+    // 如果后端返回空列表或没有 owner，确保至少包含创建者（owner）
+    if (apiMembers.length === 0 || !hasOwner) {
+      console.log('[MemberManagement] 后端成员列表为空或缺少 owner，添加创建者')
+      const currentUser = userStore.user
+      if (currentUser) {
+        // 生成临时成员ID（基于行程ID和用户ID）
+        const ownerId = `owner_${backendItineraryId}_${currentUser.id || 'default'}`
+        const ownerMember: APIMember = {
+          id: ownerId,
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner' as const,
+          userId: currentUser.id,
+          createdAt: travel?.createdAt || new Date().toISOString(),
+          updatedAt: travel?.updatedAt || new Date().toISOString()
+        }
+        
+        // 如果列表为空，直接添加；如果已有成员但缺少 owner，添加到开头
+        if (apiMembers.length === 0) {
+          apiMembers = [ownerMember]
+        } else {
+          apiMembers.unshift(ownerMember)
+        }
+      }
+    }
+    
+    // 计算任务数和成本
     const existingTasks = travel?.data?.tasks || []
-    members.value = storedMembers.map((member: any) => {
+    
+    // 生成颜色（基于成员ID）
+    const generateColor = (id: string) => {
+      const colors = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96']
+      const index = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length
+      return colors[index]
+    }
+    
+    members.value = apiMembers.map((member: APIMember) => {
       const memberTasks = existingTasks.filter((task: any) => task.assignedTo === member.id)
       return {
-        ...member,
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        role: member.role,
+        userId: member.userId,
         tasksCount: memberTasks.length,
-        totalCost: member.totalCost || 0
+        totalCost: 0, // 成本可以从支出接口计算
+        color: generateColor(member.id),
+        createdAt: member.createdAt,
+        updatedAt: member.updatedAt
       }
     })
-  } else {
+    
+    console.log('[MemberManagement] 从后端加载成员数据成功:', members.value.length)
+  } catch (error: any) {
+    console.error('[MemberManagement] 从后端加载成员数据失败:', error)
+    message.error(error.message || (t('travelDetail.memberLoadFailed') || '加载成员数据失败'))
     members.value = []
   }
 }
@@ -446,9 +509,9 @@ const formatAmount = (amount: number) => {
 }
 
 // 加载数据
-onMounted(() => {
+onMounted(async () => {
   loadTasks()
-  loadMembers()
+  await loadMembers()
   
   // 监听任务列表变化，实时更新可用任务
   if (props.travelId) {
@@ -467,25 +530,50 @@ onMounted(() => {
         availableTasks.value = []
       }
     }, { deep: true, immediate: true })
+    
+    // 监听 travelId 变化，重新加载成员
+    watch(() => props.travelId, async (newId) => {
+      if (newId) {
+        await loadMembers()
+      }
+    })
   }
 })
 
 // 邀请成员
-const handleInvite = () => {
+const handleInvite = async () => {
   if (!inviteForm.value.email) {
     message.warning(t('travelDetail.memberManagement.emailRequired'))
     return
   }
   
-  // TODO: 调用API发送邀请
-  message.success(t('travelDetail.memberManagement.inviteSent'))
-  showInviteModal.value = false
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  const backendItineraryId = travel?.data?.backendItineraryId
   
-  // 重置表单
-  inviteForm.value = {
-    email: '',
-    role: 'member',
-    message: ''
+  if (!backendItineraryId) {
+    message.error(t('travelDetail.noBackendItineraryId') || '无法邀请成员：缺少行程ID')
+    return
+  }
+  
+  try {
+    await inviteMember(backendItineraryId, {
+      email: inviteForm.value.email,
+      role: inviteForm.value.role || 'member',
+      message: inviteForm.value.message
+    })
+    
+    message.success(t('travelDetail.memberManagement.inviteSent') || '邀请已发送')
+    showInviteModal.value = false
+    
+    // 重置表单
+    inviteForm.value = {
+      email: '',
+      role: 'member',
+      message: ''
+    }
+  } catch (error: any) {
+    console.error('[MemberManagement] 邀请成员失败:', error)
+    message.error(error.message || (t('travelDetail.memberInviteFailed') || '邀请成员失败'))
   }
 }
 
@@ -634,31 +722,42 @@ const handleCostSplit = () => {
 
 // 移除成员
 const removeMember = (member: Member) => {
-  if (!props.travelId) {
-    message.error('旅行ID缺失')
-    return
-  }
-  
-  const travel = travelListStore.getTravel(props.travelId)
-  if (!travel) {
-    message.error('旅行数据不存在')
-    return
-  }
-  
-  const index = members.value.findIndex(m => m.id === member.id)
-  if (index > -1) {
-    members.value.splice(index, 1)
-    
-    // 保存到store
-    travelListStore.updateTravel(props.travelId, {
-      data: {
-        ...travel.data,
-        members: members.value
+  Modal.confirm({
+    title: t('travelDetail.confirmRemoveMember') || '确认移除',
+    content: t('travelDetail.confirmRemoveMemberContent') || `确定要移除成员 "${member.name}" 吗？`,
+    okText: t('common.confirm') || '确定',
+    okType: 'danger',
+    cancelText: t('common.cancel') || '取消',
+    onOk: async () => {
+      const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+      const backendItineraryId = travel?.data?.backendItineraryId
+      
+      if (!backendItineraryId) {
+        message.error(t('travelDetail.noBackendItineraryId') || '无法移除成员：缺少行程ID')
+        return
       }
-    })
-    
-    message.success(t('travelDetail.memberManagement.memberRemoved'))
-  }
+      
+      if (!member.id) {
+        message.error(t('travelDetail.memberIdMissing') || '成员ID缺失')
+        return
+      }
+      
+      try {
+        await removeMemberAPI(backendItineraryId, member.id)
+        
+        // 从本地列表中移除
+        const index = members.value.findIndex(m => m.id === member.id)
+        if (index > -1) {
+          members.value.splice(index, 1)
+        }
+        
+        message.success(t('travelDetail.memberManagement.memberRemoved') || '成员已移除')
+      } catch (error: any) {
+        console.error('[MemberManagement] 移除成员失败:', error)
+        message.error(error.message || (t('travelDetail.memberRemoveFailed') || '移除成员失败'))
+      }
+    }
+  })
 }
 </script>
 

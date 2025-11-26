@@ -52,6 +52,27 @@
             </template>
           </DayCard>
         </a-timeline-item>
+        
+        <!-- 添加天数按钮 -->
+        <a-timeline-item v-if="travel?.mode === 'planner' && canAddDay">
+          <template #dot>
+            <plus-outlined :style="{ fontSize: '16px', color: '#1890ff' }" />
+          </template>
+          <div class="add-day-section">
+            <a-button 
+              type="dashed" 
+              size="large"
+              class="add-day-btn"
+              @click="handleAddDay"
+              :loading="addingDay"
+            >
+              <template #icon>
+                <plus-outlined />
+              </template>
+              {{ t('travelDetail.addNewDay') || t('travelDetail.experienceDay.addNewDay') || '添加新天数' }}
+            </a-button>
+          </div>
+        </a-timeline-item>
       </a-timeline>
     </section>
 
@@ -247,11 +268,11 @@
                 :placeholder="t('travelDetail.experienceDay.cost')"
                 style="width: 100%"
               >
-                <template #addonBefore>{{ editingSlot ? getSlotCurrency(getCurrentSlot()).symbol : getOverallCurrency().symbol }}</template>
+                <template #addonBefore>{{ editingSlot ? (getCurrentSlot() ? getSlotCurrency(getCurrentSlot()).symbol : getOverallCurrency().symbol) : getOverallCurrency().symbol }}</template>
               </a-input-number>
               <div class="form-item-hint" style="margin-top: 4px; font-size: 12px; color: #999;">
                 {{ editingSlot ? 
-                  `${t('travelDetail.currencyHint') || '使用'}${getSlotCurrency(getCurrentSlot()).name}${t('travelDetail.record') || '记录'}` :
+                  (getCurrentSlot() ? `${t('travelDetail.currencyHint') || '使用'}${getSlotCurrency(getCurrentSlot()).name}${t('travelDetail.record') || '记录'}` : `${t('travelDetail.currencyHint') || '使用'}${getOverallCurrency().name}${t('travelDetail.record') || '记录'}`) :
                   `${t('travelDetail.currencyHint') || '使用'}${getOverallCurrency().name}${t('travelDetail.record') || '记录'}` 
                 }}
               </div>
@@ -599,7 +620,7 @@
 import { computed, ref, h, watch, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useTravelListStore } from '@/stores/travelList'
+// 不再使用 travelListStore，数据从 props 接收
 import { CalendarOutlined, EditOutlined, EnvironmentOutlined, DownOutlined, PlusOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, getCurrencyByCode, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { getLocalLanguageForDestination, type LocalLanguageInfo } from '@/utils/localLanguage'
@@ -627,15 +648,24 @@ import { getActivitySummary as formatSlotSummary } from './ExperienceDay/slotFor
 import { buildPreparationTasks } from '@/utils/preparationChecklist'
 import { fetchTransportInsights, type MapboxCoordinates } from '@/services/locationInsights'
 import { TRANSPORT_MODE_OPTIONS, normalizeTransportModes } from '@/utils/transportModes'
+import { addDayToJourney } from '@/services/itineraryAPI'
+import dayjs from 'dayjs'
 
 const transportModeOptions = TRANSPORT_MODE_OPTIONS
 
 const route = useRoute()
 const { t, locale } = useI18n()
-const travelListStore = useTravelListStore()
+// 基础数据 - 从 props 接收，不使用本地 store
+const props = defineProps<{
+  travel?: Travel | null
+}>()
 
-// 基础数据
-const travel = computed(() => travelListStore.getTravel(route.params.id as string))
+const emit = defineEmits<{
+  update: [travel: Travel]
+  refresh: []
+}>()
+
+const travel = computed(() => props.travel)
 
 // 检查数据是否为行程计划格式（有days数组）
 const itineraryData = computed(() => {
@@ -873,7 +903,29 @@ const itineraryDays = computed(() => {
     return []
   }
   
-  const days = itineraryData.value.days.map((day: any) => {
+  // 去重：按 day 和 id 去重，优先保留有 id 的
+  const dayMap = new Map<string | number, any>()
+  itineraryData.value.days.forEach((day: any) => {
+    const key = day.day || day.id
+    if (key) {
+      // 如果已存在，优先保留有 id 的，或者保留第一个
+      const existing = dayMap.get(key)
+      if (!existing || (day.id && !existing.id)) {
+        dayMap.set(key, day)
+      }
+    }
+  })
+  
+  const uniqueDays = Array.from(dayMap.values())
+  
+  // 按 day 排序
+  uniqueDays.sort((a: any, b: any) => {
+    const dayA = a.day || 0
+    const dayB = b.day || 0
+    return dayA - dayB
+  })
+  
+  const days = uniqueDays.map((day: any) => {
     // 确保 timeSlots 存在
     const timeSlots = day.timeSlots || day.activities || []
     console.log(`📅 [ExperienceDay] Day ${day.day}: ${timeSlots.length} 个活动`)
@@ -896,7 +948,7 @@ const itineraryDays = computed(() => {
     }
   })
   
-  console.log(`✅ [ExperienceDay] 总共 ${days.length} 天，${days.reduce((sum, d) => sum + d.timeSlots.length, 0)} 个活动`)
+  console.log(`✅ [ExperienceDay] 总共 ${days.length} 天（已去重），${days.reduce((sum, d) => sum + d.timeSlots.length, 0)} 个活动`)
   return days
 })
 
@@ -1122,10 +1174,13 @@ const setAsCover = async () => {
         // 更新数组中的 slot
         days[day].timeSlots[slotIndex] = targetSlot
         
-        // 保存到 store
-        travelListStore.updateTravel(travel.value.id, {
-          data: updatedData
-        })
+        // 通知父组件更新（不使用本地 store）
+        if (travel.value) {
+          emit('update', {
+            ...travel.value,
+            data: updatedData
+          })
+        }
         
         // 等待响应式更新完成
         await nextTick()
@@ -1302,13 +1357,13 @@ const ensurePreparationTasks = () => {
     return
   }
 
-  const travelEntry = travelListStore.getTravel(travelId)
-  if (!travelEntry) {
+  // 不使用 store，直接使用 props.travel
+  if (!travel.value || travel.value.id !== travelId) {
     return
   }
 
-  const existingTasks: any[] = Array.isArray(travelEntry.data?.tasks)
-    ? [...travelEntry.data.tasks]
+  const existingTasks: any[] = Array.isArray(travel.value.data?.tasks)
+    ? [...travel.value.data.tasks]
     : []
   const existingKeys = new Set(
     existingTasks
@@ -1359,12 +1414,19 @@ const ensurePreparationTasks = () => {
   }))
 
   if (preparedTasks.length || tasksUpdated) {
+    // 不使用 store，直接使用 props.travel
+    if (!travel.value || travel.value.id !== travelId) {
+      return
+    }
+
     const updatedData = {
-      ...travelEntry.data,
+      ...travel.value.data,
       tasks: [...preparedTasks, ...existingTasks],
     }
 
-    travelListStore.updateTravel(travelId, {
+    // 通知父组件更新（不使用本地 store）
+    emit('update', {
+      ...travel.value,
       data: updatedData,
     })
   }
@@ -1459,6 +1521,11 @@ const resolveCurrencyByCode = (code: unknown): CurrencyInfo | null => {
 }
 
 const getSlotCurrency = (slot: any): CurrencyInfo => {
+  // 如果 slot 为 null 或 undefined，返回默认货币
+  if (!slot) {
+    return getOverallCurrency()
+  }
+  
   // 0. 如果有明确的币种代码，优先使用
   const explicitCode =
     slot?.costCurrency ||
@@ -2089,10 +2156,14 @@ const handleDeleteSlot = (day: number, slotIndex: number) => {
 
       await recalculateTransportAfterChange(dayIndex, slotIndex)
       
-      // 保存到 store
+      // 通知父组件更新（不使用本地 store）
       if (travel.value) {
-        travelListStore.updateTravel(travel.value.id, {
-          data: itineraryData.value,
+        emit('update', {
+          ...travel.value,
+          data: {
+            ...travel.value.data,
+            itineraryData: itineraryData.value
+          }
         })
         message.success(t('travelDetail.experienceDay.deleteSuccess') || '活动已删除')
       }
@@ -2246,6 +2317,10 @@ const getSlotCoords = (slot: any): MapboxCoordinates | null => {
   return null
 }
 
+// 添加活动（新增模式标志）
+const isAddingNewSlot = ref(false)
+const newSlotInsertInfo = ref<{ day: number; insertIndex: number } | null>(null)
+
 // 添加活动
 const handleAddSlot = (day: number, insertIndex: number) => {
   if (!itineraryData.value?.days) {
@@ -2279,7 +2354,7 @@ const handleAddSlot = (day: number, insertIndex: number) => {
     newTime = `${String(nextTime.getHours()).padStart(2, '0')}:${String(nextTime.getMinutes()).padStart(2, '0')}`
   }
   
-  // 创建新活动
+  // 创建新活动（但不插入，等用户点击确定后再插入）
   const newSlot = {
     time: newTime,
     title: t('travelDetail.experienceDay.newActivity') || '新活动',
@@ -2293,19 +2368,13 @@ const handleAddSlot = (day: number, insertIndex: number) => {
     details: {}
   }
   
-  // 插入到指定位置
-  timeSlots.splice(insertIndex, 0, newSlot)
+  // 设置新增模式标志和插入信息
+  isAddingNewSlot.value = true
+  newSlotInsertInfo.value = { day, insertIndex }
   
-  // 保存到 store
-  if (travel.value) {
-    travelListStore.updateTravel(travel.value.id, {
-      data: itineraryData.value,
-    })
-    message.success(t('travelDetail.experienceDay.addSuccess') || '活动已添加')
-    
-    // 自动打开编辑弹窗
-    handleEdit(day, insertIndex, newSlot)
-  }
+  // 使用一个特殊的 slotIndex（-1）表示这是新增模式
+  // 在 handleSaveEdit 中会检查这个标志来决定是插入还是更新
+  handleEdit(day, -1, newSlot)
 }
 
 // 打开搜索模态框
@@ -2438,13 +2507,115 @@ const addPOIToItinerary = (poi: POIResult) => {
   // 插入到当前槽之后
   timeSlots.splice(slotIndex + 1, 0, newSlot)
   
-  // 保存到store
-  travelListStore.updateTravel(route.params.id as string, {
-    ...itineraryData.value
-  })
+  // 通知父组件更新（不使用本地 store）
+  if (travel.value) {
+    emit('update', {
+      ...travel.value,
+      data: {
+        ...travel.value.data,
+        itineraryData: itineraryData.value
+      }
+    })
+  }
   
   message.success('已添加到行程')
   searchModalVisible.value = false
+}
+
+// 添加新天数
+const addingDay = ref(false)
+const canAddDay = computed(() => {
+  if (!travel.value?.data?.backendItineraryId) return false
+  if (travel.value.mode !== 'planner') return false
+  return true
+})
+
+const handleAddDay = async () => {
+  if (!travel.value?.data?.backendItineraryId) {
+    message.error('无法添加：缺少行程ID')
+    return
+  }
+  
+  if (!itineraryData.value?.days) {
+    message.error('无法添加：行程数据不存在')
+    return
+  }
+  
+  const journeyId = travel.value.data.backendItineraryId
+  const currentDays = itineraryData.value.days
+  const maxDay = currentDays.length > 0 
+    ? Math.max(...currentDays.map((d: any) => d.day || 0))
+    : 0
+  const newDayNumber = maxDay + 1
+  
+  // 计算新天数的日期
+  const startDate = travel.value.startDate || travel.value.data?.startDate || itineraryData.value.days[0]?.date
+  let newDate = dayjs().format('YYYY-MM-DD')
+  
+  if (startDate) {
+    const start = dayjs(startDate)
+    newDate = start.add(newDayNumber - 1, 'day').format('YYYY-MM-DD')
+  }
+  
+  addingDay.value = true
+  try {
+    console.log('[ExperienceDay] 添加新天数:', {
+      journeyId,
+      day: newDayNumber,
+      date: newDate
+    })
+    
+    const newDay = await addDayToJourney(journeyId, {
+      day: newDayNumber,
+      date: newDate
+    })
+    
+    console.log('[ExperienceDay] 添加天数成功:', newDay)
+    
+    // 立即更新本地数据，让用户看到新添加的天数
+    if (travel.value && itineraryData.value) {
+      const updatedDays = [...(itineraryData.value.days || [])]
+      
+      // 检查是否已存在（避免重复）
+      const exists = updatedDays.some((d: any) => d.day === newDayNumber || d.id === newDay.id)
+      if (!exists) {
+        updatedDays.push({
+          id: newDay.id,
+          day: newDayNumber,
+          date: newDate,
+          timeSlots: newDay.activities || []
+        })
+        
+        // 按 day 排序
+        updatedDays.sort((a: any, b: any) => (a.day || 0) - (b.day || 0))
+        
+        // 立即更新本地数据
+        emit('update', {
+          ...travel.value,
+          data: {
+            ...travel.value.data,
+            itineraryData: {
+              ...itineraryData.value,
+              days: updatedDays
+            }
+          }
+        })
+        
+        // 等待响应式更新
+        await nextTick()
+      }
+    }
+    
+    message.success(`第 ${newDayNumber} 天已添加`)
+    
+    // 通知父组件从后端重新加载完整数据（确保数据一致性）
+    emit('refresh')
+  } catch (error: any) {
+    console.error('[ExperienceDay] 添加天数失败:', error)
+    message.error(`添加天数失败: ${error.message || '未知错误'}`)
+  } finally {
+    addingDay.value = false
+  }
 }
 
 // 查看POI详情
@@ -2508,6 +2679,9 @@ const viewPOIDetails = (poi: POIResult) => {
 const handleCancelEdit = () => {
   editModalVisible.value = false
   editingSlot.value = null
+  // 重置新增模式标志
+  isAddingNewSlot.value = false
+  newSlotInsertInfo.value = null
   editingData.value = {
     // 基础字段
     time: '',
@@ -2552,20 +2726,57 @@ const handleSaveEdit = async () => {
   const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
   if (dayIndex === -1) return
   
-  const slot = itineraryData.value.days[dayIndex].timeSlots?.[slotIndex]
-  if (!slot) return
+  const timeSlots = itineraryData.value.days[dayIndex].timeSlots || []
   
-  // 更新基础字段
-  slot.time = editingData.value.time
-  slot.title = editingData.value.title
-  slot.activity = editingData.value.activity || editingData.value.title
-  slot.type = editingData.value.type
-  slot.category = editingData.value.category || editingData.value.type
-  slot.duration = editingData.value.duration
-  slot.cost = editingData.value.cost
-  slot.location = editingData.value.location
-  slot.coordinates = editingData.value.coordinates
-  slot.bookingLinks = editingData.value.bookingLinks || []
+  // 检查是否是新增模式
+  let slot: any
+  let finalSlotIndex = slotIndex
+  
+  if (isAddingNewSlot.value && newSlotInsertInfo.value) {
+    // 新增模式：创建新 slot 并插入到指定位置
+    slot = {
+      time: editingData.value.time,
+      title: editingData.value.title,
+      activity: editingData.value.activity || editingData.value.title,
+      type: editingData.value.type,
+      category: editingData.value.category || editingData.value.type,
+      duration: editingData.value.duration,
+      cost: editingData.value.cost,
+      location: editingData.value.location,
+      coordinates: editingData.value.coordinates,
+      bookingLinks: editingData.value.bookingLinks || [],
+      notes: editingData.value.notes || '',
+      details: {}
+    }
+    
+    // 插入到指定位置
+    const insertIndex = newSlotInsertInfo.value.insertIndex
+    timeSlots.splice(insertIndex, 0, slot)
+    finalSlotIndex = insertIndex
+  } else {
+    // 编辑模式：更新现有 slot
+    if (slotIndex < 0 || slotIndex >= timeSlots.length) {
+      console.error('[ExperienceDay] 无效的 slotIndex:', slotIndex)
+      return
+    }
+    slot = timeSlots[slotIndex]
+    if (!slot) {
+      console.error('[ExperienceDay] 找不到 slot，slotIndex:', slotIndex)
+      return
+    }
+    
+    // 更新基础字段
+    slot.time = editingData.value.time
+    slot.title = editingData.value.title
+    slot.activity = editingData.value.activity || editingData.value.title
+    slot.type = editingData.value.type
+    slot.category = editingData.value.category || editingData.value.type
+    slot.duration = editingData.value.duration
+    slot.cost = editingData.value.cost
+    slot.location = editingData.value.location
+    slot.coordinates = editingData.value.coordinates
+    slot.bookingLinks = editingData.value.bookingLinks || []
+  }
 
   // 更新 details 对象
   if (!slot.details) {
@@ -2645,10 +2856,27 @@ const handleSaveEdit = async () => {
   
   // 保存到 store
   if (travel.value) {
-    travelListStore.updateTravel(travel.value.id, {
-      data: itineraryData.value,
+    // 在重置标志前保存状态，用于显示正确的提示消息
+    const wasAdding = isAddingNewSlot.value
+    
+    // 通知父组件更新（不使用本地 store）
+    emit('update', {
+      ...travel.value,
+      data: {
+        ...travel.value.data,
+        itineraryData: itineraryData.value
+      }
     })
-    message.success('活动已更新')
+    
+    // 根据是否是新增模式显示不同的提示
+    if (wasAdding) {
+      message.success(t('travelDetail.experienceDay.addSuccess') || '活动已添加')
+      // 重置新增模式标志（在保存成功后重置）
+      isAddingNewSlot.value = false
+      newSlotInsertInfo.value = null
+    } else {
+      message.success('活动已更新')
+    }
   }
   
   handleCancelEdit()
@@ -5072,6 +5300,26 @@ const getVisaActionTips = (visaType: string): any => {
 
 .itinerary-timeline :deep(.ant-timeline-item) {
   padding-bottom: 32px;
+}
+
+.add-day-section {
+  padding: 16px;
+  text-align: center;
+}
+
+.add-day-btn {
+  width: 100%;
+  max-width: 300px;
+  height: 48px;
+  font-size: 16px;
+  border-style: dashed;
+  border-color: #1890ff;
+  color: #1890ff;
+}
+
+.add-day-btn:hover {
+  border-color: #40a9ff;
+  color: #40a9ff;
 }
 
 .itinerary-timeline :deep(.ant-timeline-item-tail) {

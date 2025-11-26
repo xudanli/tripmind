@@ -8,14 +8,14 @@
     <template #title>
       <span class="weather-card-title">
         <span class="weather-icon">🌤️</span>
-        {{ t('travelDetail.weather.title') }}
+        {{ t('travelDetail.experienceDay.weather.title') || '天气信息' }}
       </span>
     </template>
 
     <!-- 加载状态 -->
     <div v-if="loading" class="weather-loading">
       <a-spin size="small" />
-      <span class="loading-text">{{ t('travelDetail.weather.loading') }}</span>
+      <span class="loading-text">{{ t('travelDetail.experienceDay.weather.loading') || '加载中...' }}</span>
     </div>
 
     <!-- 错误状态 -->
@@ -41,11 +41,11 @@
         </div>
         <div v-if="weather.humidity !== undefined || weather.windSpeed !== undefined" class="weather-details">
           <div v-if="weather.humidity !== undefined" class="weather-detail-item">
-            <span class="detail-label">{{ t('travelDetail.weather.humidity') }}:</span>
+            <span class="detail-label">{{ t('travelDetail.experienceDay.weather.humidity') || '湿度' }}:</span>
             <span class="detail-value">{{ weather.humidity }}%</span>
           </div>
           <div v-if="weather.windSpeed !== undefined" class="weather-detail-item">
-            <span class="detail-label">{{ t('travelDetail.weather.windSpeed') }}:</span>
+            <span class="detail-label">{{ t('travelDetail.experienceDay.weather.windSpeed') || '风速' }}:</span>
             <span class="detail-value">{{ weather.windSpeed }} km/h</span>
           </div>
         </div>
@@ -53,7 +53,7 @@
 
       <!-- 天气预报 -->
       <div v-if="weather.forecast && weather.forecast.length > 0" class="weather-forecast">
-        <div class="forecast-title">{{ t('travelDetail.weather.forecast') }}</div>
+        <div class="forecast-title">{{ t('travelDetail.experienceDay.weather.forecast') || '天气预报' }}</div>
         <div class="forecast-list">
           <div
             v-for="(item, index) in weather.forecast"
@@ -71,7 +71,7 @@
     <!-- 无数据提示 -->
     <div v-else class="weather-empty">
       <a-empty
-        :description="t('travelDetail.weather.unavailable')"
+        :description="props.destinationId ? (t('travelDetail.experienceDay.weather.unavailable') || '天气信息暂不可用') : '需要目的地ID才能获取天气信息'"
         :image="Empty.PRESENTED_IMAGE_SIMPLE"
       />
     </div>
@@ -100,9 +100,9 @@ const loading = ref(false)
 const weather = ref<DestinationWeather | null>(null)
 const error = ref<string | null>(null)
 
-// 是否应该显示组件（有目的地ID时才显示）
+// 是否应该显示组件（始终显示，即使没有目的地ID也显示提示）
 const shouldShow = computed(() => {
-  return !!props.destinationId
+  return true // 始终显示，即使没有 destinationId 也显示提示信息
 })
 
 // 格式化日期
@@ -121,28 +121,43 @@ const formatDate = (dateStr: string): string => {
 
 // 加载天气信息
 const loadWeather = async () => {
+  console.log('[WeatherCard] loadWeather 被调用, destinationId:', props.destinationId)
+  
   if (!props.destinationId) {
+    console.log('[WeatherCard] destinationId 为空，跳过加载')
     error.value = null
     weather.value = null
     return
   }
 
+  console.log('[WeatherCard] 开始加载天气信息, destinationId:', props.destinationId)
   loading.value = true
   error.value = null
 
   try {
     const weatherData = await getDestinationWeather(props.destinationId)
+    console.log('[WeatherCard] 天气数据获取结果:', {
+      hasData: !!weatherData,
+      temperature: weatherData?.temperature,
+      condition: weatherData?.condition
+    })
     
     if (weatherData) {
       weather.value = weatherData
       error.value = null
+      console.log('[WeatherCard] ✅ 天气信息加载成功')
     } else {
-      error.value = t('travelDetail.weather.unavailable')
+      console.warn('[WeatherCard] ⚠️ 天气数据为空')
+      error.value = t('travelDetail.experienceDay.weather.unavailable') || '天气信息暂不可用'
       weather.value = null
     }
   } catch (err: any) {
-    console.error('[WeatherCard] 加载天气信息失败:', err)
-    error.value = t('travelDetail.weather.error') || '获取天气信息失败'
+    console.error('[WeatherCard] ❌ 加载天气信息失败:', {
+      error: err.message,
+      stack: err.stack,
+      destinationId: props.destinationId
+    })
+    error.value = t('travelDetail.experienceDay.weather.error') || '获取天气信息失败'
     weather.value = null
   } finally {
     loading.value = false
@@ -150,10 +165,17 @@ const loadWeather = async () => {
 }
 
 // 监听目的地ID变化
-watch(() => props.destinationId, (newId) => {
+watch(() => props.destinationId, (newId, oldId) => {
+  console.log('[WeatherCard] destinationId 变化:', {
+    oldId,
+    newId,
+    hasNewId: !!newId
+  })
   if (newId) {
+    console.log('[WeatherCard] destinationId 有值，调用 loadWeather')
     loadWeather()
   } else {
+    console.log('[WeatherCard] destinationId 为空，清空天气数据')
     weather.value = null
     error.value = null
   }
@@ -161,8 +183,12 @@ watch(() => props.destinationId, (newId) => {
 
 // 组件挂载时加载
 onMounted(() => {
+  console.log('[WeatherCard] onMounted, destinationId:', props.destinationId)
   if (props.destinationId) {
+    console.log('[WeatherCard] 组件挂载时有 destinationId，调用 loadWeather')
     loadWeather()
+  } else {
+    console.log('[WeatherCard] 组件挂载时没有 destinationId，等待 watch 触发')
   }
 })
 </script>

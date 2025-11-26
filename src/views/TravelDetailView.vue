@@ -22,6 +22,7 @@
     <InspirationHero
       v-if="travel?.mode"
       :travel="travel"
+      @refresh="handleTravelRefresh"
     />
 
     <!-- 主要内容区域：所有模式统一显示 -->
@@ -43,7 +44,7 @@
       >
         <section class="primary-panel">
           <!-- 所有模式统一显示：体验日 -->
-          <ExperienceDay />
+          <ExperienceDay :travel="travel" @update="handleTravelUpdate" @refresh="handleTravelRefresh" />
         </section>
 
         <!-- 右侧面板 -->
@@ -129,13 +130,6 @@
           <a-card v-else class="sidebar-block" title="⚠️ 数据加载中">
             <a-alert type="warning" message="旅行数据未加载，请刷新页面" />
           </a-card>
-
-          <!-- 讨论区 -->
-          <DiscussionArea 
-            class="sidebar-block"
-            :travel-id="travel?.id"
-            :mode="travel?.mode || 'default'"
-          />
         </aside>
       </div>
     </div>
@@ -146,7 +140,7 @@
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import type { VisaInfo } from '@/config/visa'
 import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
@@ -160,7 +154,6 @@ import WeatherCard from '@/components/TravelDetail/WeatherCard.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
-import DiscussionArea from '@/components/TravelDetail/DiscussionArea.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
 import { getVisaInfo, analyzeMultiDestinationVisa, extractAllDestinationCountries } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'
@@ -372,23 +365,35 @@ const destinationName = computed(() => {
 // 注意：天气接口需要目的地ID（UUID），如果travel数据中没有存储目的地ID，这里返回null
 // 未来可能需要通过目的地名称查询后端获取目的地ID
 const destinationId = computed(() => {
-  if (!travel.value) return null
+  if (!travel.value) {
+    console.log('[TravelDetailView] destinationId computed: travel.value 为空')
+    return null
+  }
   
   // 尝试从不同数据源获取目的地ID
   const data = travel.value.data as any
   
   // 1. 从 data.backendDestinationId 获取（如果后端返回了目的地ID）
   if (data?.backendDestinationId) {
+    console.log('[TravelDetailView] destinationId computed: 从 backendDestinationId 获取:', data.backendDestinationId)
     return data.backendDestinationId
   }
   
   // 2. 从 data.destinationId 获取
   if (data?.destinationId) {
+    console.log('[TravelDetailView] destinationId computed: 从 destinationId 获取:', data.destinationId)
     return data.destinationId
   }
   
   // 3. 暂时返回null，等后端提供通过目的地名称查询ID的接口后再实现
   // TODO: 实现通过目的地名称查询目的地ID的逻辑
+  console.log('[TravelDetailView] destinationId computed: 未找到目的地ID', {
+    hasData: !!data,
+    dataKeys: data ? Object.keys(data) : [],
+    destination: travel.value.destination || travel.value.location,
+    hasBackendDestinationId: !!data?.backendDestinationId,
+    hasDestinationId: !!data?.destinationId
+  })
   return null
 })
 
@@ -518,8 +523,32 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
     console.log('[TravelDetailView] 后端行程详情获取成功:', {
       id: backendItinerary.id,
       destination: backendItinerary.destination,
-      daysCount: backendItinerary.daysCount
+      destinationId: backendItinerary.destinationId, // 检查是否包含 destinationId
+      hasDestinationId: !!backendItinerary.destinationId,
+      daysCount: backendItinerary.daysCount,
+      allKeys: Object.keys(backendItinerary) // 查看所有返回的字段
     })
+    
+    // 1.1. 如果后端没有返回 destinationId，通过目的地名称查找或创建
+    let finalDestinationId = backendItinerary.destinationId
+    if (!finalDestinationId && backendItinerary.destination) {
+      console.log('[TravelDetailView] 后端未返回 destinationId，通过目的地名称查找或创建:', backendItinerary.destination)
+      try {
+        const { findOrCreateDestination } = await import('@/services/externalAPI')
+        const destination = await findOrCreateDestination(backendItinerary.destination)
+        if (destination) {
+          finalDestinationId = destination.id
+          console.log('[TravelDetailView] 成功获取 destinationId:', {
+            destinationId: finalDestinationId,
+            destinationName: backendItinerary.destination
+          })
+        } else {
+          console.warn('[TravelDetailView] 查找或创建目的地失败，无法获取 destinationId')
+        }
+      } catch (error: any) {
+        console.warn('[TravelDetailView] 查找或创建目的地失败:', error.message)
+      }
+    }
     
     // 2. 批量获取活动详情（包含完整的 details 字段）
     let activitiesMap: { [dayId: string]: any[] } = {}
@@ -594,8 +623,8 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       })
       
       return {
-        day: day.day,
-        date: day.date,
+      day: day.day,
+      date: day.date,
         timeSlots: day.activities.map((activity) => {
           // 查找是否有详细的活动数据
           let detailedActivity = null
@@ -624,12 +653,12 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
           }
           
           return {
-            time: activity.time,
-            title: activity.title,
-            activity: activity.title,
-            type: activity.type,
-            coordinates: activity.location,
-            notes: activity.notes || '',
+        time: activity.time,
+        title: activity.title,
+        activity: activity.title,
+        type: activity.type,
+        coordinates: activity.location,
+        notes: activity.notes || '',
             details: mergedDetails,
             cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
             duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
@@ -666,11 +695,11 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
               coordinates: activity.location || {},
               notes: activity.notes || '',
               details: activity.details || {
-                notes: activity.notes || '',
-                description: activity.notes || ''
-              },
-              cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-              duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+          notes: activity.notes || '',
+          description: activity.notes || ''
+        },
+        cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
+        duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
             }
           })
         }
@@ -686,19 +715,42 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       days = []
     }
     
-    console.log('[TravelDetailView] 合并活动详情后的 days 数据:', {
-      daysCount: days.length,
-      firstDay: days[0] ? {
-        day: days[0].day,
-        date: days[0].date,
-        timeSlotsCount: days[0].timeSlots?.length || 0,
-        firstSlot: days[0].timeSlots?.[0] ? {
-          time: days[0].timeSlots[0].time,
-          title: days[0].timeSlots[0].title,
-          hasDetails: !!days[0].timeSlots[0].details
+    // 去重：按 day 和 id 去重，优先保留有 id 的
+    const dayMap = new Map<string | number, any>()
+    days.forEach((day: any) => {
+      const key = day.day || day.id
+      if (key) {
+        const existing = dayMap.get(key)
+        if (!existing || (day.id && !existing.id)) {
+          dayMap.set(key, day)
+        }
+      }
+    })
+    
+    // 按 day 排序
+    const uniqueDays = Array.from(dayMap.values()).sort((a: any, b: any) => {
+      const dayA = a.day || 0
+      const dayB = b.day || 0
+      return dayA - dayB
+    })
+    
+    console.log('[TravelDetailView] 合并活动详情后的 days 数据（已去重）:', {
+      daysCount: uniqueDays.length,
+      originalCount: days.length,
+      firstDay: uniqueDays[0] ? {
+        day: uniqueDays[0].day,
+        date: uniqueDays[0].date,
+        timeSlotsCount: uniqueDays[0].timeSlots?.length || 0,
+        firstSlot: uniqueDays[0].timeSlots?.[0] ? {
+          time: uniqueDays[0].timeSlots[0].time,
+          title: uniqueDays[0].timeSlots[0].title,
+          hasDetails: !!uniqueDays[0].timeSlots[0].details
         } : null
       } : null
     })
+    
+    // 使用去重后的 days
+    days = uniqueDays
     
     const frontendData = {
       title: travel.value?.title || `${backendItinerary.destination}之旅`,
@@ -706,7 +758,15 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       days,
       totalCost: backendItinerary.totalCost || 0,
       summary: backendItinerary.summary || '',
-      duration: backendItinerary.daysCount || days.length,
+      // 计算实际有活动的天数
+      duration: (() => {
+        // 优先使用实际有活动的天数
+        const daysWithActivities = days.filter((day: any) => {
+          const timeSlots = day.timeSlots || day.activities || []
+          return timeSlots.length > 0
+        })
+        return daysWithActivities.length > 0 ? daysWithActivities.length : (backendItinerary.daysCount || days.length)
+      })(),
       budget: backendItinerary.totalCost || 0
     }
     
@@ -716,25 +776,43 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       firstDayTimeSlots: frontendData.days[0]?.timeSlots?.length || 0
     })
     
-    // 3. 获取并合并位置信息（如果批量接口已经返回了完整的 details，这个步骤可能不需要，但保留以获取额外信息）
-    console.log('[TravelDetailView] 开始获取位置信息...')
-    let enrichedData
-    try {
-      enrichedData = await enrichItineraryWithLocationInfo(
-        frontendData,
-        backendItinerary.destination,
-        (message) => {
-          console.log('[TravelDetailView] 位置信息获取进度:', message)
-        }
-      )
-      console.log('[TravelDetailView] 位置信息获取完成:', {
-        daysCount: enrichedData.days.length,
-        firstDayTimeSlots: enrichedData.days[0]?.timeSlots?.length || 0
+    // 3. 检查是否需要获取位置信息
+    // 如果 batchGetActivities 已经返回了完整的 details（包含位置信息），则跳过 enrichItineraryWithLocationInfo
+    const hasLocationInfo = frontendData.days.some(day => 
+      day.timeSlots.some(slot => {
+        const details = slot.details
+        return details && (
+          details.tripAdvisorId || 
+          details.location || 
+          details.coordinates ||
+          (details.pricing && details.pricing.detail)
+        )
       })
-    } catch (enrichError: any) {
-      console.warn('[TravelDetailView] 位置信息获取失败，使用原始数据:', enrichError.message)
-      // 如果获取位置信息失败，使用原始数据
-      enrichedData = frontendData
+    )
+    
+    let enrichedData = frontendData
+    if (!hasLocationInfo && frontendData.days.length > 0 && frontendData.days[0].timeSlots.length > 0) {
+      // 只有当前端数据中没有位置信息时，才调用 enrichItineraryWithLocationInfo
+      console.log('[TravelDetailView] 批量接口未返回完整位置信息，开始获取位置信息...')
+      try {
+        enrichedData = await enrichItineraryWithLocationInfo(
+      frontendData,
+      backendItinerary.destination,
+      (message) => {
+        console.log('[TravelDetailView] 位置信息获取进度:', message)
+      }
+    )
+        console.log('[TravelDetailView] 位置信息获取完成:', {
+          daysCount: enrichedData.days.length,
+          firstDayTimeSlots: enrichedData.days[0]?.timeSlots?.length || 0
+        })
+      } catch (enrichError: any) {
+        console.warn('[TravelDetailView] 位置信息获取失败，使用原始数据:', enrichError.message)
+        // 如果获取位置信息失败，使用原始数据
+        enrichedData = frontendData
+      }
+    } else {
+      console.log('[TravelDetailView] 批量接口已返回完整位置信息，跳过 enrichItineraryWithLocationInfo')
     }
     
     // 确保 enrichedData.days 有数据，如果没有则使用原始的 days
@@ -753,6 +831,9 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       const updatedData = {
         ...travel.value.data,
         backendItineraryId: backendItineraryId,
+        // 保存 destinationId（优先使用后端返回的，如果没有则使用查找或创建的）
+        destinationId: finalDestinationId || travel.value.data?.destinationId,
+        backendDestinationId: finalDestinationId || travel.value.data?.backendDestinationId,
         // 只更新 itineraryData，不更新 data.days，这样 ExperienceDay 会优先读取 itineraryData（后端数据）
         itineraryData: {
           days: enrichedData.days, // 使用合并了活动详情的 days
@@ -771,24 +852,53 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
         summary: backendItinerary.summary || ''
       }
       
+      console.log('[TravelDetailView] 保存 destinationId:', {
+        destinationId: finalDestinationId,
+        hasDestinationId: !!finalDestinationId,
+        source: backendItinerary.destinationId ? 'backend' : (finalDestinationId ? 'find-or-create' : 'none'),
+        destination: backendItinerary.destination
+      })
+      
       console.log('[TravelDetailView] 更新后的 itineraryData:', {
         hasItineraryData: !!updatedData.itineraryData,
         itineraryDataDaysCount: updatedData.itineraryData?.days?.length || 0,
         firstDayTimeSlots: updatedData.itineraryData?.days?.[0]?.timeSlots?.length || 0
       })
       
-      // 如果后端返回了 mode 字段，更新本地的 mode（确保数据一致性）
+      // 直接更新 travel.value，不使用 store（因为只使用后端数据）
+      if (travel.value) {
+        // 计算实际有活动的天数
+        const calculateDaysCount = () => {
+          if (backendItinerary.days && Array.isArray(backendItinerary.days) && backendItinerary.days.length > 0) {
+            const daysWithActivities = backendItinerary.days.filter((day: any) => {
+              const activities = day.activities || []
+              return activities.length > 0
+            })
+            return daysWithActivities.length > 0 ? daysWithActivities.length : backendItinerary.days.length
+          }
+          return backendItinerary.daysCount || 0
+        }
+        const daysCount = calculateDaysCount()
       const updates: any = {
+          // 更新顶层字段，确保与后端数据同步
+          destination: backendItinerary.destination,
+          location: backendItinerary.destination,
+          description: backendItinerary.summary || travel.value.description,
+          duration: daysCount,
+          budget: backendItinerary.totalCost || travel.value.budget,
+          startDate: backendItinerary.startDate,
+          status: backendItinerary.status === 'published' ? 'active' : (backendItinerary.status === 'archived' ? 'completed' : 'draft'),
+          updatedAt: backendItinerary.updatedAt || new Date().toISOString(),
         data: updatedData
       }
       if (backendItinerary.mode) {
         updates.mode = backendItinerary.mode
       }
-      
-      travelListStore.updateTravel(travel.value.id, updates)
-      
-      // 重新获取更新后的 travel
-      travel.value = travelListStore.getTravel(travel.value.id)
+        travel.value = {
+          ...travel.value,
+          ...updates
+        }
+      }
       console.log('[TravelDetailView] 行程数据已更新，只使用后端数据（itineraryData）:', {
         hasTravel: !!travel.value,
         hasData: !!travel.value?.data,
@@ -799,44 +909,101 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
     }
   } catch (error: any) {
     console.error('[TravelDetailView] 从后端加载行程详情失败:', error)
-    // 失败不影响显示，继续使用本地数据
+    message.error('加载行程详情失败，请刷新页面重试')
   }
 }
 
-  // 加载旅程数据
+  // 加载旅程数据 - 只从后端接口加载，不使用本地数据
 onMounted(async () => {
   const id = route.params.id as string
-  console.log('[TravelDetailView] mounted, id:', id)
-  travel.value = travelListStore.getTravel(id)
-  console.log('[TravelDetailView] Loaded travel:', travel.value)
-  console.log('[TravelDetailView] Travel mode:', travel.value?.mode)
-  console.log('[TravelDetailView] Travel id:', travel.value?.id)
-  console.log('[TravelDetailView] Travel data:', travel.value?.data)
+  console.log('[TravelDetailView] mounted, 直接从后端加载行程数据，id:', id)
+  
+  // 直接使用 id 作为 backendItineraryId 从后端加载
+  try {
+    const { getItineraryDetail } = await import('@/services/itineraryAPI')
+    const backendItinerary = await getItineraryDetail(id)
+    
+    console.log('[TravelDetailView] 从后端获取到行程数据:', {
+      id: backendItinerary.id,
+      destination: backendItinerary.destination,
+      daysCount: backendItinerary.daysCount,
+      mode: backendItinerary.mode
+    })
+    
+    // 将后端数据转换为 Travel 格式
+    const daysCount = backendItinerary.daysCount || (backendItinerary.days?.length || 0)
+    const title = `${backendItinerary.destination}之旅`
+    const mode = backendItinerary.mode || 'planner'
+    
+    const newTravel: Travel = {
+      id: backendItinerary.id,
+      title: title,
+      location: backendItinerary.destination,
+      description: backendItinerary.summary || `精心安排的${daysCount}天${backendItinerary.destination}之旅`,
+      mode: mode as 'planner' | 'seeker' | 'inspiration',
+      status: backendItinerary.status === 'published' ? 'active' : (backendItinerary.status === 'archived' ? 'completed' : 'draft'),
+      createdAt: backendItinerary.createdAt || new Date().toISOString(),
+      updatedAt: backendItinerary.updatedAt || new Date().toISOString(),
+      startDate: backendItinerary.startDate,
+      duration: daysCount,
+      participants: 1,
+      budget: backendItinerary.totalCost || 0,
+      destination: backendItinerary.destination,
+      data: {
+        backendItineraryId: backendItinerary.id,
+        destinationId: backendItinerary.destinationId,
+        backendDestinationId: backendItinerary.destinationId,
+        days: Array.isArray(backendItinerary.days) ? backendItinerary.days : [],
+        destination: backendItinerary.destination,
+        title: title,
+        totalCost: backendItinerary.totalCost || 0,
+        summary: backendItinerary.summary || '',
+        startDate: backendItinerary.startDate,
+        status: backendItinerary.status,
+        itineraryData: {
+          days: Array.isArray(backendItinerary.days) ? backendItinerary.days : [],
+          destination: backendItinerary.destination,
+          title: title,
+          totalCost: backendItinerary.totalCost || 0,
+          duration: daysCount,
+          budget: backendItinerary.totalCost || 0,
+          preferences: backendItinerary.preferences || {}
+        }
+      }
+    }
+    
+    // 设置 travel.value（不添加到 travelList，因为只使用后端数据）
+    travel.value = newTravel
+    
+    console.log('[TravelDetailView] ✅ 从后端加载行程数据成功，准备加载完整详情')
+    
+    // 从后端加载完整数据（包括活动详情）
+    await loadItineraryFromBackend(backendItinerary.id)
+    
+  } catch (loadError: any) {
+    console.error('[TravelDetailView] ❌ 从后端加载行程详情失败:', {
+      error: loadError.message,
+      errorStack: loadError.stack,
+      id
+    })
+    message.error(`加载行程详情失败: ${loadError.message || '未知错误'}，请刷新页面重试`)
+    // 设置 travel 为 null 以显示错误状态
+    travel.value = null
+    // 可以选择返回列表页
+    setTimeout(() => {
+      router.push('/travel-list')
+    }, 2000)
+    return
+  }
   
   if (!travel.value) {
-    console.error('[TravelDetailView] ❌ 未找到 travel 数据，id:', id)
-    console.error('[TravelDetailView] 当前 travelList:', travelListStore.travelList)
+    console.error('[TravelDetailView] ❌ 最终未找到 travel 数据，id:', id)
+    message.error('未找到行程数据，请返回列表页')
     return
   }
   
   if (!travel.value.id) {
     console.error('[TravelDetailView] ❌ travel 数据缺少 id 字段')
-  }
-  
-  // 输出原始 JSON 数据到控制台
-  if (travel.value) {
-    console.log('📋 原始 Travel 数据 (JSON):', JSON.stringify(travel.value, null, 2))
-    console.log('📋 原始 Travel.data 数据 (JSON):', JSON.stringify(travel.value.data, null, 2))
-    
-    // 所有模式统一处理：如果有 backendItineraryId，从后端加载完整数据
-    // 不再区分模式，详情页统一使用相同的后端接口
-    const backendItineraryId = travel.value.data?.backendItineraryId
-    if (backendItineraryId) {
-      console.log(`[TravelDetailView] 检测到 backendItineraryId (模式: ${travel.value.mode})，从后端加载行程详情:`, backendItineraryId)
-      await loadItineraryFromBackend(backendItineraryId)
-    } else {
-      console.log(`[TravelDetailView] 未找到 backendItineraryId (模式: ${travel.value.mode})，使用本地数据`)
-    }
   }
   
   // 修复Inspiration和Classic模式的滚动问题
@@ -949,6 +1116,131 @@ onMounted(async () => {
       window.scrollTo(0, 0)
     }, 100)
   })
+  
+  // 处理 ExperienceDay 组件的更新事件
+  const handleTravelUpdate = (updatedTravel: Travel) => {
+    console.log('[TravelDetailView] 收到 ExperienceDay 更新事件，更新 travel 数据')
+    travel.value = updatedTravel
+  }
+
+  // 处理行程信息更新后的刷新
+  const handleTravelRefresh = async () => {
+    if (!travel.value) {
+      console.warn('[TravelDetailView] 收到刷新事件，但 travel.value 为空')
+      return
+    }
+    
+    // 使用 backendItineraryId 优先，如果没有则使用 id
+    const backendItineraryId = travel.value.data?.backendItineraryId || travel.value.id
+    
+    if (!backendItineraryId) {
+      console.error('[TravelDetailView] 收到刷新事件，但无法获取 backendItineraryId')
+      message.error('无法刷新：缺少行程 ID')
+      return
+    }
+    
+    console.log('[TravelDetailView] 收到刷新事件，从后端重新加载行程数据，ID:', backendItineraryId)
+    
+    // 直接从后端重新加载数据，不使用本地 store
+    try {
+      // 先获取最新的后端数据
+      const { getItineraryDetail } = await import('@/services/itineraryAPI')
+      const backendItinerary = await getItineraryDetail(backendItineraryId)
+      
+      console.log('[TravelDetailView] 从后端获取到最新数据:', {
+        destination: backendItinerary.destination,
+        daysCount: backendItinerary.daysCount,
+        totalCost: backendItinerary.totalCost,
+        summary: backendItinerary.summary,
+        status: backendItinerary.status
+      })
+      
+      // 直接更新 travel.value，确保触发响应式更新
+      if (travel.value) {
+        // 计算实际有活动的天数
+        const calculateDaysCount = () => {
+          if (backendItinerary.days && Array.isArray(backendItinerary.days) && backendItinerary.days.length > 0) {
+            const daysWithActivities = backendItinerary.days.filter((day: any) => {
+              const activities = day.activities || []
+              return activities.length > 0
+            })
+            return daysWithActivities.length > 0 ? daysWithActivities.length : backendItinerary.days.length
+          }
+          return backendItinerary.daysCount || 0
+        }
+        const daysCount = calculateDaysCount()
+        
+        // 使用对象替换而不是扩展，确保触发响应式更新
+        travel.value = {
+          ...travel.value,
+          destination: backendItinerary.destination,
+          location: backendItinerary.destination,
+          description: backendItinerary.summary || travel.value.description,
+          duration: daysCount,
+          budget: backendItinerary.totalCost || travel.value.budget,
+          startDate: backendItinerary.startDate,
+          status: backendItinerary.status === 'published' ? 'active' : (backendItinerary.status === 'archived' ? 'completed' : 'draft'),
+          updatedAt: backendItinerary.updatedAt || new Date().toISOString(),
+          data: {
+            ...travel.value.data,
+            destination: backendItinerary.destination,
+            summary: backendItinerary.summary || travel.value.data?.summary,
+            totalCost: backendItinerary.totalCost || travel.value.data?.totalCost,
+            startDate: backendItinerary.startDate,
+            status: backendItinerary.status,
+            itineraryData: {
+              ...travel.value.data?.itineraryData,
+              destination: backendItinerary.destination,
+              summary: backendItinerary.summary || travel.value.data?.itineraryData?.summary,
+              totalCost: backendItinerary.totalCost || travel.value.data?.itineraryData?.totalCost,
+              duration: daysCount,
+              budget: backendItinerary.totalCost || travel.value.data?.itineraryData?.budget,
+              // 如果后端返回了 days 数据，先更新（完整数据会在 loadItineraryFromBackend 中更新）
+              // 去重：按 day 和 id 去重
+              days: Array.isArray(backendItinerary.days) && backendItinerary.days.length > 0
+                ? (() => {
+                    const dayMap = new Map<string | number, any>()
+                    backendItinerary.days.forEach((day: any) => {
+                      const key = day.day || day.id
+                      if (key) {
+                        const existing = dayMap.get(key)
+                        if (!existing || (day.id && !existing.id)) {
+                          dayMap.set(key, {
+                            id: day.id,
+                            day: day.day,
+                            date: day.date,
+                            timeSlots: day.activities || []
+                          })
+                        }
+                      }
+                    })
+                    return Array.from(dayMap.values()).sort((a: any, b: any) => (a.day || 0) - (b.day || 0))
+                  })()
+                : travel.value.data?.itineraryData?.days
+            }
+          }
+        }
+        
+        // 等待响应式更新完成
+        await nextTick()
+        
+        console.log('[TravelDetailView] travel.value 已更新:', {
+          destination: travel.value.destination,
+          duration: travel.value.duration,
+          budget: travel.value.budget,
+          description: travel.value.description
+        })
+      }
+      
+      // 然后加载完整详情（包括活动数据）
+      await loadItineraryFromBackend(backendItineraryId)
+      
+      console.log('[TravelDetailView] 从后端重新加载完成')
+    } catch (error: any) {
+      console.error('[TravelDetailView] 从后端重新加载失败:', error)
+      message.error(`刷新行程数据失败: ${error.message || '未知错误'}，请重试`)
+    }
+  }
   
   // 监听窗口大小变化，重新修复滚动
   window.addEventListener('resize', () => {

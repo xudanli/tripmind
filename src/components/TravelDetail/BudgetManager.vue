@@ -12,6 +12,10 @@
           <span class="budget-label">{{ t('travelDetail.budgetSpent') || '已花费' }}:</span>
           <span class="budget-value spent">{{ formatAmount(totalSpent) }}</span>
         </div>
+        <div class="budget-item" v-if="activityCosts > 0">
+          <span class="budget-label">{{ t('travelDetail.activityCosts') || '活动费用' }}:</span>
+          <span class="budget-value activity">{{ formatAmount(activityCosts) }}</span>
+        </div>
         <div class="budget-item">
           <span class="budget-label">{{ t('travelDetail.budgetTotal') || '总预算' }}:</span>
           <span class="budget-value total">{{ formatAmount(total) }}</span>
@@ -83,8 +87,8 @@
                 </template>
               </a-list-item-meta>
               <div class="expense-amount">
-                {{ item.currencyCode && item.currencyCode !== getDestinationCurrency.value.code
-                  ? formatCurrency(item.amount, getCurrencyByCode(item.currencyCode) || getDestinationCurrency.value)
+                {{ item.currencyCode && item.currencyCode !== getDestinationCurrency.code
+                  ? formatCurrency(item.amount, getCurrencyByCode(item.currencyCode) || getDestinationCurrency)
                   : formatAmount(item.amount)
                 }}
               </div>
@@ -204,21 +208,29 @@
         <a-form-item :label="t('travelDetail.expensePayer') || '付款人'">
           <a-select
             v-model:value="expenseForm.payerId"
-            :placeholder="t('travelDetail.expensePayerPlaceholder') || '选择付款人'"
+            :placeholder="members.length === 0 ? (t('travelDetail.noMembers') || '暂无成员，请先添加旅伴') : (t('travelDetail.expensePayerPlaceholder') || '选择付款人')"
             allow-clear
             @change="handlePayerChange"
+            :loading="members.length === 0"
+            :disabled="members.length === 0"
           >
-            <a-select-option :value="currentUser.id">
-              {{ currentUser.name }}
-            </a-select-option>
             <a-select-option
               v-for="member in members"
               :key="member.id"
               :value="member.id"
             >
               {{ member.name }}
+              <a-tag v-if="member.role === 'owner'" color="gold" size="small" style="margin-left: 8px">
+                {{ t('travelDetail.memberManagement.owner') || '所有者' }}
+              </a-tag>
+              <a-tag v-else-if="member.role === 'admin'" color="blue" size="small" style="margin-left: 8px">
+                {{ t('travelDetail.memberManagement.admin') || '管理员' }}
+              </a-tag>
             </a-select-option>
           </a-select>
+          <div v-if="members.length === 0" class="form-item-hint" style="color: #999; font-size: 12px; margin-top: 4px;">
+            {{ t('travelDetail.noMembersHint') || '请先在"旅伴"标签页添加成员' }}
+          </div>
         </a-form-item>
         <a-form-item :label="t('travelDetail.expenseSplit') || '分摊'">
           <a-select
@@ -283,10 +295,12 @@ import { useI18n } from 'vue-i18n'
 import { EditOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, EnvironmentOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { useTravelListStore } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
+import { useUserStore } from '@/stores/user'
 import { message, Modal } from 'ant-design-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { getCurrencyForDestination, formatCurrency, getAllCurrencies, getCurrencyByCode, type CurrencyInfo } from '@/utils/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { getExpenses, createExpense, updateExpense, deleteExpense as deleteExpenseAPI, type Expense as APIExpense, getMembers, type Member as APIMember } from '@/services/itineraryAPI'
 // 使用原生Date处理日期，避免依赖dayjs
 const formatDateSimple = (dateStr: string) => {
   const date = new Date(dateStr)
@@ -334,6 +348,7 @@ const props = withDefaults(defineProps<Props>(), {
 const { t } = useI18n()
 const travelListStore = useTravelListStore()
 const travelStore = useTravelStore()
+const userStore = useUserStore()
 
 const total = ref(props.initialTotal || 0)
 const expenses = ref<Expense[]>([])
@@ -345,18 +360,91 @@ const budgetForm = ref({
   total: props.initialTotal || 0
 })
 
-// 获取成员列表（用于付款人选择）
-const members = computed(() => {
-  if (!props.travelId) return []
-  const travel = travelListStore.getTravel(props.travelId)
-  if (!travel?.data?.members) return []
-  return travel.data.members
-})
+// 成员列表（用于付款人选择，从后端加载）
+const members = ref<Array<{ id: string; name: string; email?: string; role: string }>>([])
 
-// 获取当前用户信息（作为默认付款人）
-const currentUser = computed(() => {
-  // 可以从用户配置或store中获取
-  return { id: 'current_user', name: '您' }
+// 加载成员列表
+const loadMembers = async () => {
+  if (!props.travelId) {
+    members.value = []
+    return
+  }
+  
+  const travel = travelListStore.getTravel(props.travelId)
+  const backendItineraryId = travel?.data?.backendItineraryId
+  
+  if (!backendItineraryId) {
+    console.warn('[BudgetManager] 未找到 backendItineraryId，无法加载成员数据')
+    members.value = []
+    return
+  }
+  
+  try {
+    let apiMembers = await getMembers(backendItineraryId)
+    
+    // 检查是否已有 owner 角色成员
+    const hasOwner = apiMembers.some(m => m.role === 'owner')
+    
+    // 如果后端返回空列表或没有 owner，确保至少包含创建者（owner）
+    if (apiMembers.length === 0 || !hasOwner) {
+      console.log('[BudgetManager] 后端成员列表为空或缺少 owner，添加创建者')
+      const currentUser = userStore.user
+      if (currentUser) {
+        // 生成临时成员ID（基于行程ID和用户ID）
+        const ownerId = `owner_${backendItineraryId}_${currentUser.id || 'default'}`
+        const ownerMember: APIMember = {
+          id: ownerId,
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner' as const,
+          userId: currentUser.id,
+          createdAt: travel?.createdAt || new Date().toISOString(),
+          updatedAt: travel?.updatedAt || new Date().toISOString()
+        }
+        
+        // 如果列表为空，直接添加；如果已有成员但缺少 owner，添加到开头
+        if (apiMembers.length === 0) {
+          apiMembers = [ownerMember]
+        } else {
+          apiMembers.unshift(ownerMember)
+        }
+      }
+    }
+    
+    members.value = apiMembers.map((member: APIMember) => ({
+      id: member.id,
+      name: member.name,
+      email: member.email,
+      role: member.role
+    }))
+    console.log('[BudgetManager] 加载成员列表成功:', members.value.length)
+    
+    // 如果当前选择的付款人是 'current_user'，更新为实际的成员 ID
+    if (expenseForm.value.payerId === 'current_user' && members.value.length > 0) {
+      const defaultMember = currentUserMember.value
+      expenseForm.value.payerId = defaultMember.id
+      expenseForm.value.payerName = defaultMember.name
+    }
+  } catch (error: any) {
+    console.warn('[BudgetManager] 加载成员列表失败，使用空列表:', error.message)
+    members.value = []
+  }
+}
+
+// 获取当前用户对应的成员（用于默认付款人）
+const currentUserMember = computed(() => {
+  if (members.value.length === 0) {
+    return { id: 'current_user', name: '您' }
+  }
+  
+  // 优先查找 owner 角色
+  const owner = members.value.find(m => m.role === 'owner')
+  if (owner) {
+    return { id: owner.id, name: owner.name }
+  }
+  
+  // 如果没有 owner，返回第一个成员
+  return { id: members.value[0].id, name: members.value[0].name }
 })
 
 const expenseForm = ref({
@@ -385,7 +473,7 @@ const selectedCurrency = computed((): CurrencyInfo => {
   return getDestinationCurrency.value
 })
 
-// 从左侧行程数据中提取费用
+// 从左侧行程数据中提取活动费用
 const extractCostsFromItinerary = () => {
   if (!props.travelId) return 0
   
@@ -394,63 +482,86 @@ const extractCostsFromItinerary = () => {
   
   let totalCost = 0
   
+  // 优先从 data.itineraryData.days 中提取（后端数据）
+  const itineraryData = travel.data?.itineraryData
+  if (itineraryData?.days && Array.isArray(itineraryData.days)) {
+    itineraryData.days.forEach((day: any) => {
+      if (day.timeSlots && Array.isArray(day.timeSlots)) {
+        day.timeSlots.forEach((slot: any) => {
+          // 支持多种费用字段
+          if (typeof slot.cost === 'number' && slot.cost > 0) {
+            totalCost += slot.cost
+          } else if (slot.details?.pricing?.general && typeof slot.details.pricing.general === 'number') {
+            totalCost += slot.details.pricing.general
+          } else if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
+            totalCost += slot.estimatedCost
+          }
+        })
+      }
+    })
+  }
+  
+  // 如果没有从 itineraryData 获取到数据，尝试从 data.days 获取
+  if (totalCost === 0 && travel.data?.days && Array.isArray(travel.data.days)) {
+    travel.data.days.forEach((day: any) => {
+      if (day.timeSlots && Array.isArray(day.timeSlots)) {
+        day.timeSlots.forEach((slot: any) => {
+          if (typeof slot.cost === 'number' && slot.cost > 0) {
+            totalCost += slot.cost
+          } else if (slot.details?.pricing?.general && typeof slot.details.pricing.general === 'number') {
+            totalCost += slot.details.pricing.general
+          } else if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
+            totalCost += slot.estimatedCost
+          }
+        })
+      }
+    })
+  }
+  
   // 从Planner模式的行程数据中提取
-  if (travel.mode === 'planner') {
-    const plannerItinerary = (travelStore as any).plannerItinerary
+  if (totalCost === 0 && travel.mode === 'planner') {
+    const plannerItinerary = travel.data?.plannerItinerary || (travelStore as any).plannerItinerary
     if (plannerItinerary?.days) {
       plannerItinerary.days.forEach((day: any) => {
         // 优先使用day.stats.cost（这是每日汇总的费用）
-        if (day.stats?.cost) {
+        if (day.stats?.cost && typeof day.stats.cost === 'number') {
           totalCost += day.stats.cost
         } else if (day.timeSlots) {
           // 如果没有每日汇总，则从timeSlots中提取
           day.timeSlots.forEach((slot: any) => {
-            if (slot.estimatedCost) {
+            if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
               totalCost += slot.estimatedCost
+            } else if (typeof slot.cost === 'number' && slot.cost > 0) {
+              totalCost += slot.cost
             }
           })
         }
       })
     }
     // 如果行程有总费用，使用总费用（避免重复计算）
-    if (plannerItinerary?.totalCost) {
+    if (plannerItinerary?.totalCost && typeof plannerItinerary.totalCost === 'number') {
       totalCost = plannerItinerary.totalCost
     }
   }
   
-  // 从Inspiration模式的行程数据中提取
-  if (travel.mode === 'inspiration') {
-    const itineraryData = travel.data?.itineraryData
-    if (itineraryData?.days) {
-      itineraryData.days.forEach((day: any) => {
-        if (day.timeSlots) {
-          day.timeSlots.forEach((slot: any) => {
-            // 支持多种费用字段
-            if (slot.cost) {
-              totalCost += slot.cost
-            } else if (slot.details?.pricing?.general) {
-              totalCost += slot.details.pricing.general
-            } else if (slot.estimatedCost) {
-              totalCost += slot.estimatedCost
-            }
-          })
-        }
-      })
-    }
-    // 如果有总费用，也加上
-    if (itineraryData?.totalCost) {
-      totalCost += itineraryData.totalCost
-    }
+  // 如果 itineraryData 有总费用字段，也考虑使用（但优先使用计算值）
+  if (itineraryData?.totalCost && typeof itineraryData.totalCost === 'number' && totalCost === 0) {
+    totalCost = itineraryData.totalCost
   }
   
   return totalCost
 }
 
-// 计算总支出（手动添加的支出 + 自动提取的费用）
+// 计算活动费用总和（用于显示和联动）
+const activityCosts = computed(() => {
+  return extractCostsFromItinerary()
+})
+
+// 计算总支出（手动添加的支出 + 活动费用）
 const totalSpent = computed(() => {
   const manualExpenses = expenses.value.reduce((sum, exp) => sum + exp.amount, 0)
-  const autoExtracted = extractCostsFromItinerary()
-  return manualExpenses + autoExtracted
+  const activityCostsValue = activityCosts.value
+  return manualExpenses + activityCostsValue
 })
 
 // 按日期排序的支出列表
@@ -602,27 +713,36 @@ const splitTotalMismatch = computed(() => {
 
 // 处理付款人变化
 const handlePayerChange = (payerId: string) => {
-  if (payerId === currentUser.value.id || !payerId) {
-    expenseForm.value.payerName = currentUser.value.name
+  if (!payerId) {
+    expenseForm.value.payerName = ''
+    return
+  }
+  
+  const member = members.value.find(m => m.id === payerId)
+  if (member) {
+    expenseForm.value.payerName = member.name
   } else {
-    const member = members.value.find(m => m.id === payerId)
-    if (member) {
-      expenseForm.value.payerName = member.name
-    }
+    expenseForm.value.payerName = ''
   }
 }
 
 // 打开添加费用模态框
-const handleAddExpense = () => {
+const handleAddExpense = async () => {
+  // 确保成员列表已加载
+  if (members.value.length === 0 && props.travelId) {
+    await loadMembers()
+  }
+  
   // 重置表单并设置默认值
+  const defaultPayer = currentUserMember.value
   expenseForm.value = {
     title: '',
     amount: 0,
     currencyCode: getDestinationCurrency.value.code, // 默认使用目的地货币
     category: '',
     location: '',
-    payerId: currentUser.value.id,
-    payerName: currentUser.value.name,
+    payerId: defaultPayer.id,
+    payerName: defaultPayer.name,
     splitType: 'none',
     splitDetails: {},
     date: dayjs(), // 默认今天
@@ -651,18 +771,65 @@ const getCategoryColor = (category: string) => {
 }
 
 // 加载预算和支出数据
-const loadData = () => {
+const loadData = async () => {
   if (!props.travelId) return
   
   const travel = travelListStore.getTravel(props.travelId)
-  if (travel) {
+  if (!travel) return
+  
+  // 计算活动费用
+  const activityCostsValue = extractCostsFromItinerary()
+  
+  // 如果总预算未设置（为0），且活动费用大于0，则自动设置为活动费用
+  if ((!travel.budget || travel.budget === 0) && activityCostsValue > 0) {
+    total.value = activityCostsValue
+    budgetForm.value.total = activityCostsValue
+    // 自动保存到store
+    travelListStore.updateTravel(props.travelId, {
+      budget: activityCostsValue
+    })
+    console.log('[BudgetManager] 自动设置总预算为活动费用总和:', activityCostsValue)
+  } else {
     total.value = travel.budget || 0
     budgetForm.value.total = travel.budget || 0
-    
-    // 加载支出明细
-    if (travel.data?.expenses) {
-      expenses.value = travel.data.expenses
+  }
+  
+  // 必须从后端加载支出数据
+  const backendItineraryId = travel.data?.backendItineraryId
+  if (!backendItineraryId) {
+    console.warn('[BudgetManager] 未找到 backendItineraryId，无法加载支出数据')
+    expenses.value = []
+    return
+  }
+  
+  try {
+    console.log('[BudgetManager] 从后端加载支出数据:', backendItineraryId)
+    const result = await getExpenses(backendItineraryId)
+    if (result.success && result.data) {
+      // 转换后端数据格式到前端格式
+      expenses.value = result.data.map(exp => ({
+        id: exp.id,
+        title: exp.title,
+        amount: exp.amount,
+        currencyCode: exp.currencyCode,
+        category: exp.category,
+        location: exp.location,
+        payerId: exp.payerId,
+        payerName: exp.payerName,
+        splitType: exp.splitType,
+        splitDetails: exp.splitDetails || undefined,
+        date: exp.date,
+        notes: exp.notes,
+        createdAt: new Date(exp.createdAt).getTime()
+      }))
+      console.log('[BudgetManager] 从后端加载支出数据成功:', expenses.value.length)
+    } else {
+      expenses.value = []
     }
+  } catch (error: any) {
+    console.error('[BudgetManager] 从后端加载支出数据失败:', error)
+    message.error(error.message || (t('travelDetail.expenseLoadFailed') || '加载支出数据失败'))
+    expenses.value = []
   }
 }
 
@@ -687,7 +854,7 @@ const handleSaveBudget = () => {
 }
 
 // 保存支出
-const handleSaveExpense = () => {
+const handleSaveExpense = async () => {
   if (!expenseForm.value.title || !expenseForm.value.amount || expenseForm.value.amount <= 0) {
     message.error(t('travelDetail.expenseInvalid') || '请填写完整的支出信息')
     return
@@ -704,68 +871,201 @@ const handleSaveExpense = () => {
     ? expenseForm.value.date.format('YYYY-MM-DD')
     : getTodayDate()
   
-  if (editingExpense.value) {
-    // 编辑支出
-    const index = expenses.value.findIndex(e => e.id === editingExpense.value!.id)
-    if (index !== -1) {
-      expenses.value[index] = {
-        ...expenses.value[index],
-        title: expenseForm.value.title,
-        amount: expenseForm.value.amount,
-        currencyCode: expenseForm.value.currencyCode || getDestinationCurrency.value.code,
-        category: expenseForm.value.category,
-        location: expenseForm.value.location,
-        payerId: expenseForm.value.payerId,
-        payerName: expenseForm.value.payerName,
-        splitType: expenseForm.value.splitType,
-        splitDetails: expenseForm.value.splitType === 'custom' ? { ...expenseForm.value.splitDetails } : undefined,
-        date: dateStr,
-        notes: expenseForm.value.notes
-      }
-    }
-    message.success(t('travelDetail.expenseUpdated') || '支出已更新')
-  } else {
-    // 添加新支出
-    const newExpense: Expense = {
-      id: `expense_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      title: expenseForm.value.title,
-      amount: expenseForm.value.amount,
-      currencyCode: expenseForm.value.currencyCode || getDestinationCurrency.value.code,
-      category: expenseForm.value.category,
-      location: expenseForm.value.location,
-      payerId: expenseForm.value.payerId || currentUser.value.id,
-      payerName: expenseForm.value.payerName || currentUser.value.name,
-      splitType: expenseForm.value.splitType || 'none',
-      splitDetails: expenseForm.value.splitType === 'custom' ? { ...expenseForm.value.splitDetails } : undefined,
-      date: dateStr,
-      notes: expenseForm.value.notes,
-      createdAt: Date.now()
-    }
-    expenses.value.push(newExpense)
-    message.success(t('travelDetail.expenseAdded') || '支出已添加')
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  const backendItineraryId = travel?.data?.backendItineraryId
+  
+  if (!backendItineraryId) {
+    message.error(t('travelDetail.noBackendItineraryId') || '无法保存支出：缺少行程ID')
+    return
   }
   
-  // 保存到store
-  saveExpenses()
-  
-  // 更新总支出
-  updateTotalSpent()
-  
-  // 重置表单
-  handleCancelExpense()
+  try {
+    if (editingExpense.value) {
+      // 编辑支出
+      if (!editingExpense.value.id) {
+        message.error(t('travelDetail.expenseIdMissing') || '支出ID缺失')
+        return
+      }
+      
+      // 构建更新数据，确保类型正确并清理空值
+      const updateRequest: any = {
+        title: expenseForm.value.title,
+        amount: Number(expenseForm.value.amount), // 确保是数字类型
+        date: dateStr
+      }
+      
+      // 只添加有值的可选字段
+      if (expenseForm.value.currencyCode || getDestinationCurrency.value.code) {
+        updateRequest.currencyCode = expenseForm.value.currencyCode || getDestinationCurrency.value.code
+      }
+      if (expenseForm.value.category) {
+        updateRequest.category = expenseForm.value.category
+      }
+      if (expenseForm.value.location) {
+        updateRequest.location = expenseForm.value.location
+      }
+      
+      // 处理付款人信息：如果 payerId 是临时生成的（以 owner_ 开头），只发送 payerName
+      if (expenseForm.value.payerId) {
+        const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expenseForm.value.payerId)
+        if (isValidUUID) {
+          updateRequest.payerId = expenseForm.value.payerId
+        }
+      }
+      if (expenseForm.value.payerName) {
+        updateRequest.payerName = expenseForm.value.payerName
+      }
+      if (expenseForm.value.splitType && expenseForm.value.splitType !== 'none') {
+        updateRequest.splitType = expenseForm.value.splitType
+        if (expenseForm.value.splitType === 'custom' && expenseForm.value.splitDetails) {
+          updateRequest.splitDetails = expenseForm.value.splitDetails
+        }
+      }
+      if (expenseForm.value.notes) {
+        updateRequest.notes = expenseForm.value.notes
+      }
+      
+      const updatedExpense = await updateExpense(backendItineraryId, editingExpense.value.id, updateRequest)
+      
+      // 更新本地显示数据
+      const index = expenses.value.findIndex(e => e.id === editingExpense.value!.id)
+      if (index !== -1) {
+        expenses.value[index] = {
+          id: updatedExpense.id,
+          title: updatedExpense.title,
+          amount: updatedExpense.amount,
+          currencyCode: updatedExpense.currencyCode,
+          category: updatedExpense.category,
+          location: updatedExpense.location,
+          payerId: updatedExpense.payerId,
+          payerName: updatedExpense.payerName,
+          splitType: updatedExpense.splitType,
+          splitDetails: updatedExpense.splitDetails || undefined,
+          date: updatedExpense.date,
+          notes: updatedExpense.notes,
+          createdAt: new Date(updatedExpense.createdAt).getTime()
+        }
+      }
+      message.success(t('travelDetail.expenseUpdated') || '支出已更新')
+    } else {
+      // 添加新支出
+      // 构建请求数据，确保类型正确并清理空值
+      const expenseRequest: any = {
+        title: expenseForm.value.title,
+        amount: Number(expenseForm.value.amount), // 确保是数字类型
+        date: dateStr
+      }
+      
+      // 只添加有值的可选字段
+      if (expenseForm.value.currencyCode || getDestinationCurrency.value.code) {
+        expenseRequest.currencyCode = expenseForm.value.currencyCode || getDestinationCurrency.value.code
+      }
+      if (expenseForm.value.category) {
+        expenseRequest.category = expenseForm.value.category
+      }
+      if (expenseForm.value.location && expenseForm.value.location.trim()) {
+        expenseRequest.location = expenseForm.value.location.trim()
+      }
+      
+      // 处理付款人信息：payerId 必须是有效的UUID（成员的真实ID）
+      // 如果 payerId 不是有效的UUID（临时生成的），则不发送 payerId，只发送 payerName
+      const payerId = expenseForm.value.payerId || currentUserMember.value.id
+      const payerName = expenseForm.value.payerName || currentUserMember.value.name
+      
+      // 检查 payerId 是否是有效的UUID格式（后端期望的成员ID格式）
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payerId)
+      
+      console.log('[BudgetManager] 创建支出 - 付款人信息:', {
+        payerId,
+        payerName,
+        isValidUUID,
+        members: members.value.map(m => ({ id: m.id, name: m.name, role: m.role }))
+      })
+      
+      if (isValidUUID) {
+        // 如果是有效的UUID（真实成员ID），发送 payerId 和 payerName
+        expenseRequest.payerId = payerId
+        if (payerName && payerName.trim()) {
+          expenseRequest.payerName = payerName.trim()
+        }
+      } else {
+        // 如果是临时生成的ID（如 owner_xxx），只发送 payerName，不发送 payerId
+        // 后端可能不接受非UUID格式的 payerId
+        if (payerName && payerName.trim()) {
+          expenseRequest.payerName = payerName.trim()
+        }
+      }
+      if (expenseForm.value.splitType && expenseForm.value.splitType !== 'none') {
+        expenseRequest.splitType = expenseForm.value.splitType
+        if (expenseForm.value.splitType === 'custom' && expenseForm.value.splitDetails) {
+          // 清理 splitDetails：只保留有效的UUID作为key，并确保值是数字
+          const cleanedSplitDetails: { [key: string]: number } = {}
+          for (const [key, value] of Object.entries(expenseForm.value.splitDetails)) {
+            // 只保留有效的UUID作为key
+            const isValidKey = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)
+            if (isValidKey && value !== null && value !== undefined) {
+              cleanedSplitDetails[key] = typeof value === 'number' ? value : Number(value)
+            }
+          }
+          if (Object.keys(cleanedSplitDetails).length > 0) {
+            expenseRequest.splitDetails = cleanedSplitDetails
+          }
+        }
+      }
+      if (expenseForm.value.notes && expenseForm.value.notes.trim()) {
+        expenseRequest.notes = expenseForm.value.notes.trim()
+      }
+      
+      console.log('[BudgetManager] 创建支出请求数据:', {
+        ...expenseRequest,
+        amount: expenseRequest.amount,
+        amountType: typeof expenseRequest.amount
+      })
+      
+      const newExpense = await createExpense(backendItineraryId, expenseRequest)
+      
+      // 添加到本地显示数据
+      expenses.value.push({
+        id: newExpense.id,
+        title: newExpense.title,
+        amount: newExpense.amount,
+        currencyCode: newExpense.currencyCode,
+        category: newExpense.category,
+        location: newExpense.location,
+        payerId: newExpense.payerId,
+        payerName: newExpense.payerName,
+        splitType: newExpense.splitType,
+        splitDetails: newExpense.splitDetails || undefined,
+        date: newExpense.date,
+        notes: newExpense.notes,
+        createdAt: new Date(newExpense.createdAt).getTime()
+      })
+      message.success(t('travelDetail.expenseAdded') || '支出已添加')
+    }
+    
+    // 更新总支出
+    updateTotalSpent()
+    
+    // 重置表单
+    handleCancelExpense()
+  } catch (error: any) {
+    console.error('[BudgetManager] 保存支出失败:', error)
+    message.error(error.message || (t('travelDetail.expenseSaveFailed') || '保存支出失败'))
+  }
 }
 
 // 取消编辑支出
 const handleCancelExpense = () => {
   editingExpense.value = null
+  const defaultPayer = currentUserMember.value
   expenseForm.value = {
     title: '',
     amount: 0,
     currencyCode: '',
     category: '',
     location: '',
-    payerId: currentUser.value.id,
-    payerName: currentUser.value.name,
+    payerId: defaultPayer.id,
+    payerName: defaultPayer.name,
     splitType: 'none',
     splitDetails: {},
     date: null,
@@ -777,14 +1077,15 @@ const handleCancelExpense = () => {
 // 编辑支出
 const editExpense = (expense: Expense) => {
   editingExpense.value = expense
+  const defaultPayer = currentUserMember.value
   expenseForm.value = {
     title: expense.title,
     amount: expense.amount,
     currencyCode: expense.currencyCode || getDestinationCurrency.value.code,
     category: expense.category || '',
     location: expense.location || '',
-    payerId: expense.payerId || currentUser.value.id,
-    payerName: expense.payerName || currentUser.value.name,
+    payerId: expense.payerId || defaultPayer.id,
+    payerName: expense.payerName || defaultPayer.name,
     splitType: expense.splitType || 'none',
     splitDetails: expense.splitDetails || {},
     date: expense.date ? dayjs(expense.date) : null,
@@ -801,29 +1102,35 @@ const deleteExpense = (expenseId: string) => {
     okText: t('common.confirm') || '确定',
     okType: 'danger',
     cancelText: t('common.cancel') || '取消',
-    onOk: () => {
-      expenses.value = expenses.value.filter(e => e.id !== expenseId)
-      saveExpenses()
-      updateTotalSpent()
-      message.success(t('travelDetail.expenseDeleted') || '支出已删除')
+    onOk: async () => {
+      const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+      const backendItineraryId = travel?.data?.backendItineraryId
+      
+      if (!backendItineraryId) {
+        message.error(t('travelDetail.noBackendItineraryId') || '无法删除支出：缺少行程ID')
+        return
+      }
+      
+      if (!expenseId) {
+        message.error(t('travelDetail.expenseIdMissing') || '支出ID缺失')
+        return
+      }
+      
+      try {
+        await deleteExpenseAPI(backendItineraryId, expenseId)
+        
+        // 从本地显示数据中删除
+        expenses.value = expenses.value.filter(e => e.id !== expenseId)
+        updateTotalSpent()
+        message.success(t('travelDetail.expenseDeleted') || '支出已删除')
+      } catch (error: any) {
+        console.error('[BudgetManager] 删除支出失败:', error)
+        message.error(error.message || (t('travelDetail.expenseDeleteFailed') || '删除支出失败'))
+      }
     }
   })
 }
 
-// 保存支出明细到store
-const saveExpenses = () => {
-  if (!props.travelId) return
-  
-  const travel = travelListStore.getTravel(props.travelId)
-  if (travel) {
-    travelListStore.updateTravel(props.travelId, {
-      data: {
-        ...travel.data,
-        expenses: expenses.value
-      }
-    })
-  }
-}
 
 // 更新总支出到store
 const updateTotalSpent = () => {
@@ -835,11 +1142,27 @@ const updateTotalSpent = () => {
 }
 
 // 监听travelId变化
-watch(() => props.travelId, () => {
+watch(() => props.travelId, async () => {
   if (props.travelId) {
-    loadData()
+    await loadData()
+    await loadMembers()
+  } else {
+    members.value = []
   }
 }, { immediate: true })
+
+// 监听成员列表变化，确保付款人选择器能正确显示
+watch(members, (newMembers) => {
+  // 如果成员列表更新了，且当前选择的付款人不在列表中，更新为默认成员
+  if (newMembers.length > 0 && expenseForm.value.payerId) {
+    const currentPayerExists = newMembers.some(m => m.id === expenseForm.value.payerId)
+    if (!currentPayerExists) {
+      const defaultMember = currentUserMember.value
+      expenseForm.value.payerId = defaultMember.id
+      expenseForm.value.payerName = defaultMember.name
+    }
+  }
+}, { deep: true })
 
 // 监听props变化
 watch(() => [props.initialSpent, props.initialTotal], () => {
@@ -847,16 +1170,65 @@ watch(() => [props.initialSpent, props.initialTotal], () => {
   budgetForm.value.total = props.initialTotal || 0
 })
 
-// 监听行程数据变化，自动更新支出
-watch(() => travelStore.plannerItinerary, () => {
+// 监听行程数据变化，自动更新总预算和支出
+const updateBudgetFromActivities = () => {
+  if (!props.travelId) return
+  
+  const travel = travelListStore.getTravel(props.travelId)
+  if (!travel) return
+  
+  const activityCostsValue = extractCostsFromItinerary()
+  
+  // 如果总预算未设置或为0，且活动费用大于0，自动更新总预算
+  if ((!total.value || total.value === 0) && activityCostsValue > 0) {
+    total.value = activityCostsValue
+    budgetForm.value.total = activityCostsValue
+    // 自动保存到store
+    travelListStore.updateTravel(props.travelId, {
+      budget: activityCostsValue
+    })
+    console.log('[BudgetManager] 活动费用变化，自动更新总预算:', activityCostsValue)
+  }
+  // 如果总预算已设置，但活动费用大于总预算，给出提示（但不自动修改，让用户决定）
+  else if (total.value > 0 && activityCostsValue > total.value) {
+    console.warn('[BudgetManager] 活动费用超过总预算:', {
+      activityCosts: activityCostsValue,
+      totalBudget: total.value
+    })
+  }
+}
+
+// 监听行程数据变化（itineraryData.days）
+watch(() => {
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  return travel?.data?.itineraryData?.days
+}, () => {
   if (props.travelId) {
-    updateTotalSpent()
+    updateBudgetFromActivities()
   }
 }, { deep: true })
 
-onMounted(() => {
+// 监听行程数据变化（data.days）
+watch(() => {
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  return travel?.data?.days
+}, () => {
   if (props.travelId) {
-    loadData()
+    updateBudgetFromActivities()
+  }
+}, { deep: true })
+
+// 监听plannerItinerary变化
+watch(() => travelStore.plannerItinerary, () => {
+  if (props.travelId) {
+    updateBudgetFromActivities()
+  }
+}, { deep: true })
+
+onMounted(async () => {
+  if (props.travelId) {
+    await loadData()
+    await loadMembers()
   }
 })
 </script>
@@ -913,6 +1285,10 @@ onMounted(() => {
 
 .budget-value.warning {
   color: #ff4d4f;
+}
+
+.budget-value.activity {
+  color: #1890ff;
 }
 
 .budget-actions {

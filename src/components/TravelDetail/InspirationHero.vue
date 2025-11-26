@@ -12,6 +12,18 @@
             <a-tag v-if="journeyStatusLabel" color="gold" class="status-tag">
               {{ journeyStatusLabel }}
             </a-tag>
+            <a-button 
+              v-if="canEdit && backendItineraryId"
+              type="text" 
+              size="small" 
+              class="edit-button"
+              @click="showEditModal = true"
+            >
+              <template #icon>
+                <edit-outlined />
+              </template>
+              {{ t('travelDetail.edit') || '编辑' }}
+            </a-button>
           </div>
 
           <h1 class="hero-title">{{ heroTitle }}</h1>
@@ -57,12 +69,83 @@
 
       </div>
     </div>
+    
+    <!-- 编辑行程信息模态框 -->
+    <a-modal
+      v-model:open="showEditModal"
+      :title="t('travelDetail.editJourneyInfo') || '编辑行程信息'"
+      :width="600"
+      @ok="handleSaveJourneyInfo"
+      @cancel="handleCancelEdit"
+      :ok-text="t('common.confirm') || '确定'"
+      :cancel-text="t('common.cancel') || '取消'"
+      :confirm-loading="saving"
+    >
+      <a-form :model="editForm" layout="vertical">
+        <a-form-item :label="t('travelDetail.destination') || '目的地'">
+          <a-input
+            v-model:value="editForm.destination"
+            :placeholder="t('travelDetail.destinationPlaceholder') || '请输入目的地'"
+          />
+        </a-form-item>
+        
+        <a-form-item :label="t('travelDetail.startDate') || '开始日期'">
+          <a-date-picker
+            v-model:value="editForm.startDate"
+            style="width: 100%"
+            format="YYYY-MM-DD"
+            :placeholder="t('travelDetail.startDatePlaceholder') || '选择开始日期'"
+          />
+        </a-form-item>
+        
+        <a-form-item :label="t('travelDetail.days') || '行程天数'">
+          <a-input-number
+            v-model:value="editForm.days"
+            :min="1"
+            :max="30"
+            style="width: 100%"
+            :placeholder="t('travelDetail.daysPlaceholder') || '请输入行程天数'"
+          />
+        </a-form-item>
+        
+        <a-form-item :label="t('travelDetail.summary') || '行程摘要'">
+          <a-textarea
+            v-model:value="editForm.summary"
+            :rows="4"
+            :placeholder="t('travelDetail.summaryPlaceholder') || '请输入行程摘要'"
+          />
+        </a-form-item>
+        
+        <a-form-item :label="t('travelDetail.totalCost') || '总费用'">
+          <a-input-number
+            v-model:value="editForm.totalCost"
+            :min="0"
+            :precision="2"
+            style="width: 100%"
+            :placeholder="t('travelDetail.totalCostPlaceholder') || '请输入总费用'"
+          >
+            <template #addonBefore>{{ currencySymbol }}</template>
+          </a-input-number>
+        </a-form-item>
+        
+        <a-form-item :label="t('travelDetail.status') || '状态'">
+          <a-select
+            v-model:value="editForm.status"
+            :placeholder="t('travelDetail.statusPlaceholder') || '选择状态'"
+          >
+            <a-select-option value="draft">{{ t('travelDetail.statusDraft') || '草稿' }}</a-select-option>
+            <a-select-option value="published">{{ t('travelDetail.statusPublished') || '已发布' }}</a-select-option>
+            <a-select-option value="archived">{{ t('travelDetail.statusArchived') || '已归档' }}</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 // @ts-nocheck
-import { computed, ref, watchEffect } from 'vue'
+import { computed, nextTick, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Travel } from '@/stores/travelList'
 import {
@@ -70,18 +153,27 @@ import {
   CompassOutlined,
   CrownOutlined,
   DollarOutlined,
+  EditOutlined,
   EnvironmentOutlined,
   ScheduleOutlined,
   SmileOutlined,
   StarOutlined
 } from '@ant-design/icons-vue'
 import { reverseGeocodeDetail } from '@/utils/geocode'
+import { updateItinerary, type UpdateItineraryRequest } from '@/services/itineraryAPI'
+// 不再使用 travelListStore，数据从后端接口获取
+import { message } from 'ant-design-vue'
+import dayjs, { type Dayjs } from 'dayjs'
+import { getCurrencyForDestination } from '@/utils/currency'
 
 interface Props {
   travel: Travel | null
 }
 
 const props = defineProps<Props>()
+const emit = defineEmits<{
+  refresh: []
+}>()
 const { t, locale } = useI18n()
 
 const translate = (key: string, fallback: string, params?: Record<string, any>) => {
@@ -353,7 +445,28 @@ const heroJourneyBackground = computed(() => {
   return ''
 })
 
-const dayCount = computed(() => itineraryData.value?.days?.length || props.travel?.duration || 0)
+// 根据实际的活动天数计算，优先使用 itineraryData.days 的长度
+const dayCount = computed(() => {
+  // 优先使用 itineraryData.days 的实际长度（实际有活动的天数）
+  if (itineraryData.value?.days && Array.isArray(itineraryData.value.days) && itineraryData.value.days.length > 0) {
+    // 过滤掉没有活动的天数（timeSlots 为空或长度为 0）
+    const daysWithActivities = itineraryData.value.days.filter((day: any) => {
+      const timeSlots = day.timeSlots || day.activities || []
+      return timeSlots.length > 0
+    })
+    
+    // 如果有活动的天数 > 0，使用实际有活动的天数
+    if (daysWithActivities.length > 0) {
+      return daysWithActivities.length
+    }
+    
+    // 如果所有天数都没有活动，但天数数组存在，返回天数数组长度
+    return itineraryData.value.days.length
+  }
+  
+  // 如果没有 itineraryData.days，回退到 travel.duration
+  return props.travel?.duration || 0
+})
 
 const heroModeLabel = computed(() => {
   const mode = props.travel?.mode
@@ -391,6 +504,202 @@ const travelMood = computed(() => {
   return data?.mood || data?.journeyMood || ''
 })
 
+// 编辑相关 - 不再使用本地 store
+const showEditModal = ref(false)
+const saving = ref(false)
+const backendItineraryId = computed(() => {
+  return props.travel?.data?.backendItineraryId || null
+})
+
+const canEdit = computed(() => {
+  // 只有有 backendItineraryId 的行程才能编辑
+  return !!backendItineraryId.value
+})
+
+// 获取当前行程信息用于编辑表单
+const getCurrentJourneyInfo = () => {
+  const travel = props.travel
+  const data: any = travelData.value
+  const itinerary = itineraryData.value as any
+  
+  return {
+    destination: travel?.destination || 
+                 data?.destination || 
+                 itinerary?.destination || 
+                 heroDestination.value || 
+                 '',
+    startDate: travel?.startDate || 
+               data?.startDate || 
+               itinerary?.startDate || 
+               null,
+    days: (() => {
+      // 优先使用实际有活动的天数
+      if (itinerary?.days && Array.isArray(itinerary.days) && itinerary.days.length > 0) {
+        const daysWithActivities = itinerary.days.filter((day: any) => {
+          const timeSlots = day.timeSlots || day.activities || []
+          return timeSlots.length > 0
+        })
+        if (daysWithActivities.length > 0) {
+          return daysWithActivities.length
+        }
+        return itinerary.days.length
+      }
+      // 回退到 dayCount（已经计算了实际活动天数）
+      return dayCount.value || travel?.duration || itinerary?.duration || 0
+    })(),
+    summary: travel?.description || 
+             data?.summary || 
+             itinerary?.summary || 
+             heroItinerarySummary.value || 
+             '',
+    totalCost: travel?.budget || 
+               data?.totalCost || 
+               itinerary?.totalCost || 
+               (totalCost.value ? parseFloat(totalCost.value.replace(/[^\d.]/g, '')) : 0) || 
+               0,
+    status: data?.status || travel?.status || 'draft'
+  }
+}
+
+const editForm = ref({
+  destination: '',
+  startDate: null as Dayjs | null,
+  days: 0,
+  summary: '',
+  totalCost: 0,
+  status: 'draft' as 'draft' | 'published' | 'archived'
+})
+
+// 获取货币符号
+const currencySymbol = computed(() => {
+  // 可以根据目的地获取货币符号，这里简化处理
+  return '¥'
+})
+
+// 初始化编辑表单
+const initEditForm = () => {
+  const info = getCurrentJourneyInfo()
+  console.log('[InspirationHero] 初始化编辑表单，当前行程信息:', {
+    destination: info.destination,
+    days: info.days,
+    dayCount: dayCount.value,
+    travelDuration: props.travel?.duration,
+    itineraryDuration: itineraryData.value?.duration,
+    itineraryDaysLength: itineraryData.value?.days?.length,
+    travelDataDuration: travelData.value?.duration
+  })
+  editForm.value = {
+    destination: info.destination,
+    startDate: info.startDate ? dayjs(info.startDate) : null,
+    days: info.days,
+    summary: info.summary,
+    totalCost: info.totalCost,
+    status: info.status as 'draft' | 'published' | 'archived'
+  }
+  console.log('[InspirationHero] 编辑表单初始化完成:', {
+    days: editForm.value.days,
+    destination: editForm.value.destination
+  })
+}
+
+// 保存行程信息
+const handleSaveJourneyInfo = async () => {
+  if (!backendItineraryId.value) {
+    message.error(t('travelDetail.noBackendItineraryId') || '无法保存：缺少行程ID')
+    return
+  }
+  
+  saving.value = true
+  try {
+    const updateData: UpdateItineraryRequest = {}
+    
+    // 只添加有变化的字段
+    const currentInfo = getCurrentJourneyInfo()
+    
+    if (editForm.value.destination && editForm.value.destination !== currentInfo.destination) {
+      updateData.destination = editForm.value.destination
+    }
+    
+    if (editForm.value.startDate) {
+      const dateStr = editForm.value.startDate.format('YYYY-MM-DD')
+      if (dateStr !== currentInfo.startDate) {
+        updateData.startDate = dateStr
+      }
+    }
+    
+    if (editForm.value.days && editForm.value.days !== currentInfo.days) {
+      updateData.days = editForm.value.days
+    }
+    
+    if (editForm.value.summary !== currentInfo.summary) {
+      updateData.summary = editForm.value.summary
+    }
+    
+    if (editForm.value.totalCost !== currentInfo.totalCost) {
+      updateData.totalCost = editForm.value.totalCost
+    }
+    
+    if (editForm.value.status !== currentInfo.status) {
+      updateData.status = editForm.value.status
+    }
+    
+    // 如果没有需要更新的字段，直接关闭
+    if (Object.keys(updateData).length === 0) {
+      message.info(t('travelDetail.noChanges') || '没有需要保存的更改')
+      showEditModal.value = false
+      return
+    }
+    
+    console.log('[InspirationHero] 更新行程信息:', {
+      journeyId: backendItineraryId.value,
+      updateData
+    })
+    
+    const updated = await updateItinerary(backendItineraryId.value, updateData)
+    
+    console.log('[InspirationHero] 后端返回的更新数据:', {
+      id: updated.id,
+      destination: updated.destination,
+      startDate: updated.startDate,
+      daysCount: updated.daysCount,
+      summary: updated.summary,
+      totalCost: updated.totalCost,
+      status: updated.status
+    })
+    
+    // 不再更新本地 store，直接通知父组件从后端重新加载数据
+    console.log('[InspirationHero] 后端更新成功，通知父组件从后端重新加载数据')
+    
+    // 等待一下确保后端数据已保存
+    await nextTick()
+    
+    // 通知父组件刷新 travel 数据（从后端重新加载）
+    emit('refresh')
+    
+    console.log('[InspirationHero] 已触发刷新事件，父组件将从后端重新加载数据')
+    
+    message.success(t('travelDetail.journeyInfoUpdated') || '行程信息已更新')
+    showEditModal.value = false
+  } catch (error: any) {
+    console.error('[InspirationHero] 更新行程信息失败:', error)
+    message.error(error.message || (t('travelDetail.journeyInfoUpdateFailed') || '更新行程信息失败'))
+  } finally {
+    saving.value = false
+  }
+}
+
+// 取消编辑
+const handleCancelEdit = () => {
+  showEditModal.value = false
+}
+
+// 监听模态框打开，初始化表单
+watch(showEditModal, (open) => {
+  if (open) {
+    initEditForm()
+  }
+})
+
 // 获取总费用（planner 模式显示）
 const totalCost = computed(() => {
   const mode = props.travel?.mode
@@ -405,10 +714,19 @@ const totalCost = computed(() => {
   
   if (cost <= 0) return null
   
+  // 根据目的地获取货币
+  const destination = props.travel?.location || 
+                      props.travel?.destination || 
+                      data?.destination || 
+                      itineraryData.value?.destination || 
+                      ''
+  
+  const currency = destination ? getCurrencyForDestination(destination) : getCurrencyForDestination('中国')
+  
   // 格式化货币显示
   return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
-    currency: 'CNY',
+    currency: currency.code,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(cost)
@@ -542,6 +860,16 @@ const heroChips = computed(() => collectChips())
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.edit-button {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.edit-button:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .hero-mode-tag {

@@ -607,52 +607,52 @@ const handleSubmit = async () => {
     
     let newTravel: any = null
     try {
-      // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
-      // 方式1: data.days (直接存储)
-      // 方式2: data.itineraryData.days (嵌套存储)
-      const travelData: any = {
-        // 保存后端行程ID（如果创建成功）
-        backendItineraryId: backendItineraryId,
-        // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
+    // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
+    // 方式1: data.days (直接存储)
+    // 方式2: data.itineraryData.days (嵌套存储)
+    const travelData: any = {
+      // 保存后端行程ID（如果创建成功）
+      backendItineraryId: backendItineraryId,
+      // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
+      days: (itineraryData as any).days || [],
+      destination: itineraryData.destination,
+      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+      totalCost: (itineraryData as any).totalCost || 0,
+      summary: (itineraryData as any).summary || '',
+      // 同时存储为 itineraryData 格式，以兼容其他组件
+      itineraryData: {
         days: (itineraryData as any).days || [],
         destination: itineraryData.destination,
         title: (itineraryData as any).title || `${formData.value.destination}之旅`,
         totalCost: (itineraryData as any).totalCost || 0,
         summary: (itineraryData as any).summary || '',
-        // 同时存储为 itineraryData 格式，以兼容其他组件
-        itineraryData: {
-          days: (itineraryData as any).days || [],
-          destination: itineraryData.destination,
-          title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-          totalCost: (itineraryData as any).totalCost || 0,
-          summary: (itineraryData as any).summary || '',
-          duration: itineraryData.duration,
-          budget: itineraryData.budget,
-          preferences: itineraryData.preferences,
-          travelStyle: itineraryData.travelStyle
-        }
+        duration: itineraryData.duration,
+        budget: itineraryData.budget,
+        preferences: itineraryData.preferences,
+        travelStyle: itineraryData.travelStyle
       }
-      
-      // 使用后端返回的 mode（如果存在），否则使用默认值
-      const travelMode = backendItinerary?.mode || 'planner'
-      
+    }
+    
+    // 使用后端返回的 mode（如果存在），否则使用默认值
+    const travelMode = backendItinerary?.mode || 'planner'
+    
       newTravel = travelListStore.createTravel({
-        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-        location: formData.value.destination,
-        description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
-        mode: travelMode as 'planner' | 'seeker' | 'inspiration',
-        status: 'active',
-        duration: formData.value.days,
-        participants: 1,
-        budget: (itineraryData as any).totalCost || 0,
-        data: travelData // 保存详细的行程数据
-      })
-      console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
-        id: newTravel.id,
-        title: newTravel.title,
-        mode: newTravel.mode,
-        backendItineraryId: backendItineraryId
-      })
+      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+      location: formData.value.destination,
+      description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
+      mode: travelMode as 'planner' | 'seeker' | 'inspiration',
+      status: 'active',
+      duration: formData.value.days,
+      participants: 1,
+      budget: (itineraryData as any).totalCost || 0,
+      data: travelData // 保存详细的行程数据
+    })
+    console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
+      id: newTravel.id,
+      title: newTravel.title,
+      mode: newTravel.mode,
+      backendItineraryId: backendItineraryId
+    })
     } catch (travelError: any) {
       console.error('❌ [Planner] 步骤 4/4: 创建 Travel 失败', {
         error: travelError.message,
@@ -668,9 +668,9 @@ const handleSubmit = async () => {
         travelId: newTravel.id,
         travelTitle: newTravel.title
       })
-      message.success('行程生成成功！')
-      
-      // 跳转到旅行详情页
+    message.success('行程生成成功！')
+    
+    // 跳转到旅行详情页
       try {
         await router.push(`/travel/${newTravel.id}`)
         console.log('✅ [Planner] 跳转成功')

@@ -387,6 +387,92 @@ export interface DestinationWeather {
 }
 
 /**
+ * 通过名称查找或创建目的地
+ */
+export interface FindOrCreateDestinationRequest {
+  name: string
+}
+
+export interface FindOrCreateDestinationResponse {
+  success: boolean
+  data: {
+    id: string
+    name: string
+    slug: string
+    countryCode?: string | null
+    geoJson?: any
+    createdAt: string
+    updatedAt: string
+  }
+  isNew: boolean
+}
+
+/**
+ * 通过名称查找或创建目的地，获取目的地ID
+ * @param name 目的地名称
+ * @returns 目的地信息，如果失败则返回 null
+ */
+export async function findOrCreateDestination(
+  name: string
+): Promise<FindOrCreateDestinationResponse['data'] | null> {
+  const endpoint = '/v1/destinations/find-or-create'
+  const url = buildUrl(endpoint)
+
+  console.log('[ExternalAPI] 查找或创建目的地:', {
+    url,
+    name
+  })
+
+  try {
+    const requestBody: FindOrCreateDestinationRequest = { name }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[ExternalAPI] 查找或创建目的地失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        name
+      })
+      return null
+    }
+
+    const apiData: FindOrCreateDestinationResponse = await response.json()
+
+    if (!apiData.success) {
+      console.warn('[ExternalAPI] 查找或创建目的地返回失败:', {
+        name,
+        response: apiData
+      })
+      return null
+    }
+
+    console.log('[ExternalAPI] 查找或创建目的地成功:', {
+      id: apiData.data.id,
+      name: apiData.data.name,
+      isNew: apiData.isNew
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.warn('[ExternalAPI] 查找或创建目的地失败（不影响主流程）:', {
+      error: error.message,
+      name,
+      url
+    })
+    return null
+  }
+}
+
+/**
  * 获取目的地天气信息
  * @param destinationId 目的地ID（UUID）
  * @returns 天气信息，如果失败则返回 null

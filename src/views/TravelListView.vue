@@ -177,9 +177,9 @@
                 <div class="travel-budget">
                   <div class="budget-label">{{ t('travelList.budget') }}</div>
                   <div class="budget-amount">
-                    <span class="budget-spent">¥{{ travel.spent || 0 }}</span>
+                    <span class="budget-spent">{{ formatBudgetAmount(travel.spent || 0, travel) }}</span>
                     <span class="budget-separator">/</span>
-                    <span class="budget-total">¥{{ travel.budget || 5000 }}</span>
+                    <span class="budget-total">{{ formatBudgetAmount(travel.budget || 5000, travel) }}</span>
                   </div>
                 </div>
               </div>
@@ -204,6 +204,7 @@ import { getVisaInfo, type VisaInfo } from '@/config/visa'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { deleteItinerary } from '@/services/itineraryAPI'
+import { getCurrencyForDestination, formatCurrency } from '@/utils/currency'
 
 const { t } = useI18n()
 import {
@@ -367,8 +368,20 @@ const handleCreateJourney = (mode: 'planner' | 'seeker' | 'inspiration') => {
 }
 
 // 打开旅程详情（点击卡片）
-const handleOpenTravel = (travel: Travel) => {
+const handleOpenTravel = async (travel: Travel) => {
   console.log('打开旅程:', travel)
+  console.log('旅程 ID:', travel.id)
+  console.log('后端 ID:', travel.data?.backendItineraryId)
+  
+  // 使用 backendItineraryId 优先，如果没有则使用 id
+  const journeyId = travel.data?.backendItineraryId || travel.id
+  
+  if (!journeyId) {
+    console.error('无法打开旅程：缺少 ID')
+    message.error('无法打开旅程：缺少行程 ID')
+    return
+  }
+  
   if (travel.mode === 'inspiration') {
     const data = travel.data || {}
     const hasFullItinerary = data?.hasFullItinerary || (Array.isArray(data?.days) && data.days.length > 0)
@@ -377,8 +390,16 @@ const handleOpenTravel = (travel: Travel) => {
       return
     }
   }
+  
   // 跳转到旅行详情页
-  router.push(`/travel/${travel.id}`)
+  console.log('准备跳转到详情页，ID:', journeyId)
+  try {
+    await router.push(`/travel/${journeyId}`)
+    console.log('路由跳转成功')
+  } catch (error: any) {
+    console.error('路由跳转失败:', error)
+    message.error('无法打开旅程详情页，请重试')
+  }
 }
 
 // 编辑旅程
@@ -609,6 +630,19 @@ const getVisaStatusText = (travel: Travel) => {
   }
   
   return typeMap[visaInfo.visaType] || '签证信息'
+}
+
+// 根据目的地格式化预算金额
+const formatBudgetAmount = (amount: number, travel: Travel) => {
+  const destination = travel.location || travel.destination || travel.data?.destination || ''
+  if (!destination) {
+    // 如果没有目的地，默认使用人民币
+    const defaultCurrency = { code: 'CNY', symbol: '¥', name: '人民币' }
+    return formatCurrency(amount, defaultCurrency)
+  }
+  
+  const currency = getCurrencyForDestination(destination)
+  return formatCurrency(amount, currency)
 }
 
 // 获取签证状态颜色

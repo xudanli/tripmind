@@ -516,6 +516,10 @@ const goToDetail = async () => {
   
   // 跳转到旅行详情页
   router.push(`/travel/${newTravel.id}`)
+  } catch (error: any) {
+    console.error('[Seeker] 保存行程到后端失败:', error)
+    message.error(`保存行程失败: ${error.message || '未知错误'}`)
+  }
 }
 </script>
 

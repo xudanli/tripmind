@@ -673,7 +673,10 @@ const travel = computed(() => props.travel)
 const itineraryData = computed(() => {
   const data = travel.value?.data
   if (!data) {
-    console.log('⚠️ travel.value?.data 不存在')
+    console.log('⚠️ [ExperienceDay] travel.value?.data 不存在', {
+      hasTravel: !!travel.value,
+      travelKeys: travel.value ? Object.keys(travel.value) : []
+    })
     return null
   }
   
@@ -681,38 +684,50 @@ const itineraryData = computed(() => {
   
   console.log('🔍 [ExperienceDay] 检查数据格式:', {
     hasBackendId,
+    backendItineraryId: data.backendItineraryId,
     hasDays: !!data.days,
+    daysLength: data.days?.length || 0,
     hasPlannerItinerary: !!data.plannerItinerary,
+    plannerItineraryDaysLength: data.plannerItinerary?.days?.length || 0,
     hasItineraryData: !!data.itineraryData,
-    itineraryDataDays: data.itineraryData?.days?.length,
-    dataKeys: Object.keys(data)
+    itineraryDataDays: data.itineraryData?.days?.length || 0,
+    dataKeys: Object.keys(data),
+    itineraryDataKeys: data.itineraryData ? Object.keys(data.itineraryData) : []
   })
   
   // 如果有 backendItineraryId，优先使用后端数据（itineraryData）
   if (hasBackendId && data.itineraryData?.days && Array.isArray(data.itineraryData.days) && data.itineraryData.days.length > 0) {
-    console.log('✅ [后端数据优先] 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length)
+    console.log('✅ [后端数据优先] 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length, {
+      firstDay: data.itineraryData.days[0] ? {
+        day: data.itineraryData.days[0].day,
+        date: data.itineraryData.days[0].date,
+        timeSlotsCount: data.itineraryData.days[0].timeSlots?.length || 0,
+        activitiesCount: data.itineraryData.days[0].activities?.length || 0
+      } : null
+    })
     return data.itineraryData
   }
   
   // 如果没有 backendItineraryId，按原优先级读取
   // 优先级1: 如果直接是行程计划格式（有days数组）- 新生成的灵感行程通常是这种格式
   if (data.days && Array.isArray(data.days) && data.days.length > 0) {
-    console.log('✅ 从 data.days 获取行程数据，天数:', data.days.length)
+    console.log('✅ [优先级1] 从 data.days 获取行程数据，天数:', data.days.length)
     return data
   }
   // 优先级2: 如果存储在itineraryData中（后端返回的格式）
   if (data.itineraryData?.days && Array.isArray(data.itineraryData.days) && data.itineraryData.days.length > 0) {
-    console.log('✅ 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length)
+    console.log('✅ [优先级2] 从 data.itineraryData.days 获取行程数据，天数:', data.itineraryData.days.length)
     return data.itineraryData
   }
   // 优先级3: 如果存储在plannerItinerary中
   if (data.plannerItinerary?.days && Array.isArray(data.plannerItinerary.days) && data.plannerItinerary.days.length > 0) {
-    console.log('✅ 从 data.plannerItinerary.days 获取行程数据，天数:', data.plannerItinerary.days.length)
+    console.log('✅ [优先级3] 从 data.plannerItinerary.days 获取行程数据，天数:', data.plannerItinerary.days.length)
     return data.plannerItinerary
   }
   
-  console.log('⚠️ 未找到行程数据（days数组）', {
-    dataStructure: JSON.stringify(data, null, 2).substring(0, 500)
+  console.log('⚠️ [ExperienceDay] 未找到行程数据（days数组）', {
+    dataStructure: JSON.stringify(data, null, 2).substring(0, 1000),
+    itineraryDataStructure: data.itineraryData ? JSON.stringify(data.itineraryData, null, 2).substring(0, 500) : 'null'
   })
   return null
 })
@@ -977,10 +992,34 @@ const coverImage = computed(() => {
 
 // 行程天数数据
 const itineraryDays = computed(() => {
+  console.log('🔍 [ExperienceDay] itineraryDays computed 被调用:', {
+    hasItineraryData: !!itineraryData.value,
+    hasDays: !!itineraryData.value?.days,
+    daysLength: itineraryData.value?.days?.length || 0,
+    travelId: travel.value?.id,
+    backendItineraryId: travel.value?.data?.backendItineraryId
+  })
+  
   if (!itineraryData.value?.days) {
-    console.log('⚠️ [ExperienceDay] itineraryData.value?.days 不存在')
+    console.log('⚠️ [ExperienceDay] itineraryData.value?.days 不存在', {
+      itineraryDataValue: itineraryData.value,
+      travelData: travel.value?.data,
+      dataKeys: travel.value?.data ? Object.keys(travel.value.data) : []
+    })
     return []
   }
+  
+  console.log('✅ [ExperienceDay] 找到 days 数据:', {
+    daysCount: itineraryData.value.days.length,
+    firstDay: itineraryData.value.days[0] ? {
+      day: itineraryData.value.days[0].day,
+      date: itineraryData.value.days[0].date,
+      hasTimeSlots: !!itineraryData.value.days[0].timeSlots,
+      timeSlotsCount: itineraryData.value.days[0].timeSlots?.length || 0,
+      hasActivities: !!itineraryData.value.days[0].activities,
+      activitiesCount: itineraryData.value.days[0].activities?.length || 0
+    } : null
+  })
   
   // 去重：按 day 和 id 去重，优先保留有 id 的
   const dayMap = new Map<string | number, any>()
@@ -1007,7 +1046,16 @@ const itineraryDays = computed(() => {
   const days = uniqueDays.map((day: any) => {
     // 确保 timeSlots 存在
     const timeSlots = day.timeSlots || day.activities || []
-    console.log(`📅 [ExperienceDay] Day ${day.day}: ${timeSlots.length} 个活动`)
+    console.log(`📅 [ExperienceDay] Day ${day.day}: ${timeSlots.length} 个活动`, {
+      day: day.day,
+      date: day.date,
+      timeSlotsCount: timeSlots.length,
+      firstSlot: timeSlots[0] ? {
+        title: timeSlots[0].title || timeSlots[0].activity,
+        time: timeSlots[0].time,
+        hasDetails: !!timeSlots[0].details
+      } : null
+    })
     
     return {
       ...day,
@@ -1025,6 +1073,11 @@ const itineraryDays = computed(() => {
         }
       })
     }
+  })
+  
+  console.log('✅ [ExperienceDay] 处理后的 itineraryDays:', {
+    daysCount: days.length,
+    totalTimeSlots: days.reduce((sum, d) => sum + (d.timeSlots?.length || 0), 0)
   })
   
   console.log(`✅ [ExperienceDay] 总共 ${days.length} 天（已去重），${days.reduce((sum, d) => sum + d.timeSlots.length, 0)} 个活动`)
@@ -1548,6 +1601,35 @@ watch(
     ensurePreparationTasks()
   },
   { immediate: true }
+)
+
+// 监控 travel 数据变化，确保数据更新时重新计算
+watch(
+  () => travel.value?.data?.itineraryData?.days,
+  (newDays) => {
+    console.log('🔄 [ExperienceDay] itineraryData.days 发生变化:', {
+      newDaysLength: newDays?.length || 0,
+      hasTravel: !!travel.value,
+      hasData: !!travel.value?.data,
+      hasItineraryData: !!travel.value?.data?.itineraryData
+    })
+  },
+  { deep: true, immediate: true }
+)
+
+// 监控 travel 对象本身的变化
+watch(
+  () => travel.value,
+  (newTravel) => {
+    console.log('🔄 [ExperienceDay] travel 对象发生变化:', {
+      hasTravel: !!newTravel,
+      hasData: !!newTravel?.data,
+      hasItineraryData: !!newTravel?.data?.itineraryData,
+      itineraryDataDaysCount: newTravel?.data?.itineraryData?.days?.length || 0,
+      backendItineraryId: newTravel?.data?.backendItineraryId
+    })
+  },
+  { deep: true, immediate: true }
 )
 
 // 组件挂载时加载图片和安全提示

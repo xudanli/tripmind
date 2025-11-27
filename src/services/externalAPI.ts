@@ -517,7 +517,7 @@ export async function getDestinationWeather(
           windSpeed: 10,
           forecast: [
             {
-              date: new Date().toISOString().split('T')[0],
+              date: new Date().toISOString().split('T')[0] || '',
               temperature: 20,
               condition: '晴天'
             }
@@ -553,6 +553,245 @@ export async function getDestinationWeather(
       url
     })
     return null
+  }
+}
+
+/**
+ * POI 搜索请求参数
+ */
+export interface POISearchRequest {
+  query: string
+  destination?: string
+  latitude?: number
+  longitude?: number
+  type?: 'attraction' | 'restaurant' | 'hotel' | 'shopping' | 'all'
+  limit?: number
+}
+
+/**
+ * POI 搜索结果项
+ */
+export interface POISearchResult {
+  id: string
+  name: string
+  address?: string
+  latitude: number
+  longitude: number
+  type: string
+  rating?: number
+  imageUrl?: string
+  description?: string
+}
+
+/**
+ * POI 搜索响应
+ */
+export interface POISearchResponse {
+  data: POISearchResult[]
+  total: number
+}
+
+/**
+ * 搜索兴趣点（POI）
+ * @param request 搜索请求参数
+ * @returns POI 列表
+ */
+export async function searchPOI(request: POISearchRequest): Promise<POISearchResult[]> {
+  const endpoint = '/v1/poi/search'
+  const url = buildUrl(endpoint)
+
+  console.log('[ExternalAPI] 搜索 POI:', {
+    url,
+    query: request.query,
+    destination: request.destination,
+    type: request.type,
+    limit: request.limit
+  })
+
+  try {
+    // 这是公开接口，不需要认证
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[ExternalAPI] POI 搜索失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        request
+      })
+      
+      // 如果是 400 错误，可能是参数验证失败，返回空数组
+      if (response.status === 400) {
+        return []
+      }
+      
+      // 其他错误，尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `POI 搜索失败: ${response.status}`)
+      } catch {
+        throw new Error(`POI 搜索失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const apiData: POISearchResponse = await response.json()
+
+    console.log('[ExternalAPI] POI 搜索成功:', {
+      query: request.query,
+      resultCount: apiData.data?.length || 0,
+      total: apiData.total || 0
+    })
+
+    return apiData.data || []
+  } catch (error: any) {
+    console.warn('[ExternalAPI] POI 搜索失败（不影响主流程）:', {
+      error: error.message,
+      request,
+      url
+    })
+    return [] // 返回空数组而不是抛出错误
+  }
+}
+
+/**
+ * 获取通用旅行安全通知列表查询参数
+ */
+export interface GetAlertsQueryParams {
+  destination?: string
+  countryCode?: string
+  severity?: 'low' | 'medium' | 'high' | 'critical'
+  status?: 'active' | 'expired' | 'archived'
+  startDate?: string // YYYY-MM-DD
+  endDate?: string // YYYY-MM-DD
+  page?: number
+  limit?: number
+}
+
+/**
+ * 旅行安全通知项
+ */
+export interface TravelAlert {
+  id: string
+  title: string
+  content: string
+  destination?: string
+  countryCode?: string
+  severity: 'low' | 'medium' | 'high' | 'critical'
+  status: 'active' | 'expired' | 'archived'
+  startDate: string // ISO 8601
+  endDate?: string // ISO 8601
+  metadata?: Record<string, any>
+  createdAt: string // ISO 8601
+  updatedAt: string // ISO 8601
+}
+
+/**
+ * 获取通用旅行安全通知列表响应
+ */
+export interface GetAlertsResponse {
+  data: TravelAlert[]
+  total: number
+  page: number
+  limit: number
+}
+
+/**
+ * 获取通用旅行安全通知列表
+ * @param params 查询参数
+ * @returns 安全通知列表
+ */
+export async function getTravelAlerts(
+  params: GetAlertsQueryParams = {}
+): Promise<GetAlertsResponse> {
+  const endpoint = '/v1/alerts'
+  const url = buildUrl(endpoint)
+
+  // 构建查询参数
+  const queryParams = new URLSearchParams()
+  if (params.destination) queryParams.append('destination', params.destination)
+  if (params.countryCode) queryParams.append('countryCode', params.countryCode)
+  if (params.severity) queryParams.append('severity', params.severity)
+  if (params.status) queryParams.append('status', params.status)
+  if (params.startDate) queryParams.append('startDate', params.startDate)
+  if (params.endDate) queryParams.append('endDate', params.endDate)
+  if (params.page) queryParams.append('page', params.page.toString())
+  if (params.limit) queryParams.append('limit', params.limit.toString())
+
+  const fullUrl = queryParams.toString() ? `${url}?${queryParams.toString()}` : url
+
+  console.log('[ExternalAPI] 获取旅行安全通知:', {
+    url: fullUrl,
+    params
+  })
+
+  try {
+    // 这是公开接口，不需要认证
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include'
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[ExternalAPI] 获取旅行安全通知失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        params
+      })
+      
+      // 如果是 400 错误，可能是参数验证失败，返回空列表
+      if (response.status === 400) {
+        return {
+          data: [],
+          total: 0,
+          page: params.page || 1,
+          limit: params.limit || 20
+        }
+      }
+      
+      // 其他错误，尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `获取旅行安全通知失败: ${response.status}`)
+      } catch {
+        throw new Error(`获取旅行安全通知失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const apiData: GetAlertsResponse = await response.json()
+
+    console.log('[ExternalAPI] 获取旅行安全通知成功:', {
+      resultCount: apiData.data?.length || 0,
+      total: apiData.total || 0,
+      page: apiData.page || 1
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.warn('[ExternalAPI] 获取旅行安全通知失败（不影响主流程）:', {
+      error: error.message,
+      params,
+      url: fullUrl
+    })
+    // 返回空列表而不是抛出错误
+    return {
+      data: [],
+      total: 0,
+      page: params.page || 1,
+      limit: params.limit || 20
+    }
   }
 }
 

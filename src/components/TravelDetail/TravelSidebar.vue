@@ -1,14 +1,14 @@
 <template>
   <a-card :bordered="false" class="sidebar-container">
     <a-tabs v-model:activeKey="activeKey" :tab-position="'top'">
-      <!-- 讨论区 Tab -->
-      <a-tab-pane key="discussion" tab="讨论区">
-        <DiscussionArea :travel-id="travelId" />
-      </a-tab-pane>
-
       <!-- 任务清单 Tab -->
       <a-tab-pane key="tasks" tab="任务">
         <TaskList :travel-id="travelId" :initial-tasks="computedInitialTasks" />
+      </a-tab-pane>
+
+      <!-- 讨论区 Tab -->
+      <a-tab-pane key="discussion" tab="讨论区">
+        <DiscussionArea :travel-id="travelId" />
       </a-tab-pane>
 
       <!-- 预算管理 Tab -->
@@ -73,7 +73,7 @@ const props = withDefaults(defineProps<Props>(), {
   initialTotal: 0
 })
 
-const activeKey = ref('discussion')
+const activeKey = ref('tasks')
 // seeker 模式已移除，删除相关变量
 
 // 从 travel 数据获取初始值
@@ -137,8 +137,6 @@ const dynamicFiles = computed(() => props.files || [])
 }
 
 :deep(.ant-tabs-nav .ant-tabs-tab) {
-  padding: 8px 16px;
-  margin-right: 8px;
   border: none;
   background: transparent;
 }

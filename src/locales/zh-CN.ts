@@ -277,6 +277,14 @@ export default {
     record: '记录',
     started: '已花费',
     totalBudget: '总预算',
+    safetyNotice: {
+      title: '安全提示',
+      noNotice: '暂无安全提示',
+      generate: '生成安全提示',
+      refresh: '刷新',
+      alerts: '旅行安全通知',
+      refreshAlerts: '刷新'
+    },
     plannerHero: {
       completionLabel: '行程完成度',
       aiSuggestionLabel: '优化建议：',

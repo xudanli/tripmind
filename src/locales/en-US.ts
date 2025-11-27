@@ -238,6 +238,14 @@ export default {
     started: 'Spent',
     budgetSpent: 'Spent',
     activityCosts: 'Activity Costs',
+    safetyNotice: {
+      title: 'Safety Notice',
+      noNotice: 'No safety notice available',
+      generate: 'Generate Safety Notice',
+      refresh: 'Refresh',
+      alerts: 'Travel Safety Alerts',
+      refreshAlerts: 'Refresh'
+    },
     budgetTotal: 'Total Budget',
     budgetRemaining: 'Remaining',
     totalBudget: 'Total Budget',

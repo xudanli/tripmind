@@ -2449,6 +2449,166 @@ export interface UpdateJourneyFromFrontendDataResponse {
 }
 
 /**
+ * 从前端数据格式创建行程
+ * @param request 请求参数（前端数据格式）
+ * @returns 创建的行程数据
+ */
+export async function createJourneyFromFrontendData(
+  request: UpdateJourneyFromFrontendDataRequest
+): Promise<UpdateJourneyFromFrontendDataResponse['data']> {
+  const endpoint = `/v1/journeys/from-frontend-data`
+  const url = buildUrl(endpoint)
+
+  // 详细记录请求数据
+  const daysCount = request.itineraryData.days?.length || 0
+  const totalTimeSlots = request.itineraryData.days?.reduce((sum, day) => sum + (day.timeSlots?.length || 0), 0) || 0
+  
+  console.log('[ItineraryAPI] 从前端数据格式创建行程:', {
+    url,
+    destination: request.itineraryData.destination,
+    daysCount,
+    totalTimeSlots,
+    startDate: request.startDate,
+    hasTasks: !!request.tasks && request.tasks.length > 0
+  })
+  
+  // 详细记录每个 day 的 timeSlots 信息
+  if (request.itineraryData.days && request.itineraryData.days.length > 0) {
+    request.itineraryData.days.forEach((day, index) => {
+      const timeSlots = day.timeSlots || []
+      console.log(`[ItineraryAPI] Day ${day.day || index + 1}: ${timeSlots.length} 个 timeSlots`)
+      timeSlots.forEach((slot, slotIndex) => {
+        console.log(`  Slot ${slotIndex + 1}:`, {
+          time: slot.time,
+          title: slot.title,
+          type: slot.type,
+          hasCoordinates: !!slot.coordinates,
+          hasDetails: !!slot.details,
+          cost: slot.cost,
+          duration: slot.duration
+        })
+      })
+    })
+  }
+
+  try {
+    // 验证数据格式
+    if (!request.itineraryData.destination) {
+      throw new Error('destination 字段不能为空')
+    }
+    if (!request.itineraryData.days || request.itineraryData.days.length === 0) {
+      throw new Error('days 数组不能为空')
+    }
+    
+    // 验证每个 day 的 timeSlots
+    request.itineraryData.days.forEach((day, index) => {
+      if (!day.timeSlots || day.timeSlots.length === 0) {
+        console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 timeSlots 为空`)
+      }
+      day.timeSlots?.forEach((slot, slotIndex) => {
+        if (!slot.time || !slot.title || !slot.type) {
+          console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 缺少必要字段:`, {
+            hasTime: !!slot.time,
+            hasTitle: !!slot.title,
+            hasType: !!slot.type
+          })
+        }
+        if (!slot.coordinates || !slot.coordinates.lat || !slot.coordinates.lng) {
+          console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 缺少坐标信息`)
+        }
+      })
+    })
+    
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: UpdateJourneyFromFrontendDataResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('创建行程失败')
+    }
+
+    const returnedDays = apiData.data.days || []
+    const firstDayActivities = returnedDays[0]?.activities?.length || 0
+    
+    console.log('[ItineraryAPI] 从前端数据格式创建行程成功:', {
+      id: apiData.data.id,
+      destination: apiData.data.destination,
+      daysCount: apiData.data.daysCount,
+      hasDays: returnedDays.length > 0,
+      daysLength: returnedDays.length,
+      firstDayActivities,
+      totalActivities: returnedDays.reduce((sum: number, day: any) => sum + (day.activities?.length || 0), 0)
+    })
+    
+    // 详细检查返回的 days 数据
+    if (returnedDays.length > 0) {
+      returnedDays.forEach((day: any, index: number) => {
+        const activities = day.activities || []
+        console.log(`[ItineraryAPI] 返回的 Day ${day.day || index + 1}:`, {
+          day: day.day,
+          date: day.date,
+          activitiesCount: activities.length,
+          hasId: !!day.id
+        })
+        if (activities.length === 0) {
+          console.warn(`⚠️  Day ${day.day || index + 1} 的 activities 为空，后端可能没有正确转换 timeSlots`)
+        } else {
+          activities.forEach((activity: any, actIndex: number) => {
+            console.log(`  活动 ${actIndex + 1}:`, {
+              time: activity.time,
+              title: activity.title,
+              type: activity.type,
+              hasLocation: !!activity.location,
+              hasDetails: !!activity.details
+            })
+          })
+        }
+      })
+    } else {
+      console.warn('⚠️  返回的 days 数组为空')
+    }
+
+    // 如果返回的数据中没有 days 或 days 为空，尝试重新获取详情
+    if (!apiData.data.days || apiData.data.days.length === 0 || 
+        (apiData.data.days.length > 0 && (apiData.data.days[0]?.activities?.length === 0))) {
+      console.log('[ItineraryAPI] 创建接口返回的 days 为空或 activities 为空，尝试重新获取详情...')
+      try {
+        const fullDetail = await getItineraryDetail(apiData.data.id)
+        console.log('[ItineraryAPI] 重新获取详情成功，days 数量:', fullDetail.days?.length || 0)
+        // 合并返回的数据，确保包含完整的 days
+        return {
+          ...apiData.data,
+          days: fullDetail.days || []
+        }
+      } catch (detailError: any) {
+        console.warn('[ItineraryAPI] 重新获取详情失败，使用创建接口返回的数据:', detailError.message)
+        // 如果重新获取失败，返回原始数据
+        return apiData.data
+      }
+    }
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 从前端数据格式创建行程失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
  * 从前端数据格式更新行程
  * @param journeyId 行程ID
  * @param request 请求参数（前端数据格式）
@@ -3025,6 +3185,162 @@ export async function removeMember(
       url,
       journeyId,
       memberId
+    })
+    throw error
+  }
+}
+
+/**
+ * 获取安全提示响应
+ */
+export interface GetSafetyNoticeResponse {
+  success: boolean
+  data: {
+    noticeText: string
+    lang: string
+    fromCache: boolean
+    generatedAt?: string
+  }
+}
+
+/**
+ * 获取行程的安全提示
+ * @param journeyId 行程ID
+ * @returns 安全提示数据
+ */
+export async function getSafetyNotice(journeyId: string): Promise<GetSafetyNoticeResponse['data']> {
+  const endpoint = `/v1/journeys/${journeyId}/safety-notice`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取安全提示:', {
+    url,
+    journeyId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GetSafetyNoticeResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error('获取安全提示失败')
+    }
+
+    console.log('[ItineraryAPI] 获取安全提示成功:', {
+      journeyId,
+      hasNotice: !!result.data.noticeText,
+      fromCache: result.data.fromCache,
+      lang: result.data.lang
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取安全提示失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+/**
+ * 生成安全提示请求参数
+ */
+export interface GenerateSafetyNoticeRequest {
+  lang?: string
+  forceRefresh?: boolean
+  userNationality?: string // ISO 国家代码，如 CN、US、JP
+}
+
+/**
+ * 生成安全提示响应
+ */
+export interface GenerateSafetyNoticeResponse {
+  success: boolean
+  data: {
+    noticeText: string
+    lang: string
+    fromCache: boolean
+    generatedAt: string
+  }
+  message?: string
+}
+
+/**
+ * 生成/刷新行程的安全提示
+ * @param journeyId 行程ID
+ * @param request 生成请求参数
+ * @returns 安全提示数据
+ */
+export async function generateSafetyNotice(
+  journeyId: string,
+  request: GenerateSafetyNoticeRequest = {}
+): Promise<GenerateSafetyNoticeResponse['data']> {
+  const endpoint = `/v1/journeys/${journeyId}/safety-notice`
+  const url = buildUrl(endpoint)
+
+  const requestBody: GenerateSafetyNoticeRequest = {
+    lang: request.lang || 'zh-CN',
+    forceRefresh: request.forceRefresh || false
+  }
+  
+  // 如果提供了 userNationality，添加到请求体中
+  if (request.userNationality) {
+    requestBody.userNationality = request.userNationality
+  }
+
+  console.log('[ItineraryAPI] 生成安全提示:', {
+    url,
+    journeyId,
+    request: requestBody
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GenerateSafetyNoticeResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.message || '生成安全提示失败')
+    }
+
+    console.log('[ItineraryAPI] 生成安全提示成功:', {
+      journeyId,
+      hasNotice: !!result.data.noticeText,
+      fromCache: result.data.fromCache,
+      generatedAt: result.data.generatedAt,
+      lang: result.data.lang
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 生成安全提示失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      request: requestBody
     })
     throw error
   }

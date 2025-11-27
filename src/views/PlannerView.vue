@@ -513,7 +513,28 @@ const handleSubmit = async () => {
         'planner' // 模式标识
       )
       
-      // 创建一个基础行程（不包含详细的 days 数据）
+      // 创建一个基础行程（至少包含一天的数据，满足后端验证要求）
+      // 如果 itineraryData 有 days 数据，使用它；否则创建一个空的 day 结构
+      const initialDays = (itineraryData as any).days && (itineraryData as any).days.length > 0
+        ? (itineraryData as any).days.slice(0, 1).map((day: any) => ({
+            day: day.day || 1,
+            date: day.date || formData.value.startDate,
+            activities: day.timeSlots?.map((slot: any) => ({
+              time: slot.time || '10:00',
+              title: slot.title || slot.activity || '待安排',
+              type: (slot.type || 'attraction') as any,
+              duration: typeof slot.duration === 'number' ? slot.duration : 60,
+              location: slot.coordinates || { lat: 0, lng: 0 },
+              notes: slot.notes || slot.details?.notes || '',
+              cost: typeof slot.cost === 'number' ? slot.cost : 0
+            })) || []
+          }))
+        : [{
+            day: 1,
+            date: formData.value.startDate,
+            activities: []
+          }]
+      
       const baseRequest = {
         destination: baseCreateRequest.destination,
         startDate: baseCreateRequest.startDate,
@@ -521,9 +542,9 @@ const handleSubmit = async () => {
         preferences: baseCreateRequest.preferences,
         status: baseCreateRequest.status,
         data: {
-          days: [], // 先创建空数组，后续用新接口更新
-          totalCost: 0,
-          summary: ''
+          days: initialDays, // 至少包含一天的数据
+          totalCost: (itineraryData as any).totalCost || 0,
+          summary: (itineraryData as any).summary || ''
         }
       }
       
@@ -663,21 +684,35 @@ const handleSubmit = async () => {
     }
     
     // 确保跳转到详情页
-    if (newTravel && newTravel.id) {
+    // 优先使用 backendItineraryId，如果没有则使用 newTravel.id
+    const targetId = backendItineraryId || (newTravel?.id)
+    if (targetId) {
       console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页', {
-        travelId: newTravel.id,
-        travelTitle: newTravel.title
+        travelId: newTravel?.id,
+        backendItineraryId: backendItineraryId,
+        targetId: targetId,
+        travelTitle: newTravel?.title
       })
-    message.success('行程生成成功！')
-    
-    // 跳转到旅行详情页
+      message.success('行程生成成功！')
+      
+      // 跳转到旅行详情页
+      // 如果 backendItineraryId 存在，使用它；否则使用 newTravel.id
       try {
-        await router.push(`/travel/${newTravel.id}`)
+        if (backendItineraryId) {
+          // 如果有后端 ID，使用后端 ID 跳转
+          await router.push(`/travel/${backendItineraryId}`)
+        } else if (newTravel?.id) {
+          // 否则使用前端 ID
+          await router.push(`/travel/${newTravel.id}`)
+        } else {
+          throw new Error('无法获取行程 ID')
+        }
         console.log('✅ [Planner] 跳转成功')
       } catch (routerError: any) {
         console.error('❌ [Planner] 跳转失败', {
           error: routerError.message,
-          travelId: newTravel.id
+          travelId: newTravel?.id,
+          backendItineraryId: backendItineraryId
         })
         message.error('跳转失败，请手动导航到行程详情页')
       }

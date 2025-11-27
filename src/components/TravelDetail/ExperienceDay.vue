@@ -632,6 +632,8 @@ import { PRESET_COUNTRIES } from '@/constants/countries'
 import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/services/unsplashAPI'
 import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
 import { searchNearbyPOI, type POIResult, type POICategory } from '@/services/poiSearchAPI'
+import { searchPOI, type POISearchResult } from '@/services/externalAPI'
+import { getSafetyNotice, generateSafetyNotice } from '@/services/itineraryAPI'
 import {
   COUNTRY_KEYWORDS,
   MAP_URLS,
@@ -811,7 +813,84 @@ const preferredSafetyLocaleKeys = computed(() => {
   return Array.from(keys)
 })
 
+// 从后端获取的安全提示
+const backendSafetyNotice = ref<string>('')
+const loadingSafetyNotice = ref(false)
+
+// 获取安全提示
+const loadSafetyNotice = async () => {
+  const backendItineraryId = travel.value?.data?.backendItineraryId
+  if (!backendItineraryId) {
+    console.log('[ExperienceDay] 没有 backendItineraryId，跳过获取安全提示')
+    return
+  }
+
+  loadingSafetyNotice.value = true
+  try {
+    const safetyData = await getSafetyNotice(backendItineraryId)
+    if (safetyData.noticeText && !safetyData.noticeText.includes('暂无安全提示')) {
+      backendSafetyNotice.value = safetyData.noticeText
+      console.log('[ExperienceDay] 获取安全提示成功:', {
+        hasNotice: true,
+        fromCache: safetyData.fromCache
+      })
+    } else {
+      console.log('[ExperienceDay] 暂无安全提示，需要生成')
+      backendSafetyNotice.value = ''
+    }
+  } catch (error: any) {
+    console.warn('[ExperienceDay] 获取安全提示失败:', error.message)
+    backendSafetyNotice.value = ''
+  } finally {
+    loadingSafetyNotice.value = false
+  }
+}
+
+// 生成安全提示
+const generatingSafetyNotice = ref(false)
+const handleGenerateSafetyNotice = async (forceRefresh: boolean = false) => {
+  const backendItineraryId = travel.value?.data?.backendItineraryId
+  if (!backendItineraryId) {
+    message.warning('无法生成：缺少行程 ID')
+    return
+  }
+
+  generatingSafetyNotice.value = true
+  try {
+    // 获取用户国籍
+    const userNationality = getUserNationalityCode()
+    
+    const safetyData = await generateSafetyNotice(backendItineraryId, {
+      lang: locale.value || 'zh-CN',
+      forceRefresh,
+      userNationality: userNationality || undefined
+    })
+    
+    if (safetyData.noticeText) {
+      backendSafetyNotice.value = safetyData.noticeText
+      message.success(forceRefresh ? '安全提示已刷新' : '安全提示已生成')
+      console.log('[ExperienceDay] 生成安全提示成功:', {
+        fromCache: safetyData.fromCache,
+        generatedAt: safetyData.generatedAt
+      })
+    } else {
+      message.warning('生成安全提示失败：未返回内容')
+    }
+  } catch (error: any) {
+    console.error('[ExperienceDay] 生成安全提示失败:', error)
+    message.error(`生成安全提示失败: ${error.message || '未知错误'}`)
+  } finally {
+    generatingSafetyNotice.value = false
+  }
+}
+
 const safetyNoticeText = computed(() => {
+  // 优先使用从后端获取的安全提示
+  if (backendSafetyNotice.value) {
+    return backendSafetyNotice.value
+  }
+
+  // 回退到本地数据
   const data: any = travel.value?.data
   if (!data) return ''
 
@@ -1471,8 +1550,11 @@ watch(
   { immediate: true }
 )
 
-// 组件挂载时加载图片
+// 组件挂载时加载图片和安全提示
 onMounted(() => {
+  // 加载安全提示
+  loadSafetyNotice()
+  
   // 延迟加载，确保数据已准备好
   setTimeout(() => {
     if (itineraryDays.value && itineraryDays.value.length > 0 && destination.value) {
@@ -2401,6 +2483,52 @@ const openSearchModal = async (day: number, slotIndex: number, slot: any) => {
   await performSearch()
 }
 
+// 将后端 POI 搜索结果转换为前端格式
+const convertPOISearchResultToPOIResult = (backendResult: POISearchResult, category: POICategory): POIResult => {
+  return {
+    name: {
+      chinese: backendResult.name,
+      english: backendResult.name,
+      local: backendResult.name
+    },
+    category: category,
+    address: {
+      chinese: backendResult.address || '',
+      english: backendResult.address || '',
+      local: backendResult.address || ''
+    },
+    coordinates: {
+      lat: backendResult.latitude,
+      lng: backendResult.longitude
+    },
+    recommendation: backendResult.description || '推荐前往',
+    rating: backendResult.rating ? {
+      score: backendResult.rating,
+      platform: 'TripAdvisor'
+    } : undefined,
+    photo: backendResult.imageUrl,
+    // 其他字段保持默认值
+    distance: undefined,
+    estimatedDuration: undefined,
+    contact: undefined,
+    openingHours: undefined,
+    pricing: undefined
+  }
+}
+
+// 将前端 POI 类别映射到后端类型
+const mapCategoryToBackendType = (category: POICategory): 'attraction' | 'restaurant' | 'hotel' | 'shopping' | 'all' => {
+  const mapping: Record<POICategory, 'attraction' | 'restaurant' | 'hotel' | 'shopping' | 'all'> = {
+    'restaurant': 'restaurant',
+    'attraction': 'attraction',
+    'accommodation': 'hotel',
+    'gas_station': 'all', // 后端不支持，使用 all
+    'ev_charging': 'all', // 后端不支持，使用 all
+    'rest_area': 'all' // 后端不支持，使用 all
+  }
+  return mapping[category] || 'all'
+}
+
 // 执行搜索
 const performSearch = async () => {
   if (!searchLocation.value.name) {
@@ -2415,29 +2543,82 @@ const performSearch = async () => {
   console.log(`🔍 [UI] 开始搜索${selectedSearchCategory.value}，位置: ${searchLocation.value.name}`)
   
   try {
-    const results = await searchNearbyPOI(
-      searchLocation.value,
-      selectedSearchCategory.value,
-      {
-        language: locale.value,
-        radius: 5,
-        maxResults: 5
-      }
+    // 优先使用后端接口
+    const backendType = mapCategoryToBackendType(selectedSearchCategory.value)
+    const searchQuery = selectedSearchCategory.value === 'restaurant' ? '餐厅' :
+                       selectedSearchCategory.value === 'attraction' ? '景点' :
+                       selectedSearchCategory.value === 'accommodation' ? '酒店' :
+                       selectedSearchCategory.value === 'shopping' ? '购物' : '附近'
+    
+    // 获取目的地名称（从 travel 数据中）
+    const destination = travel.value?.destination || travel.value?.location || ''
+    
+    // 获取坐标（如果有）
+    const coordinates = searchLocation.value.coordinates || 
+                       (searchLocation.value.name ? null : null) // 暂时不传坐标，使用目的地名称
+    
+    const backendResults = await searchPOI({
+      query: searchQuery,
+      destination: destination || undefined,
+      latitude: coordinates?.lat,
+      longitude: coordinates?.lng,
+      type: backendType,
+      limit: 20
+    })
+    
+    // 转换为前端格式
+    const convertedResults = backendResults.map(result => 
+      convertPOISearchResultToPOIResult(result, selectedSearchCategory.value)
     )
     
-    console.log(`✅ [UI] 搜索完成，获得 ${results.length} 个结果`)
-    searchResults.value = results
+    console.log(`✅ [UI] 后端搜索完成，获得 ${convertedResults.length} 个结果`)
+    
+    // 如果后端返回结果为空，回退到 AI 搜索
+    if (convertedResults.length === 0) {
+      console.log('⚠️ [UI] 后端搜索无结果，回退到 AI 搜索')
+      const aiResults = await searchNearbyPOI(
+        searchLocation.value,
+        selectedSearchCategory.value,
+        {
+          language: locale.value,
+          radius: 5,
+          maxResults: 5
+        }
+      )
+      searchResults.value = aiResults
+    } else {
+      searchResults.value = convertedResults
+    }
+    
     hasSearched.value = true
     
-    if (results.length === 0) {
+    if (searchResults.value.length === 0) {
       console.warn(`⚠️ [UI] 未找到结果，类别: ${selectedSearchCategory.value}`)
       message.info(noResultsDescription.value)
     }
   } catch (error) {
     console.error('❌ [UI] 搜索失败:', error)
     console.error('❌ [UI] 错误详情:', error instanceof Error ? error.stack : error)
-    message.error(`搜索失败: ${error instanceof Error ? error.message : '未知错误'}`)
-    hasSearched.value = true // 即使失败也标记为已搜索，显示"无结果"
+    
+    // 如果后端搜索失败，回退到 AI 搜索
+    try {
+      console.log('⚠️ [UI] 后端搜索失败，回退到 AI 搜索')
+      const aiResults = await searchNearbyPOI(
+        searchLocation.value,
+        selectedSearchCategory.value,
+        {
+          language: locale.value,
+          radius: 5,
+          maxResults: 5
+        }
+      )
+      searchResults.value = aiResults
+      hasSearched.value = true
+    } catch (aiError) {
+      console.error('❌ [UI] AI 搜索也失败:', aiError)
+      message.error(`搜索失败: ${error instanceof Error ? error.message : '未知错误'}`)
+      hasSearched.value = true // 即使失败也标记为已搜索，显示"无结果"
+    }
   } finally {
     searching.value = false
     console.log(`🏁 [UI] 搜索状态更新完成`)

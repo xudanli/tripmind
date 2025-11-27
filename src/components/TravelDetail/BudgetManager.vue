@@ -138,7 +138,7 @@
     <!-- 添加/编辑支出模态框 -->
     <a-modal
       v-model:open="showAddExpenseModal"
-      :title="editingExpense ? (t('travelDetail.editExpense') || '编辑支出') : (t('travelDetail.addExpense') || '添加支出')"
+      :title="modalTitle"
       @ok="handleSaveExpense"
       @cancel="handleCancelExpense"
       :ok-text="t('common.confirm') || '确定'"
@@ -164,7 +164,7 @@
                   :key="currency.code"
                   :value="currency.code"
                 >
-                  {{ currency.symbol }} {{ currency.code }}
+                  {{ currency.symbol }} {{ currency.name }} ({{ currency.code }})
                 </a-select-option>
               </a-select>
             </a-col>
@@ -182,6 +182,9 @@
           </a-row>
           <div class="form-item-hint">
             {{ t('travelDetail.currencyHint') || `使用${selectedCurrency.name}记录` }}
+            <span v-if="selectedCurrency.code !== getDestinationCurrency.code">
+              （当前选择：{{ selectedCurrency.name }}）
+            </span>
           </div>
         </a-form-item>
         <a-form-item :label="t('travelDetail.expenseCategory') || '分类'">
@@ -300,7 +303,7 @@ import { message, Modal } from 'ant-design-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { getCurrencyForDestination, formatCurrency, getAllCurrencies, getCurrencyByCode, type CurrencyInfo } from '@/utils/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
-import { getExpenses, createExpense, updateExpense, deleteExpense as deleteExpenseAPI, type Expense as APIExpense, getMembers, type Member as APIMember } from '@/services/itineraryAPI'
+import { getExpenses, createExpense, updateExpense, deleteExpense as deleteExpenseAPI, type Expense as APIExpense, getMembers, addMember, type Member as APIMember } from '@/services/itineraryAPI'
 // 使用原生Date处理日期，避免依赖dayjs
 const formatDateSimple = (dateStr: string) => {
   const date = new Date(dateStr)
@@ -356,12 +359,85 @@ const showEditBudgetModal = ref(false)
 const showAddExpenseModal = ref(false)
 const editingExpense = ref<Expense | null>(null)
 
+// 模态框标题（确保始终正确显示）
+const modalTitle = computed(() => {
+  if (editingExpense.value) {
+    return t('travelDetail.editExpense') || '编辑支出'
+  }
+  return t('travelDetail.addExpense') || '添加支出'
+})
+
 const budgetForm = ref({
   total: props.initialTotal || 0
 })
 
 // 成员列表（用于付款人选择，从后端加载）
 const members = ref<Array<{ id: string; name: string; email?: string; role: string }>>([])
+
+// 尝试创建或获取 backendItineraryId（与 MemberManagement 逻辑一致）
+const ensureBackendItineraryId = async (): Promise<string | null> => {
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  if (!travel) return null
+  
+  // 如果已有 backendItineraryId，直接返回
+  if (travel.data?.backendItineraryId) {
+    return travel.data.backendItineraryId
+  }
+  
+  // 尝试自动创建行程
+  try {
+    const { createItinerary, convertFrontendDataToCreateRequest } = await import('@/services/itineraryAPI')
+    
+    // 检查是否有足够的行程数据
+    const itineraryData = travel.data?.itineraryData
+    if (!itineraryData || !itineraryData.destination) {
+      return null
+    }
+    
+    // 准备创建请求
+    const destination = itineraryData.destination || travel.location || '待定'
+    const startDate = itineraryData.days?.[0]?.date || travel.startDate || new Date().toISOString().split('T')[0]
+    
+    // 转换数据格式
+    const frontendData = {
+      destination,
+      days: itineraryData.days?.map((day: any) => ({
+        day: day.day,
+        date: day.date,
+        timeSlots: day.timeSlots || []
+      })) || [],
+      totalCost: itineraryData.totalCost || travel.budget || 0,
+      summary: itineraryData.summary || travel.description || ''
+    }
+    
+    const createRequest = convertFrontendDataToCreateRequest(
+      frontendData,
+      destination,
+      startDate,
+      itineraryData.preferences,
+      'draft',
+      travel.mode
+    )
+    
+    // 创建行程
+    const backendItinerary = await createItinerary(createRequest)
+    const backendItineraryId = backendItinerary.id
+    
+    // 更新 travel 数据
+    travelListStore.updateTravel(props.travelId, {
+      data: {
+        ...travel.data,
+        backendItineraryId
+      }
+    })
+    
+    console.log('[BudgetManager] 自动创建行程成功:', backendItineraryId)
+    return backendItineraryId
+  } catch (error: any) {
+    console.error('[BudgetManager] 自动创建行程失败:', error)
+    return null
+  }
+}
 
 // 加载成员列表
 const loadMembers = async () => {
@@ -371,29 +447,108 @@ const loadMembers = async () => {
   }
   
   const travel = travelListStore.getTravel(props.travelId)
-  const backendItineraryId = travel?.data?.backendItineraryId
+  let backendItineraryId = travel?.data?.backendItineraryId
+  const currentUser = userStore.user
   
+  // 如果没有 backendItineraryId，尝试自动创建
   if (!backendItineraryId) {
-    console.warn('[BudgetManager] 未找到 backendItineraryId，无法加载成员数据')
-    members.value = []
-    return
+    backendItineraryId = await ensureBackendItineraryId()
+    if (!backendItineraryId) {
+      console.warn('[BudgetManager] 未找到 backendItineraryId，使用本地显示创建者')
+      // 即使没有 backendItineraryId，也显示创建者
+      if (currentUser) {
+        const ownerMember = {
+          id: `owner_local_${currentUser.id || 'default'}`,
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner'
+        }
+        members.value = [ownerMember]
+        console.log('[BudgetManager] 使用本地数据显示创建者')
+        
+        // 更新付款人选择
+        if (expenseForm.value.payerId === 'current_user' || !expenseForm.value.payerId) {
+          expenseForm.value.payerId = ownerMember.id
+          expenseForm.value.payerName = ownerMember.name
+        }
+      } else {
+        members.value = []
+      }
+      return
+    }
   }
   
   try {
+    console.log('[BudgetManager] 从后端加载成员数据:', backendItineraryId)
     let apiMembers = await getMembers(backendItineraryId)
     
     // 检查是否已有 owner 角色成员
     const hasOwner = apiMembers.some(m => m.role === 'owner')
     
-    // 如果后端返回空列表或没有 owner，确保至少包含创建者（owner）
-    if (apiMembers.length === 0 || !hasOwner) {
-      console.log('[BudgetManager] 后端成员列表为空或缺少 owner，添加创建者')
-      const currentUser = userStore.user
-      if (currentUser) {
-        // 生成临时成员ID（基于行程ID和用户ID）
-        const ownerId = `owner_${backendItineraryId}_${currentUser.id || 'default'}`
+    // 如果后端返回空列表或没有 owner，确保创建者显示
+    if ((apiMembers.length === 0 || !hasOwner) && currentUser) {
+      console.log('[BudgetManager] 后端成员列表为空或缺少 owner，确保创建者显示')
+      
+      // 检查当前用户是否已经是成员（通过 userId 或 email 匹配）
+      const existingMember = apiMembers.find(m => 
+        m.userId === currentUser.id || 
+        (m.email && currentUser.email && m.email.toLowerCase() === currentUser.email.toLowerCase())
+      )
+      
+      if (!existingMember) {
+        // 如果用户还不是成员，尝试添加到后端
+        try {
+          console.log('[BudgetManager] 尝试将创建者添加到后端成员列表')
+          const ownerMember = await addMember(backendItineraryId, {
+            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+            email: currentUser.email,
+            role: 'member', // 注意：owner 角色应该由后端在创建行程时自动分配
+            userId: currentUser.id
+          })
+          
+          // 重新加载成员列表
+          apiMembers = await getMembers(backendItineraryId)
+          console.log('[BudgetManager] 创建者已添加到后端，重新加载成员列表')
+        } catch (addError: any) {
+          console.warn('[BudgetManager] 自动添加创建者到后端失败，使用前端显示:', addError.message)
+          // 如果添加失败，至少在前端显示创建者
+          const ownerMember: APIMember = {
+            id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
+            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+            email: currentUser.email,
+            role: 'owner' as const,
+            userId: currentUser.id,
+            createdAt: travel?.createdAt || new Date().toISOString(),
+            updatedAt: travel?.updatedAt || new Date().toISOString()
+          }
+          
+          if (apiMembers.length === 0) {
+            apiMembers = [ownerMember]
+          } else {
+            apiMembers.unshift(ownerMember)
+          }
+        }
+      } else {
+        // 如果用户已经是成员，确保显示
+        console.log('[BudgetManager] 创建者已是成员，角色:', existingMember.role)
+      }
+    }
+    
+    // 如果后端有成员但没有 owner，且当前用户是创建者，确保在前端显示为 owner
+    if (apiMembers.length > 0 && !hasOwner && currentUser) {
+      const currentUserMember = apiMembers.find(m => 
+        m.userId === currentUser.id || 
+        (m.email && currentUser.email && m.email.toLowerCase() === currentUser.email.toLowerCase())
+      )
+      
+      if (currentUserMember && currentUserMember.role !== 'owner') {
+        // 在前端将创建者标记为 owner（即使后端不是）
+        console.log('[BudgetManager] 在前端将创建者标记为 owner')
+        currentUserMember.role = 'owner' as const
+      } else if (!currentUserMember) {
+        // 如果创建者不在列表中，添加到开头
         const ownerMember: APIMember = {
-          id: ownerId,
+          id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
           name: currentUser.name || currentUser.nickname || currentUser.email || '我',
           email: currentUser.email,
           role: 'owner' as const,
@@ -401,15 +556,18 @@ const loadMembers = async () => {
           createdAt: travel?.createdAt || new Date().toISOString(),
           updatedAt: travel?.updatedAt || new Date().toISOString()
         }
-        
-        // 如果列表为空，直接添加；如果已有成员但缺少 owner，添加到开头
-        if (apiMembers.length === 0) {
-          apiMembers = [ownerMember]
-        } else {
-          apiMembers.unshift(ownerMember)
-        }
+        apiMembers.unshift(ownerMember)
       }
     }
+    
+    // 确保 owner 始终显示在列表第一位
+    apiMembers.sort((a, b) => {
+      if (a.role === 'owner') return -1
+      if (b.role === 'owner') return 1
+      if (a.role === 'admin' && b.role === 'member') return -1
+      if (a.role === 'member' && b.role === 'admin') return 1
+      return 0
+    })
     
     members.value = apiMembers.map((member: APIMember) => ({
       id: member.id,
@@ -426,8 +584,25 @@ const loadMembers = async () => {
       expenseForm.value.payerName = defaultMember.name
     }
   } catch (error: any) {
-    console.warn('[BudgetManager] 加载成员列表失败，使用空列表:', error.message)
-    members.value = []
+    console.warn('[BudgetManager] 加载成员列表失败，使用本地显示创建者:', error.message)
+    // 即使加载失败，也显示创建者
+    if (currentUser) {
+      const ownerMember = {
+        id: `owner_local_${currentUser.id || 'default'}`,
+        name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+        email: currentUser.email,
+        role: 'owner'
+      }
+      members.value = [ownerMember]
+      
+      // 更新付款人选择
+      if (expenseForm.value.payerId === 'current_user' || !expenseForm.value.payerId) {
+        expenseForm.value.payerId = ownerMember.id
+        expenseForm.value.payerName = ownerMember.name
+      }
+    } else {
+      members.value = []
+    }
   }
 }
 

@@ -121,7 +121,7 @@
       </div>
 
       <!-- ④ 费用（突出价格区间） -->
-      <div class="time-slot__cost-badge" v-if="slot.cost || slot.details?.pricing?.detail">
+      <div class="time-slot__cost-badge" v-if="hasCost">
         <span class="time-slot__cost-icon">💰</span>
         <span class="time-slot__cost-label">{{ t('travelDetail.experienceDay.cost') }}：</span>
         <span class="time-slot__cost-value">{{ getCostText() }}</span>
@@ -142,7 +142,7 @@
       </div>
 
       <!-- Section 2: 开放时间与预订 -->
-      <div class="time-slot__detail-section" v-if="slot.details?.openingHours || slot.details?.recommendations?.bookingInfo">
+      <div class="time-slot__detail-section" v-if="slot.details?.openingHours || slot.details?.recommendations?.bookingInfo || (Array.isArray(slot.bookingLinks) && slot.bookingLinks.length > 0)">
         <h4 class="time-slot__detail-section-title time-slot__detail-section-title--main">
           <span class="time-slot__detail-section-icon">📅</span>
           {{ t('travelDetail.experienceDay.openingHoursAndBooking') }}
@@ -151,6 +151,23 @@
         <div v-if="slot.details?.openingHours" class="time-slot__opening-hours-section">
           <div class="time-slot__opening-hours-text">
             {{ slot.details.openingHours }}
+          </div>
+        </div>
+        <!-- 预订链接 -->
+        <div v-if="Array.isArray(slot.bookingLinks) && slot.bookingLinks.length > 0" class="time-slot__booking-links-section">
+          <div class="time-slot__booking-links-list">
+            <a
+              v-for="(link, linkIndex) in slot.bookingLinks"
+              :key="linkIndex"
+              :href="link.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="time-slot__booking-link-card"
+            >
+              <span class="time-slot__booking-link-icon">🔗</span>
+              <span class="time-slot__booking-link-name">{{ link.name || link.url }}</span>
+              <span class="time-slot__booking-link-arrow">→</span>
+            </a>
           </div>
         </div>
         <!-- 预订与咨询 -->
@@ -248,6 +265,7 @@ import { computed, defineComponent, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { EnvironmentOutlined, StarOutlined } from '@ant-design/icons-vue'
 import type { CurrencyInfo } from '@/utils/currency'
+import { formatCurrency, getCurrencyForDestination, getCurrencyByCode } from '@/utils/currency'
 import {
   buildNotes,
   buildSlotChips,
@@ -564,18 +582,10 @@ const collapseKeys = computed(() =>
 )
 
 const activityCostText = computed(() => {
-  if (!props.slot?.cost || props.slot.cost <= 0) return null
-  const cost = props.slot.cost
-  const currency =
-    props.currency || {
-      code: 'CNY',
-      symbol: '¥',
-      name: '人民币',
-    }
-  return `${currency.symbol}${cost.toLocaleString('zh-CN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })}`
+  const costValue = getCostValue()
+  if (!costValue) return null
+  const currency = getSlotCurrency()
+  return formatCurrency(costValue, currency)
 })
 
 const heroRef = ref<HTMLElement | null>(null)
@@ -718,19 +728,72 @@ const formatLocation = (location: any): string => {
   return '--'
 }
 
-const formatCost = (cost: number): string => {
-  if (!cost || cost <= 0) return '--'
-  const currency = props.currency || {
+// 获取活动货币信息
+const getSlotCurrency = (): CurrencyInfo => {
+  // 1. 优先使用明确的货币代码
+  const explicitCode =
+    props.slot?.costCurrency ||
+    props.slot?.currency ||
+    props.slot?.details?.currency ||
+    props.slot?.details?.currencyCode ||
+    props.slot?.details?.pricing?.currency ||
+    props.slot?.details?.pricing?.currencyCode
+
+  if (explicitCode) {
+    const currency = getCurrencyByCode(String(explicitCode))
+    if (currency) return currency
+  }
+
+  // 2. 从活动位置推断货币
+  const slotLocation =
+    props.slot?.details?.address?.chinese ||
+    props.slot?.details?.address?.english ||
+    props.slot?.location ||
+    ''
+
+  if (slotLocation) {
+    const currency = getCurrencyForDestination(slotLocation)
+    if (currency.code !== 'CNY') {
+      return currency
+    }
+  }
+
+  // 3. 使用传入的货币（通常是行程整体货币）
+  if (props.currency) {
+    return props.currency
+  }
+
+  // 4. 默认返回人民币
+  return {
     code: 'CNY',
     symbol: '¥',
     name: locale.value === 'zh-CN' ? '人民币' : 'CNY',
   }
-  return `${currency.symbol}${cost.toLocaleString('zh-CN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })}`
 }
 
+// 检查是否有费用信息
+const hasCost = computed(() => {
+  return !!(
+    (props.slot?.cost && props.slot.cost > 0) ||
+    (props.slot?.estimatedCost && props.slot.estimatedCost > 0) ||
+    props.slot?.details?.pricing?.detail ||
+    (props.slot?.details?.pricing?.general && props.slot.details.pricing.general > 0)
+  )
+})
+
+// 获取费用数值
+const getCostValue = (): number | null => {
+  if (props.slot?.cost && props.slot.cost > 0) {
+    return props.slot.cost
+  }
+  if (props.slot?.estimatedCost && props.slot.estimatedCost > 0) {
+    return props.slot.estimatedCost
+  }
+  if (props.slot?.details?.pricing?.general && props.slot.details.pricing.general > 0) {
+    return props.slot.details.pricing.general
+  }
+  return null
+}
 
 // 获取地址文本
 const getAddressText = (): string => {
@@ -747,12 +810,18 @@ const getAddressText = (): string => {
 
 // 获取费用文本
 const getCostText = (): string => {
-  if (props.slot?.details?.pricing?.detail) {
+  // 1. 如果有详细的费用描述文本，优先显示
+  if (props.slot?.details?.pricing?.detail && typeof props.slot.details.pricing.detail === 'string') {
     return props.slot.details.pricing.detail
   }
-  if (props.slot?.cost) {
-    return formatCost(props.slot.cost)
+
+  // 2. 如果有费用数值，格式化显示
+  const costValue = getCostValue()
+  if (costValue !== null) {
+    const currency = getSlotCurrency()
+    return formatCurrency(costValue, currency)
   }
+
   return '--'
 }
 
@@ -1207,15 +1276,8 @@ const formatLocationForDisplay = (coordinates: { lat: number; lng: number }): st
 
 const formatCostForDisplay = (cost: number): string => {
   if (!cost || cost <= 0) return '--'
-  const currency = props.currency || {
-    code: 'CNY',
-    symbol: '¥',
-    name: '人民币',
-  }
-  return `${currency.symbol}${cost.toLocaleString('zh-CN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  })}`
+  const currency = getSlotCurrency()
+  return formatCurrency(cost, currency)
 }
 
 const Chip = defineComponent({
@@ -2124,6 +2186,61 @@ const Chip = defineComponent({
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+/* 预订链接部分 */
+.time-slot__booking-links-section {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.time-slot__booking-links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.time-slot__booking-link-card {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #1d1d1f;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.time-slot__booking-link-card:hover {
+  border-color: #0071e3;
+  background: #f0f7ff;
+  color: #0071e3;
+  transform: translateX(2px);
+}
+
+.time-slot__booking-link-icon {
+  font-size: 14px;
+  color: #0071e3;
+  margin-right: 8px;
+}
+
+.time-slot__booking-link-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.time-slot__booking-link-arrow {
+  font-size: 12px;
+  color: #999;
+  transition: transform 0.2s;
+}
+
+.time-slot__booking-link-card:hover .time-slot__booking-link-arrow {
+  transform: translateX(2px);
+  color: #0071e3;
 }
 
 /* 穿搭建议文本 */

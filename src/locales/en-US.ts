@@ -17,7 +17,9 @@ export default {
       copy: 'Copy',
       copied: 'Copied',
       copyFailed: 'Copy failed',
-      saveSuccess: 'Saved successfully'
+      saveSuccess: 'Saved successfully',
+      retry: 'Retry',
+      login: 'Login'
   },
 
   // Home Page
@@ -210,7 +212,31 @@ export default {
       fillExpenseInfo: 'Please fill in complete expense information',
       costSplitSaved: 'Cost split saved',
       remove: 'Remove Member',
-      memberRemoved: 'Member removed'
+      memberRemoved: 'Member removed',
+      editRole: 'Edit Role',
+      roleUpdated: 'Role updated successfully',
+      memberUpdateFailed: 'Failed to update member role',
+      noBackendItineraryId: 'Cannot perform operation: Please save the itinerary to backend first'
+    },
+    invitation: {
+      acceptInvitation: 'Accept Invitation',
+      loading: 'Loading invitation...',
+      error: 'Error',
+      invalidLink: 'Invalid invitation link',
+      missingInfo: 'Incomplete invitation information',
+      loadFailed: 'Failed to load invitation',
+      invitedToJoin: 'You are invited to join',
+      role: 'Role',
+      message: 'Message',
+      loginRequired: 'Please login to accept the invitation',
+      accept: 'Accept Invitation',
+      decline: 'Decline',
+      accepted: 'Successfully joined the journey',
+      redirecting: 'Redirecting to journey page...',
+      viewJourney: 'View Journey',
+      acceptSuccess: 'Successfully joined the journey',
+      acceptFailed: 'Failed to accept invitation',
+      declined: 'Invitation declined'
     },
     uploadFile: 'Upload File',
     chatPlaceholder: 'Start chatting with AI to get travel suggestions',

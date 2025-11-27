@@ -20,6 +20,10 @@
                       <dollar-outlined />
                       {{ t('travelDetail.memberManagement.costSplit') }}
                     </a-menu-item>
+                      <a-menu-item v-if="canEditMember(item)" @click="editMemberRole(item)">
+                      <edit-outlined />
+                      {{ t('travelDetail.memberManagement.editRole') }}
+                    </a-menu-item>
                     <a-menu-item v-if="item.role !== 'owner'" @click="removeMember(item)" danger>
                       <user-delete-outlined />
                       {{ t('travelDetail.memberManagement.remove') }}
@@ -174,6 +178,30 @@
       </template>
     </a-modal>
 
+    <!-- 编辑成员角色弹窗 -->
+    <a-modal
+      v-model:open="showEditRoleModal"
+      :title="t('travelDetail.memberManagement.editRole')"
+      @ok="handleEditRole"
+      @cancel="showEditRoleModal = false"
+    >
+      <a-form :model="editRoleForm" layout="vertical">
+        <a-form-item :label="t('travelDetail.memberManagement.member')">
+          <a-input v-model:value="editRoleForm.memberName" disabled />
+        </a-form-item>
+        <a-form-item :label="t('travelDetail.memberManagement.role')">
+          <a-select v-model:value="editRoleForm.role">
+            <a-select-option value="member">{{ t('travelDetail.memberManagement.member') }}</a-select-option>
+            <a-select-option value="admin">{{ t('travelDetail.memberManagement.admin') }}</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+      <template #footer>
+        <a-button @click="showEditRoleModal = false">{{ t('common.cancel') }}</a-button>
+        <a-button type="primary" @click="handleEditRole">{{ t('common.confirm') }}</a-button>
+      </template>
+    </a-modal>
+
     <!-- 成本分摊弹窗 -->
     <a-modal
       v-model:open="showCostSplitModal"
@@ -243,7 +271,8 @@ import {
   MoreOutlined,
   FileTextOutlined,
   DollarOutlined,
-  UserDeleteOutlined
+  UserDeleteOutlined,
+  EditOutlined
 } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
@@ -317,6 +346,7 @@ const totalCost = computed(() =>
 const showInviteModal = ref(false)
 const showTaskModal = ref(false)
 const showCostSplitModal = ref(false)
+const showEditRoleModal = ref(false)
 
 // 表单数据
 const inviteForm = ref({
@@ -337,6 +367,12 @@ const costSplitForm = ref({
   splitDetails: {} as Record<string, number>
 })
 
+const editRoleForm = ref({
+  memberId: '',
+  memberName: '',
+  role: 'member' as 'member' | 'admin'
+})
+
 // 加载成员数据
 const loadMembers = async () => {
   if (!props.travelId) {
@@ -345,12 +381,35 @@ const loadMembers = async () => {
   }
   
   const travel = travelListStore.getTravel(props.travelId)
-  const backendItineraryId = travel?.data?.backendItineraryId
+  let backendItineraryId = travel?.data?.backendItineraryId
+  const currentUser = userStore.user
   
+  // 如果没有 backendItineraryId，尝试自动创建
   if (!backendItineraryId) {
-    console.warn('[MemberManagement] 未找到 backendItineraryId，无法加载成员数据')
-    members.value = []
-    return
+    backendItineraryId = await ensureBackendItineraryId()
+    if (!backendItineraryId) {
+      console.warn('[MemberManagement] 未找到 backendItineraryId，使用本地显示创建者')
+      // 即使没有 backendItineraryId，也显示创建者
+      if (currentUser) {
+        const ownerMember: Member = {
+          id: `owner_local_${currentUser.id || 'default'}`,
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner',
+          userId: currentUser.id,
+          tasksCount: 0,
+          totalCost: 0,
+          color: '#1890ff',
+          createdAt: travel?.createdAt || new Date().toISOString(),
+          updatedAt: travel?.updatedAt || new Date().toISOString()
+        }
+        members.value = [ownerMember]
+        console.log('[MemberManagement] 使用本地数据显示创建者')
+      } else {
+        members.value = []
+      }
+      return
+    }
   }
   
   try {
@@ -360,15 +419,70 @@ const loadMembers = async () => {
     // 检查是否已有 owner 角色成员
     const hasOwner = apiMembers.some(m => m.role === 'owner')
     
-    // 如果后端返回空列表或没有 owner，确保至少包含创建者（owner）
-    if (apiMembers.length === 0 || !hasOwner) {
-      console.log('[MemberManagement] 后端成员列表为空或缺少 owner，添加创建者')
-      const currentUser = userStore.user
-      if (currentUser) {
-        // 生成临时成员ID（基于行程ID和用户ID）
-        const ownerId = `owner_${backendItineraryId}_${currentUser.id || 'default'}`
+    // 如果后端返回空列表或没有 owner，确保创建者显示
+    if ((apiMembers.length === 0 || !hasOwner) && currentUser) {
+      console.log('[MemberManagement] 后端成员列表为空或缺少 owner，确保创建者显示')
+      
+      // 检查当前用户是否已经是成员（通过 userId 或 email 匹配）
+      const existingMember = apiMembers.find(m => 
+        m.userId === currentUser.id || 
+        (m.email && currentUser.email && m.email.toLowerCase() === currentUser.email.toLowerCase())
+      )
+      
+      if (!existingMember) {
+        // 如果用户还不是成员，尝试添加到后端
+        try {
+          console.log('[MemberManagement] 尝试将创建者添加到后端成员列表')
+          const ownerMember = await addMember(backendItineraryId, {
+            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+            email: currentUser.email,
+            role: 'member', // 注意：owner 角色应该由后端在创建行程时自动分配
+            userId: currentUser.id
+          })
+          
+          // 重新加载成员列表
+          apiMembers = await getMembers(backendItineraryId)
+          console.log('[MemberManagement] 创建者已添加到后端，重新加载成员列表')
+        } catch (addError: any) {
+          console.warn('[MemberManagement] 自动添加创建者到后端失败，使用前端显示:', addError.message)
+          // 如果添加失败（可能是权限问题或后端限制），至少在前端显示创建者
+          const ownerMember: APIMember = {
+            id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
+            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+            email: currentUser.email,
+            role: 'owner' as const,
+            userId: currentUser.id,
+            createdAt: travel?.createdAt || new Date().toISOString(),
+            updatedAt: travel?.updatedAt || new Date().toISOString()
+          }
+          
+          if (apiMembers.length === 0) {
+            apiMembers = [ownerMember]
+          } else {
+            apiMembers.unshift(ownerMember)
+          }
+        }
+      } else {
+        // 如果用户已经是成员，确保显示
+        console.log('[MemberManagement] 创建者已是成员，角色:', existingMember.role)
+      }
+    }
+    
+    // 如果后端有成员但没有 owner，且当前用户是创建者，确保在前端显示为 owner
+    if (apiMembers.length > 0 && !hasOwner && currentUser) {
+      const currentUserMember = apiMembers.find(m => 
+        m.userId === currentUser.id || 
+        (m.email && currentUser.email && m.email.toLowerCase() === currentUser.email.toLowerCase())
+      )
+      
+      if (currentUserMember && currentUserMember.role !== 'owner') {
+        // 在前端将创建者标记为 owner（即使后端不是）
+        console.log('[MemberManagement] 在前端将创建者标记为 owner')
+        currentUserMember.role = 'owner' as const
+      } else if (!currentUserMember) {
+        // 如果创建者不在列表中，添加到开头
         const ownerMember: APIMember = {
-          id: ownerId,
+          id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
           name: currentUser.name || currentUser.nickname || currentUser.email || '我',
           email: currentUser.email,
           role: 'owner' as const,
@@ -376,15 +490,18 @@ const loadMembers = async () => {
           createdAt: travel?.createdAt || new Date().toISOString(),
           updatedAt: travel?.updatedAt || new Date().toISOString()
         }
-        
-        // 如果列表为空，直接添加；如果已有成员但缺少 owner，添加到开头
-        if (apiMembers.length === 0) {
-          apiMembers = [ownerMember]
-        } else {
-          apiMembers.unshift(ownerMember)
-        }
+        apiMembers.unshift(ownerMember)
       }
     }
+    
+    // 确保 owner 始终显示在列表第一位
+    apiMembers.sort((a, b) => {
+      if (a.role === 'owner') return -1
+      if (b.role === 'owner') return 1
+      if (a.role === 'admin' && b.role === 'member') return -1
+      if (a.role === 'member' && b.role === 'admin') return 1
+      return 0
+    })
     
     // 计算任务数和成本
     const existingTasks = travel?.data?.tasks || []
@@ -540,6 +657,72 @@ onMounted(async () => {
   }
 })
 
+// 尝试创建或获取 backendItineraryId
+const ensureBackendItineraryId = async (): Promise<string | null> => {
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  if (!travel) return null
+  
+  // 如果已有 backendItineraryId，直接返回
+  if (travel.data?.backendItineraryId) {
+    return travel.data.backendItineraryId
+  }
+  
+  // 尝试自动创建行程
+  try {
+    const { createItinerary, convertFrontendDataToCreateRequest } = await import('@/services/itineraryAPI')
+    
+    // 检查是否有足够的行程数据
+    const itineraryData = travel.data?.itineraryData
+    if (!itineraryData || !itineraryData.destination) {
+      return null
+    }
+    
+    // 准备创建请求
+    const destination = itineraryData.destination || travel.location || '待定'
+    const startDate = itineraryData.days?.[0]?.date || travel.startDate || new Date().toISOString().split('T')[0]
+    const days = itineraryData.days?.length || travel.duration || 1
+    
+    // 转换数据格式
+    const frontendData = {
+      destination,
+      days: itineraryData.days?.map((day: any) => ({
+        day: day.day,
+        date: day.date,
+        timeSlots: day.timeSlots || []
+      })) || [],
+      totalCost: itineraryData.totalCost || travel.budget || 0,
+      summary: itineraryData.summary || travel.description || ''
+    }
+    
+    const createRequest = convertFrontendDataToCreateRequest(
+      frontendData,
+      destination,
+      startDate,
+      itineraryData.preferences,
+      'draft',
+      travel.mode
+    )
+    
+    // 创建行程
+    const backendItinerary = await createItinerary(createRequest)
+    const backendItineraryId = backendItinerary.id
+    
+    // 更新 travel 数据
+    travelListStore.updateTravel(props.travelId, {
+      data: {
+        ...travel.data,
+        backendItineraryId
+      }
+    })
+    
+    message.success('行程已自动保存到后端')
+    return backendItineraryId
+  } catch (error: any) {
+    console.error('[MemberManagement] 自动创建行程失败:', error)
+    return null
+  }
+}
+
 // 邀请成员
 const handleInvite = async () => {
   if (!inviteForm.value.email) {
@@ -548,11 +731,18 @@ const handleInvite = async () => {
   }
   
   const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
-  const backendItineraryId = travel?.data?.backendItineraryId
+  let backendItineraryId = travel?.data?.backendItineraryId
   
+  // 如果没有 backendItineraryId，尝试自动创建
   if (!backendItineraryId) {
-    message.error(t('travelDetail.noBackendItineraryId') || '无法邀请成员：缺少行程ID')
-    return
+    message.loading('正在保存行程到后端...', 0)
+    backendItineraryId = await ensureBackendItineraryId()
+    message.destroy()
+    
+    if (!backendItineraryId) {
+      message.error(t('travelDetail.noBackendItineraryId') || '无法邀请成员：请先保存行程到后端')
+      return
+    }
   }
   
   try {
@@ -571,6 +761,9 @@ const handleInvite = async () => {
       role: 'member',
       message: ''
     }
+    
+    // 刷新成员列表（虽然邀请是pending状态，但可以显示邀请信息）
+    await loadMembers()
   } catch (error: any) {
     console.error('[MemberManagement] 邀请成员失败:', error)
     message.error(error.message || (t('travelDetail.memberInviteFailed') || '邀请成员失败'))
@@ -730,11 +923,15 @@ const removeMember = (member: Member) => {
     cancelText: t('common.cancel') || '取消',
     onOk: async () => {
       const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
-      const backendItineraryId = travel?.data?.backendItineraryId
+      let backendItineraryId = travel?.data?.backendItineraryId
       
+      // 如果没有 backendItineraryId，尝试自动创建
       if (!backendItineraryId) {
-        message.error(t('travelDetail.noBackendItineraryId') || '无法移除成员：缺少行程ID')
-        return
+        backendItineraryId = await ensureBackendItineraryId()
+        if (!backendItineraryId) {
+          message.error(t('travelDetail.noBackendItineraryId') || '无法移除成员：请先保存行程到后端')
+          return
+        }
       }
       
       if (!member.id) {
@@ -745,11 +942,8 @@ const removeMember = (member: Member) => {
       try {
         await removeMemberAPI(backendItineraryId, member.id)
         
-        // 从本地列表中移除
-        const index = members.value.findIndex(m => m.id === member.id)
-        if (index > -1) {
-          members.value.splice(index, 1)
-        }
+        // 刷新成员列表
+        await loadMembers()
         
         message.success(t('travelDetail.memberManagement.memberRemoved') || '成员已移除')
       } catch (error: any) {
@@ -758,6 +952,72 @@ const removeMember = (member: Member) => {
       }
     }
   })
+}
+
+// 检查是否可以编辑成员（owner和admin可以编辑非owner成员）
+const canEditMember = (member: Member) => {
+  const currentUser = userStore.user
+  if (!currentUser) return false
+  
+  const currentMember = members.value.find(m => m.userId === currentUser.id)
+  if (!currentMember) return false
+  
+  // owner可以编辑所有非owner成员
+  if (currentMember.role === 'owner' && member.role !== 'owner') {
+    return true
+  }
+  
+  // admin可以编辑member角色成员
+  if (currentMember.role === 'admin' && member.role === 'member') {
+    return true
+  }
+  
+  return false
+}
+
+// 编辑成员角色
+const editMemberRole = (member: Member) => {
+  editRoleForm.value = {
+    memberId: member.id,
+    memberName: member.name,
+    role: member.role === 'owner' ? 'member' : (member.role as 'member' | 'admin')
+  }
+  showEditRoleModal.value = true
+}
+
+// 处理编辑角色
+const handleEditRole = async () => {
+  if (!editRoleForm.value.memberId) {
+    message.warning('成员ID缺失')
+    return
+  }
+  
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  let backendItineraryId = travel?.data?.backendItineraryId
+  
+  // 如果没有 backendItineraryId，尝试自动创建
+  if (!backendItineraryId) {
+    backendItineraryId = await ensureBackendItineraryId()
+    if (!backendItineraryId) {
+      message.error(t('travelDetail.noBackendItineraryId') || '无法更新成员：请先保存行程到后端')
+      return
+    }
+  }
+  
+  try {
+    await updateMember(backendItineraryId, editRoleForm.value.memberId, {
+      role: editRoleForm.value.role
+    })
+    
+    message.success(t('travelDetail.memberManagement.roleUpdated') || '角色更新成功')
+    showEditRoleModal.value = false
+    
+    // 刷新成员列表
+    await loadMembers()
+  } catch (error: any) {
+    console.error('[MemberManagement] 更新成员角色失败:', error)
+    message.error(error.message || (t('travelDetail.memberUpdateFailed') || '更新成员角色失败'))
+  }
 }
 </script>
 

@@ -6,9 +6,10 @@ import emotionalTravelAPI from '@/services/emotionalTravelAPI'
 import type { EmotionDetectionRequest, TravelPlanRequest, FeedbackRequest } from '@/services/emotionalTravelAPI'
 // plannerAPI 已删除
 import { subscribeLogEvents, LogLevel } from '@/utils/inspiration/core/logger'
-import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
+import { type InspirationVideo } from '@/services/pexelsAPI'
+import { searchVideo } from '@/services/mediaAPI'
 import { getCachedMedia, setCachedMedia } from '@/utils/mediaCache'
-import { createHighlightMediaKey, buildSearchQuery } from '@/utils/mediaHelpers'
+import { createHighlightMediaKey, buildSearchQuery, convertVideoInfoToInspiration } from '@/utils/mediaHelpers'
 
 // -------------------- Types --------------------
 type Mode = 'planner' | 'seeker' | 'inspiration' | null
@@ -335,10 +336,19 @@ async function enrichInspirationMedia(data: InspirationData, locale: string): Pr
     if (!video) {
       const query = buildSearchQuery(destinationLabel, source.scopeLabel, source.highlight)
       if (!query) continue
-      const results = await searchPexelsVideos(query, { perPage: 1, orientation: 'landscape' })
-      video = results?.[0] ?? null
-      if (video && canUseCache) {
-        setCachedMedia(cacheKey, video)
+      try {
+        const result = await searchVideo({
+          query: query,
+          provider: 'pexels',
+          limit: 1
+        })
+        video = result.data[0] ? convertVideoInfoToInspiration(result.data[0]) : null
+        if (video && canUseCache) {
+          setCachedMedia(cacheKey, video)
+        }
+      } catch (error) {
+        console.warn('[TravelStore] 搜索视频失败:', error)
+        video = null
       }
     }
 

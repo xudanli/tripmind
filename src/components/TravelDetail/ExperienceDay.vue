@@ -629,8 +629,10 @@ import { Modal, message } from 'ant-design-vue'
 import { getVisaInfo } from '@/config/visa'
 import { getUserNationalityCode, getUserPermanentResidencyCode, getUserLocationCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
-import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/services/unsplashAPI'
-import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
+import { generateSearchQuery } from '@/services/unsplashAPI'
+import { type InspirationVideo } from '@/services/pexelsAPI'
+import { searchImage, searchVideo } from '@/services/mediaAPI'
+import { convertVideoInfoToInspiration, getImageUrlBySize } from '@/utils/mediaHelpers'
 import { searchNearbyPOI, type POIResult, type POICategory } from '@/services/poiSearchAPI'
 import { searchPOI, type POISearchResult } from '@/services/externalAPI'
 import { getSafetyNotice, generateSafetyNotice, addSlotToDay, deleteSlot } from '@/services/itineraryAPI'
@@ -1147,13 +1149,18 @@ const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
     const mediaItems: PreviewMediaItem[] = []
   
     try {
-      const images = await getActivityImagesList(slot, destination.value, {
-        orientation: 'landscape',
-        size: 'regular',
-        count: 9,
-      })
-      if (images.length) {
-        mediaItems.push(...images.map(createImageItem))
+      const query = generateSearchQuery(slot, destination.value)
+      if (query) {
+        const result = await searchImage({
+          query: query,
+          provider: 'all',
+          limit: 9,
+          orientation: 'landscape'
+        })
+        if (result.data.length) {
+          const imageUrls = result.data.map(img => getImageUrlBySize(img, 'regular'))
+          mediaItems.push(...imageUrls.map(createImageItem))
+        }
       }
     } catch (error) {
       console.warn('加载图片列表失败:', error)
@@ -1167,9 +1174,14 @@ const openImagePreview = async (day: number, slotIndex: number, slot: any) => {
       try {
         const query = generateSearchQuery(slot, destination.value)
         if (query) {
-          const [video] = await searchPexelsVideos(query, { perPage: 1, orientation: 'landscape' })
+          const result = await searchVideo({
+            query: query,
+            provider: 'pexels',
+            limit: 1
+          })
+          const video = result.data[0] ? convertVideoInfoToInspiration(result.data[0]) : null
           const newVideoCache = new Map(activityVideoCache.value)
-          newVideoCache.set(key, video || null)
+          newVideoCache.set(key, video)
           activityVideoCache.value = newVideoCache
       } else {
           const newVideoCache = new Map(activityVideoCache.value)
@@ -1357,13 +1369,21 @@ const loadActivityImage = async (day: number, slotIndex: number, slot: any) => {
   imageLoading.value.add(key)
   
   try {
-    const imageUrl = await getActivityImage(slot, destination.value, {
-      orientation: 'landscape',
-      size: 'regular'
-    })
+    const query = generateSearchQuery(slot, destination.value)
+    if (query) {
+      const result = await searchImage({
+        query: query,
+        provider: 'all',
+        limit: 1,
+        orientation: 'landscape'
+      })
+      const imageUrl = result.data[0] ? getImageUrlBySize(result.data[0], 'regular') : null
     
     if (imageUrl) {
       activityImages.value.set(key, imageUrl)
+      } else {
+        imageErrors.value.add(key)
+      }
     } else {
       imageErrors.value.add(key)
     }
@@ -3088,6 +3108,75 @@ const addPOIToItinerary = async (poi: POIResult) => {
     
     // 将位置信息转换为前端格式（用于前端显示）
     const locationDetails = convertLocationInfoToDetails(locationInfo)
+    
+    // 异步搜索图片（不阻塞主流程）
+    const searchImageForPOI = async () => {
+      try {
+        const searchQuery = `${destination} ${poiName}`.trim()
+        if (!searchQuery) return
+        
+        console.log('[ExperienceDay] 开始搜索POI图片:', { searchQuery })
+        const imageResult = await searchImage({
+          query: searchQuery,
+          provider: 'all',
+          limit: 3,
+          orientation: 'landscape'
+        })
+        
+        if (imageResult.data && imageResult.data.length > 0) {
+          const imageUrls = imageResult.data.map(img => getImageUrlBySize(img, 'regular'))
+          const updatedSlot = timeSlots[slotIndex + 1]
+          
+          if (updatedSlot) {
+            // 将图片添加到 details.images 或 details.photo
+            if (!updatedSlot.details) {
+              updatedSlot.details = {}
+            }
+            
+            // 如果有第一张图片，设置为封面
+            if (imageUrls[0]) {
+              updatedSlot.details.images = {
+                cover: imageUrls[0],
+                list: imageUrls
+              }
+              // 同时保留在 photo 字段中（向后兼容）
+              updatedSlot.details.photo = imageUrls
+              
+              // 更新活动图片缓存（使用新的 Map 实例确保 Vue 能检测到变化）
+              const key = getSlotKey(day, slotIndex + 1, updatedSlot)
+              const newActivityImages = new Map(activityImages.value)
+              newActivityImages.set(key, imageUrls[0])
+              activityImages.value = newActivityImages
+              
+              console.log('[ExperienceDay] POI图片搜索成功，已添加到时间槽:', {
+                poiName,
+                imageCount: imageUrls.length,
+                coverImage: imageUrls[0]
+              })
+              
+              // 通知父组件更新
+              if (travel.value) {
+                emit('update', {
+                  ...travel.value,
+                  data: {
+                    ...travel.value.data,
+                    itineraryData: itineraryData.value
+                  }
+                })
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        console.warn('[ExperienceDay] POI图片搜索失败（不影响已添加的POI）:', {
+          error: error.message,
+          poiName
+        })
+      }
+    }
+    
+    // 异步执行图片搜索（不阻塞位置信息处理）
+    searchImageForPOI()
     
     // 将位置信息转换为后端 locationDetails 格式（用于接口请求）
     const backendLocationDetails = {

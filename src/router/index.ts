@@ -50,6 +50,11 @@ const router = createRouter({
       name: 'travel-detail',
       component: () => import('../views/TravelDetailView.vue'),
     },
+    {
+      path: '/invite/:invitationId',
+      name: 'accept-invitation',
+      component: () => import('../views/AcceptInvitationView.vue'),
+    },
   ],
 })
 

@@ -17,7 +17,9 @@ export default {
       copy: '复制',
       copied: '已复制',
       copyFailed: '复制失败',
-      saveSuccess: '保存成功'
+      saveSuccess: '保存成功',
+      retry: '重试',
+      login: '登录'
   },
 
   // 首页
@@ -195,7 +197,30 @@ export default {
       fillExpenseInfo: '请填写完整的支出信息',
       costSplitSaved: '成本分摊已保存',
       remove: '移除成员',
-      memberRemoved: '成员已移除'
+      memberRemoved: '成员已移除',
+      editRole: '编辑角色',
+      roleUpdated: '角色更新成功',
+      memberUpdateFailed: '更新成员角色失败'
+    },
+    invitation: {
+      acceptInvitation: '接受邀请',
+      loading: '正在加载邀请信息...',
+      error: '加载失败',
+      invalidLink: '无效的邀请链接',
+      missingInfo: '邀请信息不完整',
+      loadFailed: '加载邀请信息失败',
+      invitedToJoin: '您被邀请加入行程',
+      role: '角色',
+      message: '邀请消息',
+      loginRequired: '请先登录以接受邀请',
+      accept: '接受邀请',
+      decline: '拒绝',
+      accepted: '已成功加入行程',
+      redirecting: '正在跳转到行程页面...',
+      viewJourney: '查看行程',
+      acceptSuccess: '已成功加入行程',
+      acceptFailed: '接受邀请失败',
+      declined: '已拒绝邀请'
     },
     uploadFile: '上传文件',
     chatPlaceholder: '开始和 AI 对话，获取旅行建议吧',
@@ -267,6 +292,7 @@ export default {
     confirmDeleteExpense: '确认删除',
     confirmDeleteExpenseContent: '确定要删除这条支出记录吗？',
     currencyHint: '使用目的地货币记录',
+    noBackendItineraryId: '无法操作：请先保存行程到后端',
     noFiles: '暂无文件',
     visaGuide: '签证指引',
     noVisaInfo: '暂无签证信息，请确保已设置目的地和国籍信息',

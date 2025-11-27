@@ -671,7 +671,18 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
             notes: activity.notes || '',
             details: mergedDetails,
             cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-            duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+            duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60),
+            bookingLinks: (detailedActivity?.bookingLinks || activity.bookingLinks || []).map((link: any) => {
+              // 确保 bookingLinks 格式正确
+              if (typeof link === 'string') {
+                // 如果是字符串，尝试解析为对象
+                return { name: '', url: link }
+              }
+              return {
+                name: link?.name || link?.label || '',
+                url: link?.url || link?.href || ''
+              }
+            }).filter((link: any) => link.url) // 只保留有 URL 的链接
           }
         })
       }
@@ -727,7 +738,18 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
                 description: activity.notes || ''
               },
               cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-              duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+              duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60),
+              bookingLinks: (activity.bookingLinks || []).map((link: any) => {
+                // 确保 bookingLinks 格式正确
+                if (typeof link === 'string') {
+                  // 如果是字符串，尝试解析为对象
+                  return { name: '', url: link }
+                }
+                return {
+                  name: link?.name || link?.label || '',
+                  url: link?.url || link?.href || ''
+                }
+              }).filter((link: any) => link.url) // 只保留有 URL 的链接
             }
           })
         }

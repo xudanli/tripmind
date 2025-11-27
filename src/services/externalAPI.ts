@@ -593,6 +593,16 @@ export interface POISearchResponse {
 
 /**
  * 搜索兴趣点（POI）
+ * 
+ * 接口说明：
+ * - 路径：POST /api/v1/poi/search
+ * - 认证：不需要认证（公开接口）
+ * - 用途：在行程规划中搜索附近的景点、餐厅等，供前端 ExperienceDay 组件使用
+ * 
+ * 特殊类型处理：
+ * - 对于 gas_station、ev_charging、rest_area，前端会发送 type: "all"
+ * - 后端会根据 query 参数（"加油站"、"充电桩"、"休息站"）来过滤结果
+ * 
  * @param request 搜索请求参数
  * @returns POI 列表
  */
@@ -604,6 +614,8 @@ export async function searchPOI(request: POISearchRequest): Promise<POISearchRes
     url,
     query: request.query,
     destination: request.destination,
+    latitude: request.latitude,
+    longitude: request.longitude,
     type: request.type,
     limit: request.limit
   })
@@ -628,18 +640,31 @@ export async function searchPOI(request: POISearchRequest): Promise<POISearchRes
         request
       })
       
-      // 如果是 400 错误，可能是参数验证失败，返回空数组
+      // 如果是 400 错误，可能是参数验证失败
       if (response.status === 400) {
+        try {
+          const errorData = JSON.parse(errorText)
+          // 如果错误信息是数组（验证错误），记录详细信息
+          if (Array.isArray(errorData.message)) {
+            console.warn('[ExternalAPI] 参数验证失败:', errorData.message)
+          } else {
+            console.warn('[ExternalAPI] 参数验证失败:', errorData.message || errorData.error)
+          }
+        } catch {
+          // 无法解析错误信息，记录原始错误
+          console.warn('[ExternalAPI] 参数验证失败（无法解析错误信息）')
+        }
+        // 400 错误返回空数组，不抛出异常
         return []
       }
       
-      // 其他错误，尝试解析错误信息
-      try {
-        const errorData = JSON.parse(errorText)
-        throw new Error(errorData.message || `POI 搜索失败: ${response.status}`)
-      } catch {
-        throw new Error(`POI 搜索失败: ${response.status} ${response.statusText}`)
-      }
+      // 其他错误：根据文档要求，返回空结果而不是抛出异常，保证接口的稳定性
+      // 如果 Travel Advisor API 未配置或返回错误，会返回空结果
+      console.warn('[ExternalAPI] POI 搜索返回错误状态，返回空结果:', {
+        status: response.status,
+        statusText: response.statusText
+      })
+      return []
     }
 
     const apiData: POISearchResponse = await response.json()
@@ -652,7 +677,9 @@ export async function searchPOI(request: POISearchRequest): Promise<POISearchRes
 
     return apiData.data || []
   } catch (error: any) {
-    console.warn('[ExternalAPI] POI 搜索失败（不影响主流程）:', {
+    // 根据文档要求，不会抛出错误，保证接口的稳定性
+    // 如果搜索失败，返回空结果，前端会自动回退到 AI 搜索
+    console.warn('[ExternalAPI] POI 搜索失败（不影响主流程，返回空结果）:', {
       error: error.message,
       request,
       url

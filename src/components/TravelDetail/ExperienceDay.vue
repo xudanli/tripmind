@@ -633,7 +633,8 @@ import { getActivityImage, getActivityImagesList, generateSearchQuery } from '@/
 import { searchPexelsVideos, type InspirationVideo } from '@/services/pexelsAPI'
 import { searchNearbyPOI, type POIResult, type POICategory } from '@/services/poiSearchAPI'
 import { searchPOI, type POISearchResult } from '@/services/externalAPI'
-import { getSafetyNotice, generateSafetyNotice } from '@/services/itineraryAPI'
+import { getSafetyNotice, generateSafetyNotice, addSlotToDay, deleteSlot } from '@/services/itineraryAPI'
+import { generateLocation, convertLocationInfoToDetails } from '@/services/locationAPI'
 import {
   COUNTRY_KEYWORDS,
   MAP_URLS,
@@ -1310,8 +1311,8 @@ const setAsCover = async () => {
         if (travel.value) {
           emit('update', {
             ...travel.value,
-            data: updatedData
-          })
+          data: updatedData
+        })
         }
         
         // 等待响应式更新完成
@@ -2316,9 +2317,41 @@ const handleDeleteSlot = (day: number, slotIndex: number) => {
     okText: t('travelDetail.experienceDay.confirm') || '确定',
     cancelText: t('travelDetail.experienceDay.cancel') || '取消',
     onOk: async () => {
+      // 获取后端ID
+      const backendItineraryId = travel.value?.data?.backendItineraryId
+      const dayData = itineraryData.value.days[dayIndex]
+      const dayId = dayData?.id
+      const slotId = slot.id
+      
+      // 先在前端删除，立即显示
       itineraryData.value.days[dayIndex].timeSlots.splice(slotIndex, 1)
 
       await recalculateTransportAfterChange(dayIndex, slotIndex)
+      
+      // 如果有后端ID，调用后端接口删除
+      if (backendItineraryId && dayId && slotId) {
+        try {
+          console.log('[ExperienceDay] 调用 deleteSlot 接口:', {
+            journeyId: backendItineraryId,
+            dayId,
+            slotId
+          })
+          
+          await deleteSlot(backendItineraryId, dayId, slotId)
+          
+          console.log('[ExperienceDay] 活动删除成功（后端）')
+        } catch (error: any) {
+          console.error('[ExperienceDay] 调用 deleteSlot 失败:', error)
+          message.warning('活动已从前端删除，但后端删除失败: ' + (error.message || '未知错误'))
+          // 不阻止用户继续操作，因为前端已经删除了
+        }
+      } else {
+        console.warn('[ExperienceDay] 缺少后端ID，跳过后端接口调用（删除活动）:', {
+          hasBackendItineraryId: !!backendItineraryId,
+          hasDayId: !!dayId,
+          hasSlotId: !!slotId
+        })
+      }
       
       // 通知父组件更新（不使用本地 store）
       if (travel.value) {
@@ -2567,17 +2600,35 @@ const openSearchModal = async (day: number, slotIndex: number, slot: any) => {
 
 // 将后端 POI 搜索结果转换为前端格式
 const convertPOISearchResultToPOIResult = (backendResult: POISearchResult, category: POICategory): POIResult => {
+  // 确保 name 不为空
+  const name = backendResult.name || '未知地点'
+  
+  // 处理地址，如果为空则尝试使用描述或其他信息
+  const address = backendResult.address || backendResult.description || ''
+  
+  console.log(`🔄 [UI] 转换 POI 数据:`, {
+    original: {
+      name: backendResult.name,
+      address: backendResult.address,
+      description: backendResult.description
+    },
+    converted: {
+      name,
+      address
+    }
+  })
+  
   return {
     name: {
-      chinese: backendResult.name,
-      english: backendResult.name,
-      local: backendResult.name
+      chinese: name,
+      english: name,
+      local: name
     },
     category: category,
     address: {
-      chinese: backendResult.address || '',
-      english: backendResult.address || '',
-      local: backendResult.address || ''
+      chinese: address,
+      english: address,
+      local: address
     },
     coordinates: {
       lat: backendResult.latitude,
@@ -2599,14 +2650,16 @@ const convertPOISearchResultToPOIResult = (backendResult: POISearchResult, categ
 }
 
 // 将前端 POI 类别映射到后端类型
+// 注意：对于 gas_station、ev_charging、rest_area，前端会发送 type: "all"
+// 后端会根据 query 参数（"加油站"、"充电桩"、"休息站"）来过滤结果
 const mapCategoryToBackendType = (category: POICategory): 'attraction' | 'restaurant' | 'hotel' | 'shopping' | 'all' => {
   const mapping: Record<POICategory, 'attraction' | 'restaurant' | 'hotel' | 'shopping' | 'all'> = {
     'restaurant': 'restaurant',
     'attraction': 'attraction',
     'accommodation': 'hotel',
-    'gas_station': 'all', // 后端不支持，使用 all
-    'ev_charging': 'all', // 后端不支持，使用 all
-    'rest_area': 'all' // 后端不支持，使用 all
+    'gas_station': 'all', // 后端不支持该类型，使用 all，后端会根据 query="加油站" 过滤
+    'ev_charging': 'all', // 后端不支持该类型，使用 all，后端会根据 query="充电桩" 过滤
+    'rest_area': 'all'    // 后端不支持该类型，使用 all，后端会根据 query="休息站" 过滤
   }
   return mapping[category] || 'all'
 }
@@ -2627,17 +2680,32 @@ const performSearch = async () => {
   try {
     // 优先使用后端接口
     const backendType = mapCategoryToBackendType(selectedSearchCategory.value)
-    const searchQuery = selectedSearchCategory.value === 'restaurant' ? '餐厅' :
-                       selectedSearchCategory.value === 'attraction' ? '景点' :
-                       selectedSearchCategory.value === 'accommodation' ? '酒店' :
-                       selectedSearchCategory.value === 'shopping' ? '购物' : '附近'
+    
+    // 构建更具体的搜索查询
+    const categoryQueryMap: Record<POICategory, string> = {
+      restaurant: '餐厅',
+      attraction: '景点',
+      accommodation: '酒店',
+      shopping: '购物',
+      gas_station: '加油站',
+      ev_charging: '充电桩',
+      rest_area: '休息站'
+    }
+    const searchQuery = categoryQueryMap[selectedSearchCategory.value] || '附近'
     
     // 获取目的地名称（从 travel 数据中）
     const destination = travel.value?.destination || travel.value?.location || ''
     
     // 获取坐标（如果有）
-    const coordinates = searchLocation.value.coordinates || 
-                       (searchLocation.value.name ? null : null) // 暂时不传坐标，使用目的地名称
+    const coordinates = searchLocation.value.coordinates || null
+    
+    console.log(`🔍 [UI] 后端搜索参数:`, {
+      query: searchQuery,
+      destination,
+      type: backendType,
+      coordinates,
+      category: selectedSearchCategory.value
+    })
     
     const backendResults = await searchPOI({
       query: searchQuery,
@@ -2648,25 +2716,44 @@ const performSearch = async () => {
       limit: 20
     })
     
+    console.log(`📦 [UI] 后端返回原始数据:`, {
+      resultCount: backendResults.length,
+      firstResult: backendResults[0] ? {
+        id: backendResults[0].id,
+        name: backendResults[0].name,
+        address: backendResults[0].address,
+        type: backendResults[0].type,
+        hasRating: !!backendResults[0].rating,
+        hasImage: !!backendResults[0].imageUrl,
+        hasDescription: !!backendResults[0].description
+      } : null
+    })
+    
     // 转换为前端格式
     const convertedResults = backendResults.map(result => 
       convertPOISearchResultToPOIResult(result, selectedSearchCategory.value)
     )
     
-    console.log(`✅ [UI] 后端搜索完成，获得 ${convertedResults.length} 个结果`)
+    console.log(`✅ [UI] 后端搜索完成，获得 ${convertedResults.length} 个结果`, {
+      convertedFirstResult: convertedResults[0] ? {
+        name: convertedResults[0].name,
+        address: convertedResults[0].address,
+        category: convertedResults[0].category
+      } : null
+    })
     
     // 如果后端返回结果为空，回退到 AI 搜索
     if (convertedResults.length === 0) {
       console.log('⚠️ [UI] 后端搜索无结果，回退到 AI 搜索')
       const aiResults = await searchNearbyPOI(
-        searchLocation.value,
-        selectedSearchCategory.value,
-        {
-          language: locale.value,
-          radius: 5,
-          maxResults: 5
-        }
-      )
+      searchLocation.value,
+      selectedSearchCategory.value,
+      {
+        language: locale.value,
+        radius: 5,
+        maxResults: 5
+      }
+    )
       searchResults.value = aiResults
     } else {
       searchResults.value = convertedResults
@@ -2698,8 +2785,8 @@ const performSearch = async () => {
       hasSearched.value = true
     } catch (aiError) {
       console.error('❌ [UI] AI 搜索也失败:', aiError)
-      message.error(`搜索失败: ${error instanceof Error ? error.message : '未知错误'}`)
-      hasSearched.value = true // 即使失败也标记为已搜索，显示"无结果"
+    message.error(`搜索失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    hasSearched.value = true // 即使失败也标记为已搜索，显示"无结果"
     }
   } finally {
     searching.value = false
@@ -2713,7 +2800,7 @@ const handleCategoryChange = () => {
 }
 
 // 添加POI到行程
-const addPOIToItinerary = (poi: POIResult) => {
+const addPOIToItinerary = async (poi: POIResult) => {
   if (!currentSearchContext.value || !itineraryData.value?.days) {
     message.error('无法添加：行程数据不存在')
     return
@@ -2737,10 +2824,15 @@ const addPOIToItinerary = (poi: POIResult) => {
   const nextTime = new Date(2000, 0, 1, hours, minutes + 30) // 30分钟后
   const nextTimeStr = `${String(nextTime.getHours()).padStart(2, '0')}:${String(nextTime.getMinutes()).padStart(2, '0')}`
   
-  const newSlot = {
+  // 获取POI名称和目的地
+  const poiName = poi.name.chinese || poi.name.english || poi.name.local || '新地点'
+  const destination = travel.value?.destination || travel.value?.location || ''
+  
+  // 构建基础的时间槽数据
+  const baseSlot = {
     time: nextTimeStr,
-    title: poi.name.chinese || poi.name.english || poi.name.local || '新地点',
-    activity: poi.name.chinese || poi.name.english || poi.name.local || '',
+    title: poiName,
+    activity: poiName,
     location: poi.address.chinese || poi.address.english || poi.address.local || '',
     type: poi.category === 'restaurant' ? 'restaurant' : poi.category === 'attraction' ? 'attraction' : 'activity',
     category: poi.category,
@@ -2767,8 +2859,8 @@ const addPOIToItinerary = (poi: POIResult) => {
     }
   }
   
-  // 插入到当前槽之后
-  timeSlots.splice(slotIndex + 1, 0, newSlot)
+  // 先插入基础数据，立即显示
+  timeSlots.splice(slotIndex + 1, 0, baseSlot)
   
   // 通知父组件更新（不使用本地 store）
   if (travel.value) {
@@ -2781,7 +2873,326 @@ const addPOIToItinerary = (poi: POIResult) => {
     })
   }
   
-  message.success('已添加到行程')
+  message.success('已添加到行程，正在获取详细信息...')
+  
+  // 先调用位置信息接口，成功后再调用添加时间段接口
+  const backendItineraryId = travel.value?.data?.backendItineraryId
+  const dayData = itineraryData.value.days[dayIndex]
+  const dayId = dayData?.id
+  
+  // 辅助函数：将前端 details 格式转换为后端 locationDetails 格式
+  function convertDetailsToLocationDetails(details: any): any {
+    if (!details) return undefined
+    
+    const locationDetails: any = {}
+    
+    // 名称信息
+    if (details.name) {
+      if (details.name.chinese) locationDetails.chineseName = details.name.chinese
+      if (details.name.local || details.name.english) locationDetails.localName = details.name.local || details.name.english
+    }
+    
+    // 地址信息
+    if (details.address) {
+      if (details.address.chinese) locationDetails.chineseAddress = details.address.chinese
+      if (details.address.local || details.address.english) locationDetails.localAddress = details.address.local || details.address.english
+    }
+    
+    // 交通信息
+    if (details.transportation) locationDetails.transportInfo = details.transportation
+    
+    // 开放时间
+    if (details.openingHours) locationDetails.openingHours = details.openingHours
+    
+    // 门票价格
+    if (details.pricing?.detail) {
+      locationDetails.ticketPrice = details.pricing.detail
+    } else if (details.pricing?.general) {
+      locationDetails.ticketPrice = String(details.pricing.general)
+    }
+    
+    // 游览建议
+    if (details.recommendations?.visitTips) locationDetails.visitTips = details.recommendations.visitTips
+    
+    // 评分
+    if (details.rating !== undefined && details.rating !== null) {
+      locationDetails.rating = typeof details.rating === 'number' ? details.rating : (details.rating.score || details.rating)
+    }
+    
+    // 建议游览时长
+    if (details.recommendations?.visitDuration) locationDetails.visitDuration = details.recommendations.visitDuration
+    
+    // 最佳游览时间
+    if (details.recommendations?.bestTimeToVisit) locationDetails.bestTimeToVisit = details.recommendations.bestTimeToVisit
+    
+    // 周边推荐
+    if (details.recommendations?.nearbyAttractions) locationDetails.nearbyAttractions = details.recommendations.nearbyAttractions
+    
+    // 联系方式
+    if (details.contact?.info) locationDetails.contactInfo = details.contact.info
+    
+    // 类别
+    if (details.category) locationDetails.category = details.category
+    
+    // 无障碍设施
+    if (details.accessibility) locationDetails.accessibility = details.accessibility
+    
+    // 着装建议
+    if (details.recommendations?.outfitSuggestions) locationDetails.dressingTips = details.recommendations.outfitSuggestions
+    
+    // 文化提示
+    if (details.recommendations?.culturalTips) locationDetails.culturalTips = details.recommendations.culturalTips
+    
+    // 预订信息
+    if (details.recommendations?.bookingInfo) locationDetails.bookingInfo = details.recommendations.bookingInfo
+    
+    // 如果没有任何字段，返回 undefined
+    return Object.keys(locationDetails).length > 0 ? locationDetails : undefined
+  }
+  
+  // 辅助函数：调用添加时间段接口
+  async function callAddSlotToDay(
+    backendItineraryId: string,
+    dayId: string,
+    slot: any,
+    timeSlots: any[],
+    slotIndex: number,
+    backendLocationDetails?: any
+  ) {
+    try {
+      // 将 duration 转换为分钟数
+      let durationMinutes = 30 // 默认30分钟
+      const durationStr = slot.duration || '30分钟'
+      if (typeof durationStr === 'string') {
+        if (durationStr.includes('小时')) {
+          const hours = parseFloat(durationStr) || 1
+          durationMinutes = hours * 60
+        } else if (durationStr.includes('分钟')) {
+          durationMinutes = parseFloat(durationStr) || 30
+        } else {
+          durationMinutes = parseFloat(durationStr) || 30
+        }
+      } else if (typeof durationStr === 'number') {
+        durationMinutes = durationStr
+      }
+      
+      // 优先使用传入的 backendLocationDetails，否则从 slot.details 转换
+      let locationDetails: any = undefined
+      if (backendLocationDetails) {
+        locationDetails = backendLocationDetails
+      } else if (slot.details?._backendLocationDetails) {
+        locationDetails = slot.details._backendLocationDetails
+      } else {
+        locationDetails = convertDetailsToLocationDetails(slot.details)
+      }
+      
+      // 构建请求参数
+      const slotRequest: any = {
+        time: slot.time,
+        title: slot.title,
+        type: (slot.type === 'restaurant' ? 'meal' :
+               slot.type === 'attraction' ? 'attraction' :
+               slot.type === 'accommodation' ? 'hotel' :
+               slot.type === 'shopping' ? 'shopping' :
+               slot.type === 'transport' ? 'transport' :
+               slot.type === 'ocean' ? 'ocean' : 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+        duration: durationMinutes,
+        location: slot.coordinates || { lat: 0, lng: 0 },
+        notes: slot.notes || '',
+        cost: slot.cost || 0
+      }
+      
+      // 如果有位置详细信息，添加到请求中
+      if (locationDetails) {
+        slotRequest.locationDetails = locationDetails
+        console.log('[ExperienceDay] 包含位置详细信息:', Object.keys(locationDetails))
+      }
+      
+      console.log('[ExperienceDay] 调用 addSlotToDay 接口（添加POI）:', {
+        journeyId: backendItineraryId,
+        dayId,
+        slotRequest
+      })
+      
+      const createdActivity = await addSlotToDay(backendItineraryId, dayId, slotRequest)
+      
+      // 更新 slot 的 id（使用后端返回的 id）
+      const addedSlot = timeSlots[slotIndex + 1]
+      if (addedSlot) {
+        addedSlot.id = createdActivity.id
+        console.log('[ExperienceDay] POI时间段添加成功，activityId:', createdActivity.id)
+        message.success('已保存到后端')
+      }
+    } catch (error: any) {
+      console.error('[ExperienceDay] 调用 addSlotToDay 失败（添加POI）:', error)
+      message.warning('POI已添加到前端，但后端保存失败: ' + (error.message || '未知错误'))
+      // 不阻止用户继续操作，因为前端已经添加了
+    }
+  }
+  
+  // 异步获取位置信息
+  try {
+    console.log('[ExperienceDay] 开始获取POI位置信息:', {
+      poiName,
+      destination,
+      coordinates: poi.coordinates,
+      category: poi.category
+    })
+    
+    // 调用位置信息接口
+    // 注意：coordinates 是必需的，如果 POI 没有坐标，跳过位置信息获取
+    if (!poi.coordinates || typeof poi.coordinates.lat !== 'number' || typeof poi.coordinates.lng !== 'number') {
+      console.warn('[ExperienceDay] POI 缺少有效的坐标信息，跳过位置信息获取:', {
+        poiName,
+        hasCoordinates: !!poi.coordinates,
+        coordinates: poi.coordinates
+      })
+      // 即使没有坐标，也尝试调用添加时间段接口
+      if (backendItineraryId && dayId) {
+        await callAddSlotToDay(backendItineraryId, dayId, baseSlot, timeSlots, slotIndex, undefined)
+      }
+      return
+    }
+    
+    // 构建请求参数，确保 coordinates 是对象格式
+    const requestParams = {
+      activityName: poiName,
+      destination: destination || '',
+      activityType: (poi.category === 'restaurant' ? 'meal' : 
+                     poi.category === 'attraction' ? 'attraction' : 
+                     poi.category === 'accommodation' ? 'hotel' : 
+                     poi.category === 'shopping' ? 'shopping' : 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+      coordinates: {
+        lat: Number(poi.coordinates.lat),
+        lng: Number(poi.coordinates.lng),
+        ...(destination ? { region: destination } : {})
+      }
+    }
+    
+    console.log('[ExperienceDay] 调用位置信息接口，请求参数:', {
+      activityName: requestParams.activityName,
+      destination: requestParams.destination,
+      activityType: requestParams.activityType,
+      coordinates: requestParams.coordinates
+    })
+    
+    const locationInfo = await generateLocation(requestParams)
+    
+    console.log('[ExperienceDay] 位置信息获取成功:', {
+      poiName,
+      chineseName: locationInfo.chineseName,
+      hasTransportInfo: !!locationInfo.transportInfo,
+      hasOpeningHours: !!locationInfo.openingHours,
+      visitDuration: locationInfo.visitDuration
+    })
+    
+    // 将位置信息转换为前端格式（用于前端显示）
+    const locationDetails = convertLocationInfoToDetails(locationInfo)
+    
+    // 将位置信息转换为后端 locationDetails 格式（用于接口请求）
+    const backendLocationDetails = {
+      chineseName: locationInfo.chineseName,
+      localName: locationInfo.localName,
+      chineseAddress: locationInfo.chineseAddress,
+      localAddress: locationInfo.localAddress,
+      transportInfo: locationInfo.transportInfo,
+      openingHours: locationInfo.openingHours,
+      ticketPrice: locationInfo.ticketPrice,
+      visitTips: locationInfo.visitTips,
+      nearbyAttractions: locationInfo.nearbyAttractions,
+      contactInfo: locationInfo.contactInfo,
+      category: locationInfo.category,
+      rating: locationInfo.rating,
+      visitDuration: locationInfo.visitDuration,
+      bestTimeToVisit: locationInfo.bestTimeToVisit,
+      accessibility: locationInfo.accessibility,
+      dressingTips: locationInfo.dressingTips,
+      culturalTips: locationInfo.culturalTips,
+      bookingInfo: locationInfo.bookingInfo
+    }
+    
+    // 更新已插入的时间槽，合并位置信息
+    const updatedSlot = timeSlots[slotIndex + 1]
+    if (updatedSlot) {
+      // 深度合并 details，保留原有字段
+      updatedSlot.details = {
+        ...updatedSlot.details,
+        // 合并 name 对象
+        name: {
+          ...(updatedSlot.details.name || {}),
+          ...locationDetails.name
+        },
+        // 合并 address 对象
+        address: {
+          ...(updatedSlot.details.address || {}),
+          ...locationDetails.address
+        },
+        // 合并其他字段（优先使用位置信息）
+        ...Object.keys(locationDetails).reduce((acc, key) => {
+          if (key !== 'name' && key !== 'address') {
+            // 对于 openingHours、transportation、pricing、rating、recommendations 等字段，优先使用位置信息
+            if (['openingHours', 'transportation', 'pricing', 'rating', 'recommendations', 'contact', 'accessibility'].includes(key)) {
+              acc[key] = locationDetails[key] || updatedSlot.details[key]
+            } else if (!updatedSlot.details[key]) {
+              acc[key] = locationDetails[key]
+            }
+          }
+          return acc
+        }, {} as any)
+      }
+      
+      // 更新顶层字段（如果有更准确的信息）
+      if (locationDetails.name?.chinese) {
+        updatedSlot.title = locationDetails.name.chinese
+        updatedSlot.activity = locationDetails.name.chinese
+      }
+      if (locationDetails.address?.chinese) {
+        updatedSlot.location = locationDetails.address.chinese
+      }
+      // 更新预计停留时间（从位置信息接口获取）
+      if (locationDetails.recommendations?.visitDuration) {
+        updatedSlot.duration = locationDetails.recommendations.visitDuration
+        console.log('[ExperienceDay] 更新预计停留时间:', {
+          visitDuration: locationDetails.recommendations.visitDuration,
+          slotDuration: updatedSlot.duration
+        })
+      }
+      
+      // 通知父组件更新
+      if (travel.value) {
+        emit('update', {
+          ...travel.value,
+          data: {
+            ...travel.value.data,
+            itineraryData: itineraryData.value
+          }
+        })
+      }
+      
+      message.success('位置信息已更新')
+      console.log('[ExperienceDay] POI位置信息已合并到时间槽')
+    }
+    
+    // 位置信息获取成功后，调用添加时间段接口
+    if (backendItineraryId && dayId) {
+      // 使用更新后的 slot（包含位置信息）
+      const finalSlot = timeSlots[slotIndex + 1]
+      await callAddSlotToDay(backendItineraryId, dayId, finalSlot || updatedSlot || baseSlot, timeSlots, slotIndex, backendLocationDetails)
+    }
+  } catch (error: any) {
+    // 位置信息获取失败不影响已添加的POI，只记录警告
+    console.warn('[ExperienceDay] 获取POI位置信息失败（不影响已添加的POI）:', {
+      error: error.message,
+      poiName,
+      destination
+    })
+    
+    // 即使位置信息获取失败，也尝试调用添加时间段接口
+    if (backendItineraryId && dayId) {
+      await callAddSlotToDay(backendItineraryId, dayId, baseSlot, timeSlots, slotIndex, undefined)
+    }
+  }
+  
   searchModalVisible.value = false
 }
 
@@ -3016,6 +3427,70 @@ const handleSaveEdit = async () => {
     const insertIndex = newSlotInsertInfo.value.insertIndex
     timeSlots.splice(insertIndex, 0, slot)
     finalSlotIndex = insertIndex
+    
+    // 如果有 backendItineraryId 和 dayId，调用后端接口添加时间段
+    const backendItineraryId = travel.value?.data?.backendItineraryId
+    const dayData = itineraryData.value.days[dayIndex]
+    const dayId = dayData?.id
+    
+    if (backendItineraryId && dayId) {
+      try {
+        // 将 duration 转换为分钟数
+        let durationMinutes = 30 // 默认30分钟
+        if (typeof editingData.value.duration === 'string') {
+          // 处理 "30分钟"、"1小时" 等格式
+          const durationStr = editingData.value.duration
+          if (durationStr.includes('小时')) {
+            const hours = parseFloat(durationStr) || 1
+            durationMinutes = hours * 60
+          } else if (durationStr.includes('分钟')) {
+            durationMinutes = parseFloat(durationStr) || 30
+          } else {
+            durationMinutes = parseFloat(durationStr) || 30
+          }
+        } else if (typeof editingData.value.duration === 'number') {
+          durationMinutes = editingData.value.duration
+        }
+        
+        // 构建请求参数
+        const slotRequest = {
+          time: editingData.value.time,
+          title: editingData.value.title,
+          type: (editingData.value.type === 'restaurant' ? 'meal' :
+                 editingData.value.type === 'attraction' ? 'attraction' :
+                 editingData.value.type === 'accommodation' ? 'hotel' :
+                 editingData.value.type === 'shopping' ? 'shopping' :
+                 editingData.value.type === 'transport' ? 'transport' :
+                 editingData.value.type === 'ocean' ? 'ocean' : 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+          duration: durationMinutes,
+          location: editingData.value.coordinates || { lat: 0, lng: 0 },
+          notes: editingData.value.notes || '',
+          cost: editingData.value.cost || 0
+        }
+        
+        console.log('[ExperienceDay] 调用 addSlotToDay 接口:', {
+          journeyId: backendItineraryId,
+          dayId,
+          slotRequest
+        })
+        
+        const createdActivity = await addSlotToDay(backendItineraryId, dayId, slotRequest)
+        
+        // 更新 slot 的 id（使用后端返回的 id）
+        slot.id = createdActivity.id
+        console.log('[ExperienceDay] 时间段添加成功，activityId:', createdActivity.id)
+      } catch (error: any) {
+        console.error('[ExperienceDay] 调用 addSlotToDay 失败:', error)
+        message.warning('时间段已添加到前端，但后端保存失败: ' + (error.message || '未知错误'))
+        // 不阻止用户继续操作，因为前端已经添加了
+      }
+    } else {
+      console.warn('[ExperienceDay] 缺少 backendItineraryId 或 dayId，跳过后端接口调用:', {
+        hasBackendItineraryId: !!backendItineraryId,
+        hasDayId: !!dayId,
+        dayData
+      })
+    }
   } else {
     // 编辑模式：更新现有 slot
     if (slotIndex < 0 || slotIndex >= timeSlots.length) {
@@ -3027,18 +3502,18 @@ const handleSaveEdit = async () => {
       console.error('[ExperienceDay] 找不到 slot，slotIndex:', slotIndex)
       return
     }
-    
-    // 更新基础字段
-    slot.time = editingData.value.time
-    slot.title = editingData.value.title
-    slot.activity = editingData.value.activity || editingData.value.title
-    slot.type = editingData.value.type
-    slot.category = editingData.value.category || editingData.value.type
-    slot.duration = editingData.value.duration
-    slot.cost = editingData.value.cost
-    slot.location = editingData.value.location
-    slot.coordinates = editingData.value.coordinates
-    slot.bookingLinks = editingData.value.bookingLinks || []
+  
+  // 更新基础字段
+  slot.time = editingData.value.time
+  slot.title = editingData.value.title
+  slot.activity = editingData.value.activity || editingData.value.title
+  slot.type = editingData.value.type
+  slot.category = editingData.value.category || editingData.value.type
+  slot.duration = editingData.value.duration
+  slot.cost = editingData.value.cost
+  slot.location = editingData.value.location
+  slot.coordinates = editingData.value.coordinates
+  slot.bookingLinks = editingData.value.bookingLinks || []
   }
 
   // 更新 details 对象
@@ -3138,7 +3613,7 @@ const handleSaveEdit = async () => {
       isAddingNewSlot.value = false
       newSlotInsertInfo.value = null
     } else {
-      message.success('活动已更新')
+    message.success('活动已更新')
     }
   }
   

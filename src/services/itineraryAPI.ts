@@ -1710,6 +1710,27 @@ export async function deleteDay(
  * @param slotData 时间段数据
  * @returns 创建后的活动对象
  */
+export interface LocationDetails {
+  chineseName?: string
+  localName?: string
+  chineseAddress?: string
+  localAddress?: string
+  transportInfo?: string
+  openingHours?: string
+  ticketPrice?: string
+  visitTips?: string
+  nearbyAttractions?: string
+  contactInfo?: string
+  category?: string
+  rating?: number
+  visitDuration?: string
+  bestTimeToVisit?: string
+  accessibility?: string
+  dressingTips?: string
+  culturalTips?: string
+  bookingInfo?: string
+}
+
 export interface AddSlotToDayRequest {
   time: string // HH:MM
   title: string
@@ -1718,6 +1739,7 @@ export interface AddSlotToDayRequest {
   location: { lat: number; lng: number }
   notes?: string
   cost?: number
+  locationDetails?: LocationDetails
 }
 
 export interface AddSlotToDayResponse {

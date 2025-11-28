@@ -205,6 +205,7 @@ import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { deleteItinerary } from '@/services/itineraryAPI'
 import { getCurrencyForDestination, formatCurrency } from '@/utils/currency'
+import { getDefaultCurrency } from '@/config/currency'
 
 const { t } = useI18n()
 import {
@@ -636,9 +637,8 @@ const getVisaStatusText = (travel: Travel) => {
 const formatBudgetAmount = (amount: number, travel: Travel) => {
   const destination = travel.location || travel.destination || travel.data?.destination || ''
   if (!destination) {
-    // 如果没有目的地，默认使用人民币
-    const defaultCurrency = { code: 'CNY', symbol: '¥', name: '人民币' }
-    return formatCurrency(amount, defaultCurrency)
+    // 如果没有目的地，使用系统配置的默认货币
+    return formatCurrency(amount, getDefaultCurrency())
   }
   
   const currency = getCurrencyForDestination(destination)

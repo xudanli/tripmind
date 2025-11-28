@@ -275,6 +275,7 @@ import {
   EditOutlined
 } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, formatCurrency, type CurrencyInfo } from '@/utils/currency'
+import { getDefaultCurrency, getDefaultCurrencyCode } from '@/config/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { getMembers, inviteMember, addMember, updateMember, removeMember as removeMemberAPI, type Member as APIMember } from '@/services/itineraryAPI'
 
@@ -580,12 +581,12 @@ const extractDestinationCountry = () => {
 // 获取目的地货币信息
 const getDestinationCurrency = computed((): CurrencyInfo => {
   if (!props.travelId) {
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    return getDefaultCurrency()
   }
   
   const travel = travelListStore.getTravel(props.travelId)
   if (!travel) {
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    return getDefaultCurrency()
   }
   
   // 0. 优先使用后端返回的货币信息（最准确，后端已推断）
@@ -618,7 +619,8 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
   // 3. 从location字段获取（后备方案）
   if (travel.location) {
     const currency = getCurrencyForDestination(travel.location)
-    if (currency.code !== 'CNY') {
+    const defaultCurrencyCode = getDefaultCurrencyCode()
+    if (currency.code !== defaultCurrencyCode) {
       return currency
     }
   }
@@ -631,13 +633,14 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
   
   if (destination) {
     const currency = getCurrencyForDestination(destination)
-    if (currency.code !== 'CNY') {
+    const defaultCurrencyCode = getDefaultCurrencyCode()
+    if (currency.code !== defaultCurrencyCode) {
       return currency
     }
   }
   
-  // 默认返回人民币
-  return { code: 'CNY', symbol: '¥', name: '人民币' }
+  // 默认返回系统配置的默认货币
+  return getDefaultCurrency()
 })
 
 // 格式化金额（使用目的地货币）

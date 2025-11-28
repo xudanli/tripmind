@@ -2,6 +2,8 @@
  * 货币工具 - 获取国家/地区的当地货币信息
  */
 
+import { getDefaultCurrency } from '@/config/currency'
+
 export interface CurrencyInfo {
   code: string // ISO 4217 货币代码
   symbol: string // 货币符号
@@ -262,7 +264,8 @@ export function extractCountryFromDestination(destination: string): string | nul
  */
 export function getCurrencyForDestination(destination: string): CurrencyInfo {
   if (!destination || !destination.trim()) {
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    // 使用统一配置的默认货币
+    return getDefaultCurrency()
   }
   
   // 1. 先尝试提取国家信息（从括号、逗号等格式）
@@ -297,8 +300,8 @@ export function getCurrencyForDestination(destination: string): CurrencyInfo {
     }
   }
   
-  // 4. 默认返回人民币
-  return { code: 'CNY', symbol: '¥', name: '人民币' }
+  // 4. 默认返回系统配置的默认货币
+  return getDefaultCurrency()
 }
 
 /**

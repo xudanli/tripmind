@@ -87,6 +87,7 @@ import { chatWithLLM } from '@/services/deepseekAPI'
 import { DeepSeekClient } from '@/llm/deepseekClient'
 import { buildLanguageRequirementBlock, buildTransportPreferenceBlock } from '@/prompts/inspiration/common'
 import { getUserLocationCode } from '@/config/userProfile'
+import { DEFAULT_CONFIG } from '@/config/defaults'
 import MessageGroup from './DiscussionArea/MessageGroup.vue'
 import TimeDivider from './DiscussionArea/TimeDivider.vue'
 import TypingIndicator from './DiscussionArea/TypingIndicator.vue'
@@ -649,7 +650,7 @@ const handleAddToItinerary = async (messageId: string, content: string) => {
   }
   
   // 提取时长（如果有提到）
-  let duration = 60 // 默认60分钟
+  let duration = DEFAULT_CONFIG.ACTIVITY.DEFAULT_DURATION // 使用配置的默认时长
   const durationMatch = content.match(/(\d+)\s*(?:分钟|小时|min|hour|h|m)/i)
   const durationRaw = durationMatch?.[1]
   if (durationRaw) {
@@ -2473,8 +2474,14 @@ Please answer user questions in a friendly, professional tone, providing specifi
 
 // 处理附件
 const handleAttach = () => {
-  // TODO: 实现附件上传
+  // TODO: 实现附件上传功能
+  // 计划功能：
+  // 1. 支持图片、文档等附件上传
+  // 2. 上传到后端存储服务
+  // 3. 在消息中显示附件预览
+  // 4. 支持附件下载
   console.log('Attach file')
+  message.info('附件上传功能开发中')
 }
 
 // 滚动行为

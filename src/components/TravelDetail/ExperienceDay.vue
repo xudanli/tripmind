@@ -562,8 +562,8 @@
                   <span v-if="poi.pricing?.general" class="meta-item">
                     <span class="meta-icon">💰</span>
                     {{ formatCurrency(poi.pricing.general, (() => {
-                      const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || 'CNY'
-                      return getCurrencyByCode(unit) || getSearchLocationCurrency.value || { code: 'CNY', symbol: '¥', name: '人民币' }
+                      const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || getDefaultCurrencyCode()
+                      return getCurrencyByCode(unit) || getSearchLocationCurrency.value || getDefaultCurrency()
                     })()) }}
                   </span>
                   <span v-if="poi.openingHours?.hours" class="meta-item">
@@ -623,6 +623,8 @@ import { useI18n } from 'vue-i18n'
 // 不再使用 travelListStore，数据从 props 接收
 import { CalendarOutlined, EditOutlined, EnvironmentOutlined, DownOutlined, PlusOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons-vue'
 import { getCurrencyForDestination, getCurrencyByCode, formatCurrency, type CurrencyInfo } from '@/utils/currency'
+import { getDefaultCurrency, getDefaultCurrencyCode } from '@/config/currency'
+import { DEFAULT_CONFIG } from '@/config/defaults'
 import { getLocalLanguageForDestination, type LocalLanguageInfo } from '@/utils/localLanguage'
 import { getRatingPlatformForDestination, getRatingPlatformName } from '@/utils/ratingPlatform'
 import { Modal, message } from 'ant-design-vue'
@@ -645,6 +647,7 @@ import {
   MOOD_COLORS,
   ACTIVITY_TYPE_COLORS,
 } from '@/utils/travelConstants'
+import { IMAGE_SERVICES, MAP_URLS as URLS_MAP } from '@/config/urls'
 import DayCard from './ExperienceDay/DayCard.vue'
 import TimeSlotCard from './ExperienceDay/TimeSlotCard.vue'
 import ImagePreviewModal from './ExperienceDay/ImagePreviewModal.vue'
@@ -988,9 +991,9 @@ const coverImage = computed(() => {
   // 如果没有封面图片，使用默认图片
   const dest = destination.value || ''
   if (dest) {
-    return `https://source.unsplash.com/1600x450/?${encodeURIComponent(dest)}`
+    return `${IMAGE_SERVICES.UNSPLASH}${encodeURIComponent(dest)}`
   }
-  return 'https://source.unsplash.com/1600x450/?travel'
+  return IMAGE_SERVICES.UNSPLASH_TRAVEL
 })
 
 // 行程天数数据
@@ -1854,8 +1857,8 @@ const getOverallCurrency = (): CurrencyInfo => {
     }
   }
   
-  // 3. 默认返回人民币（如果没有匹配到其他国家）
-  return { code: 'CNY', symbol: '¥', name: '人民币' }
+  // 3. 默认返回系统配置的默认货币（如果没有匹配到其他国家）
+  return getDefaultCurrency()
 }
 
 // 货币信息（兼容旧代码，使用整体货币）
@@ -1990,11 +1993,11 @@ const handleRatingClick = (slot: any) => {
       break
     case 'tabelog':
       // 食べログ搜索（日本，使用日文或中文）
-      url = `https://tabelog.com/tw/search/?sa=&sk=${encodedName}`
+      url = `${BOOKING_PLATFORMS.TABELOG}${encodedName}`
       break
     case 'naver':
       // Naver搜索（韩国，使用韩文或中文）
-      url = `https://search.naver.com/search.naver?query=${encodedName}`
+      url = `${BOOKING_PLATFORMS.NAVER}${encodedName}`
       break
     default:
       // 默认使用 TripAdvisor（使用英文）
@@ -2051,23 +2054,24 @@ const getSearchLocationCurrency = computed(() => {
   try {
     if (!searchLocation.value.name && !searchLocation.value.address) {
       const overall = getOverallCurrency()
-      return overall || { code: 'CNY', symbol: '¥', name: '人民币' }
+      return overall || getDefaultCurrency()
     }
     
     // 从位置名称或地址中提取国家信息
     const locationText = `${searchLocation.value.name} ${searchLocation.value.address || ''}`
     const currency = getCurrencyForDestination(locationText)
     
-    // 如果识别到非人民币，使用该货币；否则使用整体货币
-    if (currency && currency.code && currency.code !== 'CNY') {
+    // 如果识别到非默认货币，使用该货币；否则使用整体货币
+    const defaultCurrencyCode = getDefaultCurrencyCode()
+    if (currency && currency.code && currency.code !== defaultCurrencyCode) {
       return currency
     }
     
     const overall = getOverallCurrency()
-    return overall || { code: 'CNY', symbol: '¥', name: '人民币' }
+    return overall || getDefaultCurrency()
   } catch (error) {
     console.warn('获取搜索位置货币失败:', error)
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    return getDefaultCurrency()
   }
 })
 
@@ -2573,7 +2577,7 @@ const handleAddSlot = (day: number, insertIndex: number) => {
     location: '',
     type: 'attraction',
     category: 'attraction',
-    duration: '30分钟',
+    duration: `${DEFAULT_CONFIG.ACTIVITY.DEFAULT_DURATION}分钟`,
     notes: '',
     cost: 0,
     details: {}
@@ -3412,8 +3416,8 @@ const viewPOIDetails = (poi: POIResult) => {
       poi.pricing?.general ? h('div', { style: { marginBottom: '12px' } }, [
         h('strong', '价格：'),
         formatCurrency(poi.pricing.general, (() => {
-          const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || 'CNY'
-          return getCurrencyByCode(unit) || getSearchLocationCurrency.value || { code: 'CNY', symbol: '¥', name: '人民币' }
+          const unit = poi.pricing.unit || getSearchLocationCurrency.value?.code || getDefaultCurrencyCode()
+          return getCurrencyByCode(unit) || getSearchLocationCurrency.value || getDefaultCurrency()
         })())
       ]) : null,
       poi.estimatedDuration ? h('div', { style: { marginBottom: '12px' } }, [
@@ -3519,7 +3523,8 @@ const handleSaveEdit = async () => {
     if (backendItineraryId && dayId) {
       try {
         // 将 duration 转换为分钟数
-        let durationMinutes = 30 // 默认30分钟
+        const defaultDuration = DEFAULT_CONFIG.ACTIVITY.DEFAULT_DURATION
+        let durationMinutes = defaultDuration // 使用配置的默认时长
         if (typeof editingData.value.duration === 'string') {
           // 处理 "30分钟"、"1小时" 等格式
           const durationStr = editingData.value.duration
@@ -3527,9 +3532,9 @@ const handleSaveEdit = async () => {
             const hours = parseFloat(durationStr) || 1
             durationMinutes = hours * 60
           } else if (durationStr.includes('分钟')) {
-            durationMinutes = parseFloat(durationStr) || 30
+            durationMinutes = parseFloat(durationStr) || defaultDuration
           } else {
-            durationMinutes = parseFloat(durationStr) || 30
+            durationMinutes = parseFloat(durationStr) || defaultDuration
           }
         } else if (typeof editingData.value.duration === 'number') {
           durationMinutes = editingData.value.duration
@@ -3877,27 +3882,27 @@ const handleBook = (slot: any) => {
         case 'skyscanner':
           // Skyscanner: /flights/from/origin/to/dest/
           return origin && dest 
-            ? `https://www.skyscanner.com/transport/flights/${originEncoded}/${destEncoded}/`
-            : `https://www.skyscanner.com/transport/flights/`
+            ? `${BOOKING_PLATFORMS.SKYSCANNER}${originEncoded}/${destEncoded}/`
+            : BOOKING_PLATFORMS.SKYSCANNER
         case 'google':
           // Google Flights: ?q=Flights from ORIGIN to DEST
           return origin && dest
-            ? `https://www.google.com/travel/flights?q=Flights%20from%20${originEncoded}%20to%20${destEncoded}`
-            : `https://www.google.com/travel/flights?q=Flights%20to%20${destEncoded}`
+            ? `${URLS_MAP.GOOGLE_FLIGHTS}Flights%20from%20${originEncoded}%20to%20${destEncoded}`
+            : `${URLS_MAP.GOOGLE_FLIGHTS}Flights%20to%20${destEncoded}`
         case 'expedia':
           // Expedia: ?originCity=ORIGIN&destinationCity=DEST
           return origin && dest
-            ? `https://www.expedia.com/Flights-Search?originCity=${originEncoded}&destinationCity=${destEncoded}`
+            ? `${BOOKING_PLATFORMS.EXPEDIA}originCity=${originEncoded}&destinationCity=${destEncoded}`
             : dest
-            ? `https://www.expedia.com/Flights-Search?destinationCity=${destEncoded}`
-            : `https://www.expedia.com/Flights-Search`
+            ? `${BOOKING_PLATFORMS.EXPEDIA}destinationCity=${destEncoded}`
+            : BOOKING_PLATFORMS.EXPEDIA.replace('?destination=', '')
         case 'kayak':
           // Kayak: /flights/ORIGIN/DEST/
           return origin && dest
-            ? `https://www.kayak.com/flights/${originEncoded}/${destEncoded}/`
+            ? `${BOOKING_PLATFORMS.KAYAK}${originEncoded}/${destEncoded}/`
             : dest
-            ? `https://www.kayak.com/flights/-/${destEncoded}/`
-            : `https://www.kayak.com/flights/`
+            ? `${BOOKING_PLATFORMS.KAYAK}-/${destEncoded}/`
+            : BOOKING_PLATFORMS.KAYAK
         default:
           return ''
       }

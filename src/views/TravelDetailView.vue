@@ -397,6 +397,8 @@ const destinationId = computed(() => {
   
   // 3. 暂时返回null，等后端提供通过目的地名称查询ID的接口后再实现
   // TODO: 实现通过目的地名称查询目的地ID的逻辑
+  // 计划：当后端提供目的地查询接口时，通过目的地名称查询对应的 destinationId
+  // 当前已通过 findOrCreateDestination 实现，但可以进一步优化
   console.log('[TravelDetailView] destinationId computed: 未找到目的地ID', {
     hasData: !!data,
     dataKeys: data ? Object.keys(data) : [],
@@ -928,8 +930,13 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
           budget: enrichedData.budget,
           preferences: backendItinerary.preferences || {},
           // 保存货币信息（后端返回，优先使用后端值）
-          currency: (backendItinerary as any).currency ?? travel.value.data?.itineraryData?.currency,
-          currencyInfo: (backendItinerary as any).currencyInfo ?? travel.value.data?.itineraryData?.currencyInfo
+          // 注意：如果后端返回 null 或 undefined，使用旧值；否则使用后端值
+          currency: (backendItinerary as any).currency !== null && (backendItinerary as any).currency !== undefined
+            ? (backendItinerary as any).currency
+            : (travel.value.data?.itineraryData?.currency ?? null),
+          currencyInfo: (backendItinerary as any).currencyInfo !== null && (backendItinerary as any).currencyInfo !== undefined
+            ? (backendItinerary as any).currencyInfo
+            : (travel.value.data?.itineraryData?.currencyInfo ?? null)
         },
         // 同时更新顶层字段，用于兼容性
         destination: enrichedData.destination,
@@ -952,7 +959,9 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
         currency: updatedData.itineraryData?.currency,
         currencyInfo: updatedData.itineraryData?.currencyInfo,
         backendCurrency: (backendItinerary as any).currency,
-        backendCurrencyInfo: (backendItinerary as any).currencyInfo
+        backendCurrencyInfo: (backendItinerary as any).currencyInfo,
+        oldCurrency: travel.value.data?.itineraryData?.currency,
+        oldCurrencyInfo: travel.value.data?.itineraryData?.currencyInfo
       })
       
       // 直接更新 travel.value，不使用 store（因为只使用后端数据）
@@ -1022,12 +1031,26 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
         // 等待响应式更新完成
         await nextTick()
         
+        // 将 travel 数据更新到 store，确保 BudgetManager 等组件能获取到数据
+        if (travel.value) {
+          const existingTravel = travelListStore.getTravel(travel.value.id)
+          if (existingTravel) {
+            travelListStore.updateTravel(travel.value.id, travel.value)
+            console.log('[TravelDetailView] ✅ loadItineraryFromBackend: 已更新 store 中的 travel 数据')
+          } else {
+            travelListStore.addTravel(travel.value)
+            console.log('[TravelDetailView] ✅ loadItineraryFromBackend: 已添加 travel 数据到 store')
+          }
+        }
+        
         console.log('[TravelDetailView] 行程数据已更新，只使用后端数据（itineraryData）:', {
           hasTravel: !!travel.value,
           hasData: !!travel.value?.data,
           hasItineraryData: !!travel.value?.data?.itineraryData,
           itineraryDataDaysCount: travel.value?.data?.itineraryData?.days?.length || 0,
           firstDayTimeSlots: travel.value?.data?.itineraryData?.days?.[0]?.timeSlots?.length || 0,
+          currency: travel.value?.data?.itineraryData?.currency,
+          currencyInfo: travel.value?.data?.itineraryData?.currencyInfo,
           firstDayFirstSlot: travel.value?.data?.itineraryData?.days?.[0]?.timeSlots?.[0] ? {
             title: travel.value.data.itineraryData.days[0].timeSlots[0].title,
             time: travel.value.data.itineraryData.days[0].timeSlots[0].time,
@@ -1151,7 +1174,11 @@ onMounted(async () => {
       hasData: !!travel.value?.data,
       hasItineraryData: !!travel.value?.data?.itineraryData,
       itineraryDataDaysCount: travel.value?.data?.itineraryData?.days?.length || 0,
-      backendDaysCount: backendItinerary.days?.length || 0
+      backendDaysCount: backendItinerary.days?.length || 0,
+      backendCurrency: (backendItinerary as any).currency,
+      backendCurrencyInfo: (backendItinerary as any).currencyInfo,
+      savedCurrency: travel.value?.data?.itineraryData?.currency,
+      savedCurrencyInfo: travel.value?.data?.itineraryData?.currencyInfo
     })
     
     // 等待响应式更新完成
@@ -1163,12 +1190,29 @@ onMounted(async () => {
     // 再次等待响应式更新完成
     await nextTick()
     
+    // 将 travel 数据更新到 store，确保 BudgetManager 等组件能获取到数据
+    if (travel.value) {
+      // 检查 store 中是否已有该 travel
+      const existingTravel = travelListStore.getTravel(travel.value.id)
+      if (existingTravel) {
+        // 如果已存在，更新它
+        travelListStore.updateTravel(travel.value.id, travel.value)
+        console.log('[TravelDetailView] ✅ 已更新 store 中的 travel 数据')
+      } else {
+        // 如果不存在，添加到 store
+        travelListStore.addTravel(travel.value)
+        console.log('[TravelDetailView] ✅ 已添加 travel 数据到 store')
+      }
+    }
+    
     console.log('[TravelDetailView] ✅ 完整数据加载完成，最终状态:', {
       hasTravel: !!travel.value,
       hasData: !!travel.value?.data,
       hasItineraryData: !!travel.value?.data?.itineraryData,
       itineraryDataDaysCount: travel.value?.data?.itineraryData?.days?.length || 0,
-      firstDayTimeSlots: travel.value?.data?.itineraryData?.days?.[0]?.timeSlots?.length || 0
+      firstDayTimeSlots: travel.value?.data?.itineraryData?.days?.[0]?.timeSlots?.length || 0,
+      currency: travel.value?.data?.itineraryData?.currency,
+      currencyInfo: travel.value?.data?.itineraryData?.currencyInfo
     })
     
   } catch (loadError: any) {

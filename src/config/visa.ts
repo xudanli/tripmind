@@ -4,6 +4,7 @@
  */
 
 import { PRESET_COUNTRIES } from '@/constants/countries'
+import { VISA_URLS } from '@/config/urls'
 
 export type VisaType = 'visa-free' | 'visa-on-arrival' | 'e-visa' | 'visa-required' | 'permanent-resident-benefit'
 
@@ -57,7 +58,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'visa-required',
       applicableTo: '中国护照',
       description: '需要提前申请签证，但签证流程相对简化',
-      applicationUrl: 'https://www.cn.emb-japan.go.jp/consular/visa_shikaku.htm'
+      applicationUrl: VISA_URLS.JAPAN
     }],
     'US-PR': [{
       destinationCountry: 'JP',
@@ -97,7 +98,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
       duration: 30,
-      applicationUrl: 'https://www.malaysiavisa.com.my/'
+      applicationUrl: VISA_URLS.MALAYSIA
     }],
     'US-PR': [{
       destinationCountry: 'MY',
@@ -138,7 +139,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
       duration: 30,
-      applicationUrl: 'https://evisa.xuatnhapcanh.gov.vn/'
+      applicationUrl: VISA_URLS.VIETNAM
     }],
     'US-PR': [{
       destinationCountry: 'VN',
@@ -197,7 +198,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '中国护照',
       description: '需要提前申请签证（B1/B2旅游签证），建议提前2-3个月申请',
       duration: 180,
-      applicationUrl: 'https://www.ustraveldocs.com/cn_zh/'
+      applicationUrl: VISA_URLS.USA
     }],
     'US-PR': [{
       destinationCountry: 'US',
@@ -218,7 +219,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '中国护照',
       description: '可在线申请电子签证（e-Visa）',
       duration: 30,
-      applicationUrl: 'https://www.evisa.gov.tr/'
+      applicationUrl: VISA_URLS.TURKEY
     }],
     'US-PR': [{
       destinationCountry: 'TR',
@@ -277,7 +278,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       visaType: 'visa-required',
       applicableTo: '中国护照',
       description: '需要提前申请签证，可在线申请电子签证（eVisitor或ETA）',
-      applicationUrl: 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing'
+      applicationUrl: VISA_URLS.AUSTRALIA
     }],
     'US-PR': [{
       destinationCountry: 'AU',
@@ -286,7 +287,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '美国永久居民',
       description: '美国永久居民可在线申请电子签证（ETA），通常处理时间较快',
       duration: 90,
-      applicationUrl: 'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/electronic-travel-authority-601'
+      applicationUrl: VISA_URLS.AUSTRALIA_ETA
     }]
   },
   
@@ -337,7 +338,7 @@ export const VISA_INFO: Record<string, Record<string, VisaInfo[]>> = {
       applicableTo: '中国护照',
       description: '需要提前申请申根签证（冰岛属于申根区）',
       duration: 90,
-      applicationUrl: 'https://www.schengenvisainfo.com/zh/iceland-visa/'
+      applicationUrl: VISA_URLS.ICELAND
     }],
     'US-PR': [{
       destinationCountry: 'IS',

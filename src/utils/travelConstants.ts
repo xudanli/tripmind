@@ -111,39 +111,8 @@ export const COUNTRY_KEYWORDS = {
   CHINA: ['中国', 'China', 'CN'],
 } as const
 
-// 地图服务URL模板
-export const MAP_URLS = {
-  // 中国地图服务
-  GAODE_IOS: 'iosamap://search?query=',
-  GAODE_ANDROID: 'androidamap://poi?sourceApplication=travel&keywords=',
-  GAODE_WEB: 'https://www.amap.com/search?query=',
-  BAIDU_ANDROID: 'baidumap://map/search?query=',
-  TENCENT_WECHAT: 'https://apis.map.qq.com/uri/v1/search?keyword=',
-  APPLE_MAPS: 'maps://maps.apple.com/?q=',
-  
-  // 海外地图服务
-  GOOGLE_MAPS: 'https://www.google.com/maps/search/?api=1&query=',
-} as const
-
-// 预订平台URL模板
-export const BOOKING_PLATFORMS = {
-  // 景点/活动预订
-  TRIPADVISOR: 'https://www.tripadvisor.com/Search?q=',
-  GETYOURGUIDE: 'https://www.getyourguide.com/s/?q=',
-  VIATOR: 'https://www.viator.com/searchResults/all?text=',
-  DIANPING: 'https://www.dianping.com/search?keyword=',
-  
-  // 住宿预订
-  BOOKING_COM: 'https://www.booking.com/searchresults.html?ss=',
-  AGODA: 'https://www.agoda.com/search?city=',
-  AIRBNB: 'https://www.airbnb.com/s/',
-  
-  // 交通/机票预订
-  SKYSCANNER: 'https://www.skyscanner.com/transport/flights/',
-  EXPEDIA: 'https://www.expedia.com/Flights-Search?destination=',
-  GOOGLE_FLIGHTS: 'https://www.google.com/travel/flights?q=Flights%20to%20',
-  KAYAK: 'https://www.kayak.com/flights/',
-} as const
+// 从统一配置导入URL（保持向后兼容）
+export { MAP_URLS, BOOKING_PLATFORMS } from '@/config/urls'
 
 // 默认值
 export const DEFAULT_VALUES = {

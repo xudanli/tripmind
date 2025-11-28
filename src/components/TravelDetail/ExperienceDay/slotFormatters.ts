@@ -1,5 +1,6 @@
 import type { CurrencyInfo } from '@/utils/currency'
 import { formatCurrency } from '@/utils/currency'
+import { getDefaultCurrency } from '@/config/currency'
 import { DEFAULT_VALUES } from '@/utils/travelConstants'
 
 export type TranslateFn = (key: string, params?: Record<string, any>) => string
@@ -102,7 +103,7 @@ export const getSeasonalText = (slot: any): string | null => {
 
 export const getCostChip = (slot: any, currency: CurrencyInfo | null, t: TranslateFn): string | null => {
   if (slot?.cost) {
-    return `${t('travelDetail.experienceDay.cost')}：${formatCurrency(slot.cost, currency || { code: 'CNY', symbol: '¥', name: '人民币' })}`
+    return `${t('travelDetail.experienceDay.cost')}：${formatCurrency(slot.cost, currency || getDefaultCurrency())}`
   }
   return null
 }

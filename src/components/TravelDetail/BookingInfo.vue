@@ -576,6 +576,7 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import type { ItineraryBookings, BookingInfo } from '@/types/booking'
 import dayjs, { type Dayjs } from 'dayjs'
+import { DEFAULT_CONFIG } from '@/config/defaults'
 
 interface Props {
   travelId?: string
@@ -849,7 +850,7 @@ const handleSaveBooking = () => {
       activityName: formData.value.activityName,
       date: formData.value.activityDate ? formData.value.activityDate.format('YYYY-MM-DD') : '',
       time: formData.value.activityTime ? formData.value.activityTime.format('HH:mm') : '',
-      participants: 1,
+      participants: DEFAULT_CONFIG.TRIP.DEFAULT_PARTICIPANTS,
       tickets: [],
       booking: {
         confirmationCode: formData.value.confirmationCode

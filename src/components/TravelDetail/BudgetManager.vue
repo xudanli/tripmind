@@ -302,6 +302,7 @@ import { useUserStore } from '@/stores/user'
 import { message, Modal } from 'ant-design-vue'
 import dayjs, { type Dayjs } from 'dayjs'
 import { getCurrencyForDestination, formatCurrency, getAllCurrencies, getCurrencyByCode, type CurrencyInfo } from '@/utils/currency'
+import { getDefaultCurrency, getDefaultCurrencyCode } from '@/config/currency'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { getExpenses, createExpense, updateExpense, deleteExpense as deleteExpenseAPI, type Expense as APIExpense, getMembers, addMember, type Member as APIMember } from '@/services/itineraryAPI'
 // 使用原生Date处理日期，避免依赖dayjs
@@ -786,12 +787,12 @@ const extractDestinationCountry = () => {
 // 获取目的地货币信息
 const getDestinationCurrency = computed((): CurrencyInfo => {
   if (!props.travelId) {
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    return getDefaultCurrency()
   }
   
   const travel = travelListStore.getTravel(props.travelId)
   if (!travel) {
-    return { code: 'CNY', symbol: '¥', name: '人民币' }
+    return getDefaultCurrency()
   }
   
   // 0. 优先使用后端返回的货币信息（最准确，后端已推断）
@@ -839,8 +840,9 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
   
   if (explicitCountry && explicitCountry.trim()) {
     const currency = getCurrencyForDestination(explicitCountry.trim())
-    // 如果匹配成功（不是默认的 CNY），直接返回
-    if (currency.code !== 'CNY') {
+    const defaultCurrencyCode = getDefaultCurrencyCode()
+    // 如果匹配成功（不是默认货币），直接返回
+    if (currency.code !== defaultCurrencyCode) {
       return currency
     }
   }
@@ -853,8 +855,9 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
   
   if (destination) {
     const currency = getCurrencyForDestination(destination)
-    // 如果匹配成功（不是默认的 CNY），返回该币种
-    if (currency.code !== 'CNY') {
+    const defaultCurrencyCode = getDefaultCurrencyCode()
+    // 如果匹配成功（不是默认货币），返回该币种
+    if (currency.code !== defaultCurrencyCode) {
       return currency
     }
   }
@@ -871,7 +874,8 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
           ''
         if (locationText) {
           const currency = getCurrencyForDestination(locationText)
-          if (currency.code !== 'CNY') {
+          const defaultCurrencyCode = getDefaultCurrencyCode()
+          if (currency.code !== defaultCurrencyCode) {
             console.log('[BudgetManager] 从活动位置推断货币:', locationText, currency)
             return currency
           }
@@ -891,8 +895,8 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
     }
   }
   
-  // 默认返回人民币
-  console.warn('[BudgetManager] 未找到货币信息，使用默认人民币。数据:', {
+  // 默认返回系统配置的默认货币
+  console.warn('[BudgetManager] 未找到货币信息，使用默认货币。数据:', {
     hasItineraryData: !!itineraryData,
     hasCurrencyInfo: !!itineraryData?.currencyInfo,
     hasCurrency: !!itineraryData?.currency,
@@ -900,7 +904,7 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
     location: travel.location,
     itineraryDataKeys: itineraryData ? Object.keys(itineraryData) : []
   })
-  return { code: 'CNY', symbol: '¥', name: '人民币' }
+  return getDefaultCurrency()
 })
 
 // 格式化金额（使用目的地货币）
@@ -1226,12 +1230,20 @@ const handleSaveExpense = async () => {
       }
       
       console.log('[BudgetManager] 创建支出请求数据:', {
+        backendItineraryId,
         ...expenseRequest,
         amount: expenseRequest.amount,
         amountType: typeof expenseRequest.amount
       })
       
       const newExpense = await createExpense(backendItineraryId, expenseRequest)
+      
+      console.log('[BudgetManager] 创建支出成功，后端返回:', {
+        id: newExpense.id,
+        title: newExpense.title,
+        amount: newExpense.amount,
+        currencyCode: newExpense.currencyCode
+      })
       
       // 添加到本地显示数据
       expenses.value.push({
@@ -1249,6 +1261,8 @@ const handleSaveExpense = async () => {
         notes: newExpense.notes,
         createdAt: new Date(newExpense.createdAt).getTime()
       })
+      
+      console.log('[BudgetManager] 支出已添加到本地列表，当前支出数量:', expenses.value.length)
       message.success(t('travelDetail.expenseAdded') || '支出已添加')
     }
     

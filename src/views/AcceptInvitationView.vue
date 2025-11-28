@@ -73,7 +73,7 @@ import {
   CloseCircleOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons-vue'
-import { addMember } from '@/services/itineraryAPI'
+import { addMember, verifyInvitation } from '@/services/itineraryAPI'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -115,29 +115,20 @@ const loadInvitation = async () => {
     loading.value = true
     error.value = null
 
-    // TODO: 调用后端API验证邀请
-    // const { verifyInvitation } = await import('@/services/itineraryAPI')
-    // const info = await verifyInvitation(invitationId.value)
-    
-    // 临时：从URL参数获取信息（后端应该提供验证接口）
-    const journeyId = route.query.journeyId as string
-    const email = route.query.email as string
-    const role = (route.query.role as string) || 'member'
-    const journeyName = route.query.journeyName as string
-    const inviteMessage = route.query.message as string
+    // 调用后端API验证邀请
+    console.log('[AcceptInvitation] 验证邀请:', invitationId.value)
+    const info = await verifyInvitation(invitationId.value)
 
-    if (!journeyId) {
-      throw new Error(t('invitation.missingInfo') || '邀请信息不完整')
-    }
-
+    // 使用后端返回的邀请信息
     invitationInfo.value = {
-      invitationId: invitationId.value,
-      journeyId,
-      email,
-      role,
-      journeyName,
-      destination: journeyName,
-      message: inviteMessage
+      invitationId: info.invitationId,
+      journeyId: info.journeyId,
+      email: info.email,
+      role: info.role,
+      journeyName: info.journeyName,
+      destination: info.journeyName,
+      message: info.message,
+      invitedBy: info.invitedBy
     }
   } catch (err: any) {
     console.error('[AcceptInvitation] 加载邀请信息失败:', err)
@@ -211,6 +202,7 @@ const goToJourney = () => {
   if (invitationInfo.value?.journeyId) {
     // 查找对应的 travel ID
     // TODO: 如果后端返回了 travelId，直接使用
+    // 计划：优化邀请接受流程，后端直接返回 travelId，避免前端查找
     // 否则需要通过 journeyId 查找
     router.push(`/travel-list`)
   } else {

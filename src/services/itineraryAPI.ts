@@ -3649,3 +3649,127 @@ export async function deleteTask(journeyId: string, taskId: string): Promise<voi
   }
 }
 
+/**
+ * 邀请人信息
+ */
+export interface InvitedByInfo {
+  id: string
+  name: string
+  email?: string
+}
+
+/**
+ * 验证邀请响应
+ */
+export interface VerifyInvitationResponse {
+  success: boolean
+  data: {
+    invitationId: string
+    journeyId: string
+    email: string
+    role: 'member' | 'admin'
+    journeyName: string
+    message?: string
+    status: 'pending' | 'accepted' | 'expired' | 'cancelled'
+    expiresAt: string
+    invitedBy?: InvitedByInfo
+  }
+}
+
+/**
+ * 验证邀请
+ * @param invitationId 邀请ID（UUID）
+ * @returns 邀请信息
+ * 
+ * 接口文档：GET /api/v1/journeys/invitations/{invitationId}
+ * 说明：
+ * - 此接口是公开的，无需认证
+ * - 只有 pending 状态的邀请才会返回成功
+ * - expired 或 cancelled 状态的邀请会返回 404
+ */
+export async function verifyInvitation(
+  invitationId: string
+): Promise<VerifyInvitationResponse['data']> {
+  const endpoint = `/v1/journeys/invitations/${invitationId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 验证邀请:', {
+    url,
+    invitationId
+  })
+
+  try {
+    // 注意：此接口是公开的，不需要认证，使用普通 fetch
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 验证邀请失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      // 处理特定错误状态码（符合文档要求）
+      if (response.status === 404) {
+        try {
+          const errorData = JSON.parse(errorText)
+          const errorMessage = errorData.message || '邀请不存在或已过期'
+          throw new Error(errorMessage)
+        } catch {
+          throw new Error('邀请不存在或已过期')
+        }
+      }
+      
+      if (response.status === 400) {
+        try {
+          const errorData = JSON.parse(errorText)
+          const errorMessage = errorData.message || '邀请ID无效'
+          throw new Error(errorMessage)
+        } catch {
+          throw new Error('邀请ID无效')
+        }
+      }
+      
+      // 其他错误
+      throw new Error(`验证邀请失败: ${response.status} ${response.statusText}`)
+    }
+
+    const result: VerifyInvitationResponse = await response.json()
+
+    // 验证响应格式
+    if (!result.success) {
+      throw new Error('验证邀请失败：响应格式错误')
+    }
+
+    // 验证邀请状态（只有 pending 状态的邀请才有效）
+    if (result.data.status !== 'pending') {
+      throw new Error(`邀请状态无效: ${result.data.status}`)
+    }
+
+    console.log('[ItineraryAPI] 验证邀请成功:', {
+      invitationId,
+      journeyId: result.data.journeyId,
+      journeyName: result.data.journeyName,
+      role: result.data.role,
+      status: result.data.status
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 验证邀请失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      invitationId
+    })
+    throw error
+  }
+}
+

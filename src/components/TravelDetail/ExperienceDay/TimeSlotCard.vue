@@ -278,6 +278,7 @@ import { useI18n } from 'vue-i18n'
 import { EnvironmentOutlined, StarOutlined } from '@ant-design/icons-vue'
 import type { CurrencyInfo } from '@/utils/currency'
 import { formatCurrency, getCurrencyForDestination, getCurrencyByCode } from '@/utils/currency'
+import { getDefaultCurrency } from '@/config/currency'
 import {
   buildNotes,
   buildSlotChips,
@@ -775,12 +776,8 @@ const getSlotCurrency = (): CurrencyInfo => {
     return props.currency
   }
 
-  // 4. 默认返回人民币
-  return {
-    code: 'CNY',
-    symbol: '¥',
-    name: locale.value === 'zh-CN' ? '人民币' : 'CNY',
-  }
+  // 4. 默认返回系统配置的默认货币
+  return getDefaultCurrency()
 }
 
 // 检查是否有费用信息

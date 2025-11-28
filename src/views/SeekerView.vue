@@ -464,27 +464,42 @@ const goToDetail = async () => {
       travelStyle: 'relaxed' as const // Seeker 模式通常是放松型
     }
     
-    const createRequest = convertFrontendDataToCreateRequest(
-      frontendItineraryData,
-      destination,
-      startDate,
-      preferences,
-      'draft',
-      'seeker' // 模式标识
-    )
+    // 确保 days 数组不为空
+    const days = frontendItineraryData.days && frontendItineraryData.days.length > 0
+      ? frontendItineraryData.days
+      : [{
+          day: 1,
+          date: startDate,
+          timeSlots: []
+        }]
     
-    // 注意：不要向 createRequest.data 添加额外字段
-    // CreateItineraryRequest 的 data 字段只包含 days、totalCost、summary
-    // 模式特有字段（seekerConfig）应该保存在本地 Travel.data 中，而不是后端
+    // 使用前端数据格式创建行程（使用 from-frontend-data 接口）
+    const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
+    const createRequest = {
+      itineraryData: {
+        destination,
+        duration: days.length,
+        days: days.map((day: any) => ({
+          day: day.day || 1,
+          date: day.date || startDate,
+          timeSlots: day.timeSlots || []
+        })),
+        totalCost: frontendItineraryData.totalCost || 0,
+        summary: frontendItineraryData.summary || '',
+        title: '随心而行的旅程',
+        preferences
+      },
+      startDate
+    }
     
     console.log('📤 [Seeker] 创建行程请求数据:', {
-      destination: createRequest.destination,
-      daysCount: createRequest.days,
+      destination: createRequest.itineraryData.destination,
+      daysCount: createRequest.itineraryData.days.length,
       startDate: createRequest.startDate
     })
     
-    // 调用创建行程接口
-    const backendItinerary = await createItinerary(createRequest)
+    // 调用创建行程接口（使用 from-frontend-data）
+    const backendItinerary = await createJourneyFromFrontendData(createRequest)
     backendItineraryId = backendItinerary.id
     console.log('✅ [Seeker] 行程已保存到后端', {
       id: backendItineraryId,

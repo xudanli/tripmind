@@ -503,63 +503,46 @@ const handleSubmit = async () => {
     let backendItineraryId: string | undefined
     let backendItinerary: any = undefined
     try {
-      // 先创建一个基础行程，获取 journeyId
-      const baseCreateRequest = convertFrontendDataToCreateRequest(
-        itineraryData as any,
-        formData.value.destination,
-        formData.value.startDate,
-        formData.value.preferences,
-        'draft', // 默认保存为草稿状态
-        'planner' // 模式标识
-      )
-      
-      // 创建一个基础行程（至少包含一天的数据，满足后端验证要求）
-      // 如果 itineraryData 有 days 数据，使用它；否则创建一个空的 day 结构
-      const initialDays = (itineraryData as any).days && (itineraryData as any).days.length > 0
-        ? (itineraryData as any).days.slice(0, 1).map((day: any) => ({
-            day: day.day || 1,
-            date: day.date || formData.value.startDate,
-            activities: day.timeSlots?.map((slot: any) => ({
-              time: slot.time || '10:00',
-              title: slot.title || slot.activity || '待安排',
-              type: (slot.type || 'attraction') as any,
-              duration: typeof slot.duration === 'number' ? slot.duration : 60,
-              location: slot.coordinates || { lat: 0, lng: 0 },
-              notes: slot.notes || slot.details?.notes || '',
-              cost: typeof slot.cost === 'number' ? slot.cost : 0
-            })) || []
-          }))
+      // 确保 days 数组不为空
+      const days = (itineraryData as any).days && (itineraryData as any).days.length > 0
+        ? (itineraryData as any).days
         : [{
             day: 1,
             date: formData.value.startDate,
-            activities: []
+            timeSlots: []
           }]
       
-      const baseRequest = {
-        destination: baseCreateRequest.destination,
-        startDate: baseCreateRequest.startDate,
-        days: baseCreateRequest.days,
-        preferences: baseCreateRequest.preferences,
-        status: baseCreateRequest.status,
-        data: {
-          days: initialDays, // 至少包含一天的数据
+      // 使用前端数据格式直接创建完整行程（使用 from-frontend-data 接口）
+      const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
+      const createRequest = {
+        itineraryData: {
+          destination: formData.value.destination,
+          duration: days.length,
+          days: days.map((day: any) => ({
+            day: day.day || 1,
+            date: day.date || formData.value.startDate,
+            timeSlots: day.timeSlots || []
+          })),
           totalCost: (itineraryData as any).totalCost || 0,
-          summary: (itineraryData as any).summary || ''
-        }
+          summary: (itineraryData as any).summary || '',
+          title: `${formData.value.destination}之旅`,
+          preferences: formData.value.preferences
+        },
+        startDate: formData.value.startDate
       }
       
-      console.log('📤 [Planner] 创建基础行程请求数据:', {
-        destination: baseRequest.destination,
-        daysCount: baseRequest.days,
-        startDate: baseRequest.startDate
+      console.log('📤 [Planner] 创建行程请求数据:', {
+        destination: createRequest.itineraryData.destination,
+        daysCount: createRequest.itineraryData.days.length,
+        startDate: createRequest.startDate
       })
       
-      // 调用创建行程接口，获取 journeyId
-      const baseJourney = await createItinerary(baseRequest as any)
+      // 直接创建完整行程（使用 from-frontend-data 接口）
+      const baseJourney = await createJourneyFromFrontendData(createRequest)
       backendItineraryId = baseJourney.id
-      console.log('✅ [Planner] 基础行程已创建，journeyId:', backendItineraryId)
+      console.log('✅ [Planner] 行程已创建，journeyId:', backendItineraryId)
       
-      // 使用新接口从前端数据格式更新行程
+      // 如果后续需要更新，可以使用 updateJourneyFromFrontendData
       // 处理 preferences：优先使用 itineraryData 中的 preferences，否则使用 formData 中的
       let preferences: string[] | { interests?: string[]; budget?: string; travelStyle?: string } | undefined
       if ((itineraryData as any).preferences) {

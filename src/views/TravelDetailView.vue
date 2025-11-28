@@ -536,6 +536,8 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       destinationId: backendItinerary.destinationId, // 检查是否包含 destinationId
       hasDestinationId: !!backendItinerary.destinationId,
       daysCount: backendItinerary.daysCount,
+      currency: (backendItinerary as any).currency,
+      currencyInfo: (backendItinerary as any).currencyInfo,
       allKeys: Object.keys(backendItinerary) // 查看所有返回的字段
     })
     
@@ -924,7 +926,10 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
           summary: backendItinerary.summary || '',
           duration: enrichedData.duration,
           budget: enrichedData.budget,
-          preferences: backendItinerary.preferences || {}
+          preferences: backendItinerary.preferences || {},
+          // 保存货币信息（后端返回，优先使用后端值）
+          currency: (backendItinerary as any).currency ?? travel.value.data?.itineraryData?.currency,
+          currencyInfo: (backendItinerary as any).currencyInfo ?? travel.value.data?.itineraryData?.currencyInfo
         },
         // 同时更新顶层字段，用于兼容性
         destination: enrichedData.destination,
@@ -943,7 +948,11 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
       console.log('[TravelDetailView] 更新后的 itineraryData:', {
         hasItineraryData: !!updatedData.itineraryData,
         itineraryDataDaysCount: updatedData.itineraryData?.days?.length || 0,
-        firstDayTimeSlots: updatedData.itineraryData?.days?.[0]?.timeSlots?.length || 0
+        firstDayTimeSlots: updatedData.itineraryData?.days?.[0]?.timeSlots?.length || 0,
+        currency: updatedData.itineraryData?.currency,
+        currencyInfo: updatedData.itineraryData?.currencyInfo,
+        backendCurrency: (backendItinerary as any).currency,
+        backendCurrencyInfo: (backendItinerary as any).currencyInfo
       })
       
       // 直接更新 travel.value，不使用 store（因为只使用后端数据）
@@ -1123,8 +1132,14 @@ onMounted(async () => {
           totalCost: backendItinerary.totalCost || 0,
           duration: daysCount,
           budget: backendItinerary.totalCost || 0,
-          preferences: backendItinerary.preferences || {}
-        }
+          preferences: backendItinerary.preferences || {},
+          // 保存货币信息（后端返回）
+          currency: (backendItinerary as any).currency,
+          currencyInfo: (backendItinerary as any).currencyInfo
+        },
+        // 同时在顶层也保存货币信息，便于访问
+        currencyCode: (backendItinerary as any).currency,
+        currency: (backendItinerary as any).currencyInfo
       }
     }
     
@@ -1373,9 +1388,15 @@ onMounted(async () => {
               summary: backendItinerary.summary || travel.value.data?.itineraryData?.summary,
               totalCost: backendItinerary.totalCost || travel.value.data?.itineraryData?.totalCost,
               duration: daysCount,
-              budget: backendItinerary.totalCost || travel.value.data?.itineraryData?.budget
+              budget: backendItinerary.totalCost || travel.value.data?.itineraryData?.budget,
+              // 保存货币信息（后端返回，优先使用后端值）
+              currency: (backendItinerary as any).currency ?? travel.value.data?.itineraryData?.currency,
+              currencyInfo: (backendItinerary as any).currencyInfo ?? travel.value.data?.itineraryData?.currencyInfo
               // 注意：不更新 days，由 loadItineraryFromBackend 统一处理
-            }
+            },
+            // 同时在顶层也保存货币信息，便于访问
+            currencyCode: (backendItinerary as any).currency ?? travel.value.data?.currencyCode,
+            currency: (backendItinerary as any).currencyInfo ?? travel.value.data?.currency
           }
         }
         

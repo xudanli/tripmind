@@ -605,6 +605,7 @@ export default {
       highlightsLabel: '亮点',
       duration: '时长',
       cost: '费用',
+      scenicIntro: '景点介绍',
       totalCost: '预计总费用',
       transportation: '交通',
       booking: '预订',

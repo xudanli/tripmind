@@ -74,6 +74,12 @@ export interface FrontendItineraryData {
   days: FrontendItineraryDay[]
   totalCost: number
   summary?: string // 摘要（可选，如果生成失败可能为空）
+  currency?: string // 货币代码（后端返回）
+  currencyInfo?: { // 货币详细信息（后端返回）
+    code: string
+    symbol: string
+    name: string
+  }
 }
 
 export interface FrontendItineraryDay {
@@ -99,6 +105,7 @@ export interface FrontendTimeSlot {
 
 /**
  * 将 API 返回的数据转换为前端需要的格式
+ * 注意：后端已返回统一格式（timeSlots），此函数主要用于兼容性处理
  * @param apiResponse API 响应数据
  * @param destination 目的地
  * @returns 前端格式的行程数据
@@ -109,71 +116,59 @@ export function convertAPIResponseToFrontendFormat(
 ): FrontendItineraryData {
   const { data } = apiResponse
 
-  // 将 activities 转换为 timeSlots
-  const days: FrontendItineraryDay[] = data.days.map((day) => ({
-    day: day.day,
-    date: day.date,
-    timeSlots: day.activities.map((activity) => {
-      // 确保所有字段都被正确映射
-      const slot = {
-      time: activity.time,
-      title: activity.title,
-      activity: activity.title, // 使用 title 作为 activity
-      type: activity.type,
-      coordinates: activity.location,
-      // 将 notes 同时映射到多个位置，确保所有组件都能访问到
-        notes: activity.notes || '', // 直接映射到 slot.notes，供 buildNotes 使用
-      details: {
-          notes: activity.notes || '', // 保留在 details.notes 中
-          description: activity.notes || '' // 使用 notes 作为 description
-      },
-      cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-      duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
+  // 后端已返回统一格式，直接使用或进行兼容性转换
+  const days: FrontendItineraryDay[] = (data.days || []).map((day) => {
+    // 如果后端返回的是 timeSlots，直接使用（新格式）
+    if (day.timeSlots && Array.isArray(day.timeSlots)) {
+      return {
+        day: day.day,
+        date: day.date,
+        timeSlots: day.timeSlots  // 后端已返回统一格式，直接使用
       }
-      
-      // 确保所有字段都存在（即使为空值）
-      console.log('[ItineraryAPI] 转换 activity 到 timeSlot:', {
-        time: slot.time,
-        title: slot.title,
-        type: slot.type,
-        hasNotes: !!slot.notes,
-        hasCost: slot.cost > 0,
-        hasDuration: slot.duration > 0,
-        hasCoordinates: !!slot.coordinates
-      })
-      
-      return slot
-    })
-  }))
+    }
+    
+    // 兼容旧格式：如果后端仍返回 activities，进行转换（过渡期）
+    if (day.activities && Array.isArray(day.activities)) {
+      console.warn('[ItineraryAPI] 后端仍返回 activities 格式，进行兼容性转换')
+      return {
+        day: day.day,
+        date: day.date,
+        timeSlots: day.activities.map((activity) => ({
+          time: activity.time,
+          title: activity.title,
+          activity: activity.title, // 使用 title 作为 activity
+          type: activity.type,
+          coordinates: activity.location || activity.coordinates,
+          notes: activity.notes || '',
+          details: {
+            notes: activity.notes || '',
+            description: activity.notes || ''
+          },
+          cost: activity.cost || 0,
+          duration: activity.duration || 60
+        }))
+      }
+    }
+    
+    // 如果都没有，返回空数组
+    return {
+      day: day.day,
+      date: day.date,
+      timeSlots: []
+    }
+  })
 
-  // 确保 totalCost 是有效的数字
-  let totalCost = 0
-  if (typeof data.totalCost === 'number') {
-    totalCost = data.totalCost
-  } else if (typeof data.totalCost === 'string') {
-    const parsed = parseFloat(data.totalCost)
-    totalCost = isNaN(parsed) ? 0 : parsed
-  } else if (data.totalCost != null) {
-    // 尝试转换为数字
-    const parsed = Number(data.totalCost)
-    totalCost = isNaN(parsed) ? 0 : parsed
-  }
-
-  // 如果 totalCost 为 0，尝试从 activities 计算总和
-  if (totalCost === 0 && days.length > 0) {
-    totalCost = days.reduce((sum, day) => {
-      return sum + day.timeSlots.reduce((daySum, slot) => {
-        return daySum + (slot.cost || 0)
-      }, 0)
-    }, 0)
-  }
+  // 后端已计算总费用，直接使用（后端已确保是数字类型）
+  const totalCost = data.totalCost || 0
 
   return {
     title: `${destination}之旅`,
     destination,
     days,
-    totalCost,
-    summary: data.summary || ''
+    totalCost,  // 直接使用后端返回的值，无需计算
+    summary: data.summary || '',
+    currency: (data as any).currency, // 后端返回的货币代码
+    currencyInfo: (data as any).currencyInfo // 后端返回的货币详细信息
   }
 }
 
@@ -275,28 +270,17 @@ export async function generateItinerary(
       throw new Error(apiData.data?.summary || '行程生成失败')
     }
 
-    // 验证和修复数据格式（防止 AI 返回格式不正确的数据）
+    // 注意：后端已进行数据格式验证和修复，前端无需再次验证
+    // 如果后端返回的数据格式不正确，应该在后端修复，而不是在前端
     if (apiData.data) {
-      // 确保 totalCost 是数字
-      if (typeof apiData.data.totalCost !== 'number') {
-        console.warn('[ItineraryAPI] totalCost 格式不正确，尝试转换:', apiData.data.totalCost)
-        const parsed = typeof apiData.data.totalCost === 'string' 
-          ? parseFloat(apiData.data.totalCost) 
-          : Number(apiData.data.totalCost)
-        apiData.data.totalCost = isNaN(parsed) ? 0 : parsed
-      }
-
-      // 验证 days 数组
-      if (Array.isArray(apiData.data.days)) {
-        apiData.data.days = apiData.data.days.map((day) => ({
-          ...day,
-          activities: (day.activities || []).map((activity: any) => ({
-            ...activity,
-            cost: typeof activity.cost === 'number' ? activity.cost : (typeof activity.cost === 'string' ? parseFloat(activity.cost) || 0 : 0),
-            duration: typeof activity.duration === 'number' ? activity.duration : (typeof activity.duration === 'string' ? parseInt(activity.duration) || 60 : 60)
-          }))
-        }))
-      }
+      // 后端已确保 totalCost 是数字类型，直接使用
+      // 后端已确保所有字段格式正确，无需前端验证
+      console.log('[ItineraryAPI] 后端返回数据格式:', {
+        totalCost: typeof apiData.data.totalCost,
+        daysCount: apiData.data.days?.length,
+        hasTimeSlots: apiData.data.days?.[0]?.timeSlots !== undefined,
+        hasActivities: apiData.data.days?.[0]?.activities !== undefined
+      })
     }
 
     log(`行程生成成功，共 ${apiData.data?.days?.length || 0} 天`)
@@ -676,6 +660,12 @@ export interface GetItineraryDetailResponse {
     daysCount: number
     summary: string
     totalCost: number
+    currency?: string // 货币代码（后端返回）
+    currencyInfo?: { // 货币详细信息（后端返回）
+      code: string
+      symbol: string
+      name: string
+    }
     days: ItineraryDay[]
     preferences?: {
       interests?: string[]

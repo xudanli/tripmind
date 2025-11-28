@@ -1775,16 +1775,21 @@ const extractSlotDescription = (slot: any): string => {
 
 // 行程整体货币信息（用于总费用等全局显示）
 const getOverallCurrency = (): CurrencyInfo => {
-  // 0. 明确的币种代码
-  const explicitCode =
+  // 0. 优先使用后端返回的货币信息（最准确，后端已推断）
+  if (itineraryData.value?.currencyInfo) {
+    return itineraryData.value.currencyInfo
+  }
+  
+  // 1. 使用后端返回的货币代码
+  const backendCurrencyCode = 
+    itineraryData.value?.currency ||
     travel.value?.data?.currencyCode ||
     travel.value?.currency ||
-    travel.value?.data?.currency ||
-    itineraryData.value?.currencyCode
+    travel.value?.data?.currency
 
-  const explicitCurrency = resolveCurrencyByCode(explicitCode)
-  if (explicitCurrency) {
-    return explicitCurrency
+  const backendCurrency = resolveCurrencyByCode(backendCurrencyCode)
+  if (backendCurrency) {
+    return backendCurrency
   }
 
   // 1. 优先使用明确的国家信息（最准确）
@@ -2000,26 +2005,15 @@ const handleRatingClick = (slot: any) => {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-// 总费用（使用当地货币）
+// 总费用（使用后端返回的值，后端已自动计算）
 const totalCost = computed(() => {
-  if (!itineraryData.value?.totalCost && !itineraryDays.value.length) return null
-  
-  // 如果有总费用，使用整体货币信息格式化
-  if (itineraryData.value?.totalCost) {
+  // 直接使用后端返回的 totalCost（后端已确保格式正确并已计算）
+  if (itineraryData.value?.totalCost && typeof itineraryData.value.totalCost === 'number') {
     return formatCurrency(itineraryData.value.totalCost, getOverallCurrency())
   }
   
-  // 否则计算所有活动的费用总和
-  // 注意：如果活动跨越多个国家，这里使用整体货币作为默认显示
-  // 后续可以优化为显示多币种汇总
-  const total = itineraryDays.value.reduce((sum, day) => {
-    const dayCost = (day.timeSlots || []).reduce((daySum: number, slot: any) => {
-      return daySum + (slot.cost || 0)
-    }, 0)
-    return sum + dayCost
-  }, 0)
-  
-  return total > 0 ? formatCurrency(total, getOverallCurrency()) : null
+  // 如果没有总费用数据，返回 null（不再手动计算，由后端负责）
+  return null
 })
 
 // 编辑状态、搜索与预览状态

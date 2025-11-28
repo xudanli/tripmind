@@ -406,9 +406,9 @@ const loadMembers = async () => {
         members.value = [ownerMember]
         console.log('[MemberManagement] 使用本地数据显示创建者')
       } else {
-        members.value = []
+    members.value = []
       }
-      return
+    return
     }
   }
   
@@ -446,22 +446,22 @@ const loadMembers = async () => {
         } catch (addError: any) {
           console.warn('[MemberManagement] 自动添加创建者到后端失败，使用前端显示:', addError.message)
           // 如果添加失败（可能是权限问题或后端限制），至少在前端显示创建者
-          const ownerMember: APIMember = {
+        const ownerMember: APIMember = {
             id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
-            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
-            email: currentUser.email,
-            role: 'owner' as const,
-            userId: currentUser.id,
-            createdAt: travel?.createdAt || new Date().toISOString(),
-            updatedAt: travel?.updatedAt || new Date().toISOString()
-          }
-          
-          if (apiMembers.length === 0) {
-            apiMembers = [ownerMember]
-          } else {
-            apiMembers.unshift(ownerMember)
-          }
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner' as const,
+          userId: currentUser.id,
+          createdAt: travel?.createdAt || new Date().toISOString(),
+          updatedAt: travel?.updatedAt || new Date().toISOString()
         }
+        
+        if (apiMembers.length === 0) {
+          apiMembers = [ownerMember]
+        } else {
+          apiMembers.unshift(ownerMember)
+        }
+      }
       } else {
         // 如果用户已经是成员，确保显示
         console.log('[MemberManagement] 创建者已是成员，角色:', existingMember.role)
@@ -588,14 +588,34 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
     return { code: 'CNY', symbol: '¥', name: '人民币' }
   }
   
-  // 1. 优先从国家代码获取（最准确）
+  // 0. 优先使用后端返回的货币信息（最准确，后端已推断）
+  const itineraryData = (travel.data as any)?.itineraryData
+  if (itineraryData?.currencyInfo) {
+    return itineraryData.currencyInfo
+  }
+  
+  // 1. 使用后端返回的货币代码
+  const backendCurrencyCode = 
+    itineraryData?.currency ||
+    travel.data?.currencyCode ||
+    travel.currency ||
+    (travel.data as any)?.currency
+
+  if (backendCurrencyCode) {
+    const currency = getCurrencyByCode(backendCurrencyCode)
+    if (currency) {
+      return currency
+    }
+  }
+  
+  // 2. 从国家代码获取（后备方案）
   const countryCode = extractDestinationCountry()
   if (countryCode && PRESET_COUNTRIES[countryCode]) {
     const country = PRESET_COUNTRIES[countryCode]
     return getCurrencyForDestination(country.name)
   }
   
-  // 2. 从location字段获取
+  // 3. 从location字段获取（后备方案）
   if (travel.location) {
     const currency = getCurrencyForDestination(travel.location)
     if (currency.code !== 'CNY') {
@@ -603,7 +623,7 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
     }
   }
   
-  // 3. 从destination字段获取
+  // 4. 从destination字段获取（后备方案）
   const destination = (travel.data as any)?.destination || 
                      (travel.data as any)?.selectedLocation ||
                      travel.location ||
@@ -669,7 +689,7 @@ const ensureBackendItineraryId = async (): Promise<string | null> => {
   
   // 尝试自动创建行程
   try {
-    const { createItinerary, convertFrontendDataToCreateRequest } = await import('@/services/itineraryAPI')
+    const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
     
     // 检查是否有足够的行程数据
     const itineraryData = travel.data?.itineraryData
@@ -677,34 +697,39 @@ const ensureBackendItineraryId = async (): Promise<string | null> => {
       return null
     }
     
-    // 准备创建请求
+    // 准备创建请求（使用前端数据格式）
     const destination = itineraryData.destination || travel.location || '待定'
     const startDate = itineraryData.days?.[0]?.date || travel.startDate || new Date().toISOString().split('T')[0]
-    const days = itineraryData.days?.length || travel.duration || 1
     
-    // 转换数据格式
-    const frontendData = {
-      destination,
-      days: itineraryData.days?.map((day: any) => ({
-        day: day.day,
-        date: day.date,
-        timeSlots: day.timeSlots || []
-      })) || [],
-      totalCost: itineraryData.totalCost || travel.budget || 0,
-      summary: itineraryData.summary || travel.description || ''
+    // 确保 days 数组不为空
+    const days = itineraryData.days && itineraryData.days.length > 0
+      ? itineraryData.days
+      : [{
+          day: 1,
+          date: startDate,
+          timeSlots: []
+        }]
+    
+    // 使用前端数据格式创建行程（接受 timeSlots 格式）
+    const createRequest = {
+      itineraryData: {
+        destination,
+        duration: days.length,
+        days: days.map((day: any) => ({
+          day: day.day || 1,
+          date: day.date || startDate,
+          timeSlots: day.timeSlots || []
+        })),
+        totalCost: itineraryData.totalCost || travel.budget || 0,
+        summary: itineraryData.summary || travel.description || '',
+        title: travel.title || `${destination}之旅`,
+        preferences: itineraryData.preferences
+      },
+      startDate
     }
     
-    const createRequest = convertFrontendDataToCreateRequest(
-      frontendData,
-      destination,
-      startDate,
-      itineraryData.preferences,
-      'draft',
-      travel.mode
-    )
-    
-    // 创建行程
-    const backendItinerary = await createItinerary(createRequest)
+    // 创建行程（使用 from-frontend-data 接口）
+    const backendItinerary = await createJourneyFromFrontendData(createRequest)
     const backendItineraryId = backendItinerary.id
     
     // 更新 travel 数据
@@ -741,7 +766,7 @@ const handleInvite = async () => {
     
     if (!backendItineraryId) {
       message.error(t('travelDetail.noBackendItineraryId') || '无法邀请成员：请先保存行程到后端')
-      return
+    return
     }
   }
   
@@ -930,7 +955,7 @@ const removeMember = (member: Member) => {
         backendItineraryId = await ensureBackendItineraryId()
         if (!backendItineraryId) {
           message.error(t('travelDetail.noBackendItineraryId') || '无法移除成员：请先保存行程到后端')
-          return
+        return
         }
       }
       

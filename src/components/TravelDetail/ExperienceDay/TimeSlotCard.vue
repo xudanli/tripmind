@@ -52,6 +52,13 @@
         </div>
       </div>
 
+      <!-- ①.5 景点介绍（图片下方） -->
+      <div class="time-slot__scenic-intro-section" v-if="slot.details?.description?.scenicIntro">
+        <div class="time-slot__scenic-intro-text">
+          {{ slot.details.description.scenicIntro }}
+        </div>
+      </div>
+
       <!-- ② 时间、类型、时长（信息标签条） -->
       <div class="time-slot__info-bar">
         <div class="time-slot__info-bar-content">
@@ -120,16 +127,21 @@
         </a-button>
       </div>
 
-      <!-- ④ 费用（突出价格区间） -->
-      <div class="time-slot__cost-badge" v-if="hasCost">
-        <span class="time-slot__cost-icon">💰</span>
-        <span class="time-slot__cost-label">{{ t('travelDetail.experienceDay.cost') }}：</span>
-        <span class="time-slot__cost-value">{{ getCostText() }}</span>
-      </div>
     </div>
 
     <!-- 第二层：详细信息（按决策路径排序） -->
     <div class="time-slot__detail-layer">
+      <!-- Section 0: 费用信息 -->
+      <div class="time-slot__detail-section" v-if="hasCost">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">💰</span>
+          {{ t('travelDetail.experienceDay.cost') }}
+        </h4>
+        <div class="time-slot__cost-text">
+          {{ getCostText() }}
+        </div>
+      </div>
+
       <!-- Section 1: 交通信息（能不能去） -->
       <div class="time-slot__detail-section" v-if="slot.details?.transportation">
         <h4 class="time-slot__detail-section-title">
@@ -1782,7 +1794,7 @@ const Chip = defineComponent({
 .time-slot__hero-banner {
   position: relative;
   width: 100%;
-  height: 400px;
+  height: 120px;
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -2041,32 +2053,30 @@ const Chip = defineComponent({
   color: #ffffff;
 }
 
-/* ④ 费用 Badge */
-.time-slot__cost-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: rgba(255, 138, 0, 0.1);
-  border: 1px solid rgba(255, 138, 0, 0.2);
-  border-radius: 12px;
-  font-size: 16px;
-  font-weight: 500;
+/* 费用文本 */
+.time-slot__cost-text {
+  font-size: 14px;
+  line-height: 1.6;
   color: #0f172a;
-  width: fit-content;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.time-slot__cost-icon {
-  font-size: 18px;
+/* 景点介绍区域（图片下方） */
+.time-slot__scenic-intro-section {
+  padding: 16px 20px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 12px;
+  margin-bottom: 8px;
 }
 
-.time-slot__cost-label {
-  color: #475569;
-}
-
-.time-slot__cost-value {
-  font-weight: 600;
-  color: #FF8A00;
+.time-slot__scenic-intro-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 第二层：详细信息 */
@@ -2677,7 +2687,7 @@ const Chip = defineComponent({
 
 @media (max-width: 960px) {
   .time-slot__hero-banner {
-    height: 240px;
+    height: 120px;
     padding: 20px;
   }
 

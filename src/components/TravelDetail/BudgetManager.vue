@@ -386,7 +386,7 @@ const ensureBackendItineraryId = async (): Promise<string | null> => {
   
   // 尝试自动创建行程
   try {
-    const { createItinerary, convertFrontendDataToCreateRequest } = await import('@/services/itineraryAPI')
+    const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
     
     // 检查是否有足够的行程数据
     const itineraryData = travel.data?.itineraryData
@@ -394,33 +394,39 @@ const ensureBackendItineraryId = async (): Promise<string | null> => {
       return null
     }
     
-    // 准备创建请求
+    // 准备创建请求（使用前端数据格式）
     const destination = itineraryData.destination || travel.location || '待定'
     const startDate = itineraryData.days?.[0]?.date || travel.startDate || new Date().toISOString().split('T')[0]
     
-    // 转换数据格式
-    const frontendData = {
-      destination,
-      days: itineraryData.days?.map((day: any) => ({
-        day: day.day,
-        date: day.date,
-        timeSlots: day.timeSlots || []
-      })) || [],
-      totalCost: itineraryData.totalCost || travel.budget || 0,
-      summary: itineraryData.summary || travel.description || ''
+    // 确保 days 数组不为空
+    const days = itineraryData.days && itineraryData.days.length > 0
+      ? itineraryData.days
+      : [{
+          day: 1,
+          date: startDate,
+          timeSlots: []
+        }]
+    
+    // 使用前端数据格式创建行程（接受 timeSlots 格式）
+    const createRequest = {
+      itineraryData: {
+        destination,
+        duration: days.length,
+        days: days.map((day: any) => ({
+          day: day.day || 1,
+          date: day.date || startDate,
+          timeSlots: day.timeSlots || []
+        })),
+        totalCost: itineraryData.totalCost || travel.budget || 0,
+        summary: itineraryData.summary || travel.description || '',
+        title: travel.title || `${destination}之旅`,
+        preferences: itineraryData.preferences
+      },
+      startDate
     }
     
-    const createRequest = convertFrontendDataToCreateRequest(
-      frontendData,
-      destination,
-      startDate,
-      itineraryData.preferences,
-      'draft',
-      travel.mode
-    )
-    
-    // 创建行程
-    const backendItinerary = await createItinerary(createRequest)
+    // 创建行程（使用 from-frontend-data 接口）
+    const backendItinerary = await createJourneyFromFrontendData(createRequest)
     const backendItineraryId = backendItinerary.id
     
     // 更新 travel 数据
@@ -472,9 +478,9 @@ const loadMembers = async () => {
           expenseForm.value.payerName = ownerMember.name
         }
       } else {
-        members.value = []
+    members.value = []
       }
-      return
+    return
     }
   }
   
@@ -512,22 +518,22 @@ const loadMembers = async () => {
         } catch (addError: any) {
           console.warn('[BudgetManager] 自动添加创建者到后端失败，使用前端显示:', addError.message)
           // 如果添加失败，至少在前端显示创建者
-          const ownerMember: APIMember = {
+        const ownerMember: APIMember = {
             id: `owner_${backendItineraryId}_${currentUser.id || 'default'}`,
-            name: currentUser.name || currentUser.nickname || currentUser.email || '我',
-            email: currentUser.email,
-            role: 'owner' as const,
-            userId: currentUser.id,
-            createdAt: travel?.createdAt || new Date().toISOString(),
-            updatedAt: travel?.updatedAt || new Date().toISOString()
-          }
-          
-          if (apiMembers.length === 0) {
-            apiMembers = [ownerMember]
-          } else {
-            apiMembers.unshift(ownerMember)
-          }
+          name: currentUser.name || currentUser.nickname || currentUser.email || '我',
+          email: currentUser.email,
+          role: 'owner' as const,
+          userId: currentUser.id,
+          createdAt: travel?.createdAt || new Date().toISOString(),
+          updatedAt: travel?.updatedAt || new Date().toISOString()
         }
+        
+        if (apiMembers.length === 0) {
+          apiMembers = [ownerMember]
+        } else {
+          apiMembers.unshift(ownerMember)
+        }
+      }
       } else {
         // 如果用户已经是成员，确保显示
         console.log('[BudgetManager] 创建者已是成员，角色:', existingMember.role)
@@ -601,7 +607,7 @@ const loadMembers = async () => {
         expenseForm.value.payerName = ownerMember.name
       }
     } else {
-      members.value = []
+    members.value = []
     }
   }
 }
@@ -648,83 +654,34 @@ const selectedCurrency = computed((): CurrencyInfo => {
   return getDestinationCurrency.value
 })
 
-// 从左侧行程数据中提取活动费用
+// 从行程数据中获取活动费用（使用后端计算的总费用）
 const extractCostsFromItinerary = () => {
   if (!props.travelId) return 0
   
   const travel = travelListStore.getTravel(props.travelId)
   if (!travel) return 0
   
-  let totalCost = 0
-  
-  // 优先从 data.itineraryData.days 中提取（后端数据）
+  // 优先使用后端返回的 totalCost（后端已自动计算）
   const itineraryData = travel.data?.itineraryData
-  if (itineraryData?.days && Array.isArray(itineraryData.days)) {
-    itineraryData.days.forEach((day: any) => {
-      if (day.timeSlots && Array.isArray(day.timeSlots)) {
-        day.timeSlots.forEach((slot: any) => {
-          // 支持多种费用字段
-          if (typeof slot.cost === 'number' && slot.cost > 0) {
-            totalCost += slot.cost
-          } else if (slot.details?.pricing?.general && typeof slot.details.pricing.general === 'number') {
-            totalCost += slot.details.pricing.general
-          } else if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
-            totalCost += slot.estimatedCost
-          }
-        })
-      }
-    })
+  if (itineraryData?.totalCost && typeof itineraryData.totalCost === 'number') {
+    return itineraryData.totalCost
   }
   
-  // 如果没有从 itineraryData 获取到数据，尝试从 data.days 获取
-  if (totalCost === 0 && travel.data?.days && Array.isArray(travel.data.days)) {
-    travel.data.days.forEach((day: any) => {
-      if (day.timeSlots && Array.isArray(day.timeSlots)) {
-        day.timeSlots.forEach((slot: any) => {
-          if (typeof slot.cost === 'number' && slot.cost > 0) {
-            totalCost += slot.cost
-          } else if (slot.details?.pricing?.general && typeof slot.details.pricing.general === 'number') {
-            totalCost += slot.details.pricing.general
-          } else if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
-            totalCost += slot.estimatedCost
-          }
-        })
-      }
-    })
+  // 兼容旧数据：如果没有 totalCost，尝试从其他位置获取
+  if (travel.data?.totalCost && typeof travel.data.totalCost === 'number') {
+    return travel.data.totalCost
   }
   
-  // 从Planner模式的行程数据中提取
-  if (totalCost === 0 && travel.mode === 'planner') {
+  // Planner 模式的兼容处理
+  if (travel.mode === 'planner') {
     const plannerItinerary = travel.data?.plannerItinerary || (travelStore as any).plannerItinerary
-    if (plannerItinerary?.days) {
-      plannerItinerary.days.forEach((day: any) => {
-        // 优先使用day.stats.cost（这是每日汇总的费用）
-        if (day.stats?.cost && typeof day.stats.cost === 'number') {
-          totalCost += day.stats.cost
-        } else if (day.timeSlots) {
-          // 如果没有每日汇总，则从timeSlots中提取
-          day.timeSlots.forEach((slot: any) => {
-            if (typeof slot.estimatedCost === 'number' && slot.estimatedCost > 0) {
-              totalCost += slot.estimatedCost
-            } else if (typeof slot.cost === 'number' && slot.cost > 0) {
-              totalCost += slot.cost
-            }
-          })
-        }
-      })
-    }
-    // 如果行程有总费用，使用总费用（避免重复计算）
     if (plannerItinerary?.totalCost && typeof plannerItinerary.totalCost === 'number') {
-      totalCost = plannerItinerary.totalCost
+      return plannerItinerary.totalCost
     }
   }
   
-  // 如果 itineraryData 有总费用字段，也考虑使用（但优先使用计算值）
-  if (itineraryData?.totalCost && typeof itineraryData.totalCost === 'number' && totalCost === 0) {
-    totalCost = itineraryData.totalCost
-  }
-  
-  return totalCost
+  // 如果后端未返回总费用，返回 0（不再手动计算，由后端负责）
+  return 0
 }
 
 // 计算活动费用总和（用于显示和联动）
@@ -732,11 +689,11 @@ const activityCosts = computed(() => {
   return extractCostsFromItinerary()
 })
 
-// 计算总支出（手动添加的支出 + 活动费用）
+// 计算总支出（只包括用户手动添加的支出，不包括活动费用）
+// 活动费用作为预算参考，不计入已花费
 const totalSpent = computed(() => {
-  const manualExpenses = expenses.value.reduce((sum, exp) => sum + exp.amount, 0)
-  const activityCostsValue = activityCosts.value
-  return manualExpenses + activityCostsValue
+  // 只计算用户手动添加的支出
+  return expenses.value.reduce((sum, exp) => sum + exp.amount, 0)
 })
 
 // 按日期排序的支出列表
@@ -837,22 +794,58 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
     return { code: 'CNY', symbol: '¥', name: '人民币' }
   }
   
-  // 1. 优先从国家代码获取（最准确）
+  // 0. 优先使用后端返回的货币信息（最准确，后端已推断）
+  const itineraryData = (travel.data as any)?.itineraryData
+  console.log('[BudgetManager] 检查货币信息:', {
+    hasItineraryData: !!itineraryData,
+    hasCurrencyInfo: !!itineraryData?.currencyInfo,
+    hasCurrency: !!itineraryData?.currency,
+    currencyInfo: itineraryData?.currencyInfo,
+    currency: itineraryData?.currency,
+    itineraryDataKeys: itineraryData ? Object.keys(itineraryData) : []
+  })
+  
+  if (itineraryData?.currencyInfo) {
+    console.log('[BudgetManager] ✅ 使用后端返回的货币信息:', itineraryData.currencyInfo)
+    return itineraryData.currencyInfo
+  }
+  
+  // 1. 使用后端返回的货币代码
+  const backendCurrencyCode = 
+    itineraryData?.currency ||
+    travel.data?.currencyCode ||
+    travel.currency ||
+    (travel.data as any)?.currency
+
+  if (backendCurrencyCode) {
+    const currency = getCurrencyByCode(backendCurrencyCode)
+    if (currency) {
+      console.log('[BudgetManager] 使用后端返回的货币代码:', backendCurrencyCode, currency)
+      return currency
+    }
+  }
+  
+  // 2. 从国家代码获取（后备方案）
   const countryCode = extractDestinationCountry()
   if (countryCode && PRESET_COUNTRIES[countryCode]) {
     const country = PRESET_COUNTRIES[countryCode]
     return getCurrencyForDestination(country.name)
   }
   
-  // 2. 从location字段获取
-  if (travel.location) {
-    const currency = getCurrencyForDestination(travel.location)
+  // 3. 优先使用明确的国家信息（最准确）
+  const explicitCountry = (travel.data as any)?.currentCountry ||
+                  (travel.data as any)?.locationCountries?.[travel.location || ''] ||
+                  (travel.data as any)?.locationCountries?.[(travel.data as any)?.selectedLocation || '']
+  
+  if (explicitCountry && explicitCountry.trim()) {
+    const currency = getCurrencyForDestination(explicitCountry.trim())
+    // 如果匹配成功（不是默认的 CNY），直接返回
     if (currency.code !== 'CNY') {
       return currency
     }
   }
   
-  // 3. 从destination字段获取
+  // 4. 从destination字段获取（后备方案）
   const destination = (travel.data as any)?.destination || 
                      (travel.data as any)?.selectedLocation ||
                      travel.location ||
@@ -860,12 +853,53 @@ const getDestinationCurrency = computed((): CurrencyInfo => {
   
   if (destination) {
     const currency = getCurrencyForDestination(destination)
+    // 如果匹配成功（不是默认的 CNY），返回该币种
     if (currency.code !== 'CNY') {
       return currency
     }
   }
   
+  // 5. 从行程中的活动位置尝试推断（与 ExperienceDay 保持一致）
+  if (itineraryData?.days && itineraryData.days.length > 0) {
+    for (const day of itineraryData.days) {
+      const slots = Array.isArray(day?.timeSlots) ? day.timeSlots : []
+      for (const slot of slots) {
+        const locationText =
+          slot?.details?.address?.chinese ||
+          slot?.details?.address?.english ||
+          slot?.location ||
+          ''
+        if (locationText) {
+          const currency = getCurrencyForDestination(locationText)
+          if (currency.code !== 'CNY') {
+            console.log('[BudgetManager] 从活动位置推断货币:', locationText, currency)
+            return currency
+          }
+        }
+        // 检查活动本身的货币信息
+        const slotCurrency = getCurrencyByCode(
+          slot?.costCurrency ||
+          slot?.currency ||
+          slot?.details?.pricing?.currency ||
+          slot?.details?.pricing?.currencyCode
+        )
+        if (slotCurrency) {
+          console.log('[BudgetManager] 从活动货币字段推断:', slotCurrency)
+          return slotCurrency
+        }
+      }
+    }
+  }
+  
   // 默认返回人民币
+  console.warn('[BudgetManager] 未找到货币信息，使用默认人民币。数据:', {
+    hasItineraryData: !!itineraryData,
+    hasCurrencyInfo: !!itineraryData?.currencyInfo,
+    hasCurrency: !!itineraryData?.currency,
+    destination: (travel.data as any)?.destination || travel.location,
+    location: travel.location,
+    itineraryDataKeys: itineraryData ? Object.keys(itineraryData) : []
+  })
   return { code: 'CNY', symbol: '¥', name: '人民币' }
 })
 
@@ -1383,6 +1417,26 @@ watch(() => {
   }
 }, { deep: true })
 
+// 监听货币信息变化，确保刷新后能正确更新
+watch(() => {
+  const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
+  return {
+    currencyInfo: travel?.data?.itineraryData?.currencyInfo,
+    currency: travel?.data?.itineraryData?.currency
+  }
+}, (newVal, oldVal) => {
+  if (newVal?.currencyInfo !== oldVal?.currencyInfo || newVal?.currency !== oldVal?.currency) {
+    console.log('[BudgetManager] 货币信息已更新:', {
+      newCurrencyInfo: newVal?.currencyInfo,
+      newCurrency: newVal?.currency,
+      oldCurrencyInfo: oldVal?.currencyInfo,
+      oldCurrency: oldVal?.currency
+    })
+    // 强制触发 computed 重新计算
+    // getDestinationCurrency 是 computed，会自动更新
+  }
+}, { deep: true })
+
 // 监听行程数据变化（data.days）
 watch(() => {
   const travel = props.travelId ? travelListStore.getTravel(props.travelId) : null
@@ -1587,3 +1641,4 @@ onMounted(async () => {
   margin-left: 0.5rem;
 }
 </style>
+

@@ -586,6 +586,7 @@ export default {
       ratingReviewCount: '{count} reviews',
       reviews: 'reviews',
       estimatedCost: 'Estimated Cost',
+      scenicIntro: 'Introduction',
       visitTips: 'Best Visit Time and Notes',
       bestVisitTime: 'Best Visit Time',
       recommendedDuration: 'Recommended Duration',

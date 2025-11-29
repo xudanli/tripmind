@@ -1,53 +1,10 @@
 <template>
-  <a-card class="safety-notice-card" :bordered="false">
-    <!-- 安全提示内容 -->
-    <div v-if="safetyNoticeText" class="safety-notice-content">
-      <a-collapse v-model:activeKey="activeKeys" :bordered="false" ghost>
-        <a-collapse-panel key="notice" :show-arrow="false">
-          <template #header>
-            <div class="notice-header">
-              <span class="notice-header-text">🛡️ {{ t('travelDetail.safetyNotice.title') || '安全提示' }}</span>
-              <a-button 
-                type="link" 
-                size="small" 
-                :loading="generating"
-                @click.stop="handleRefresh"
-                class="refresh-btn"
-              >
-                {{ t('travelDetail.safetyNotice.refresh') || '刷新' }}
-              </a-button>
-            </div>
-          </template>
-          <div class="notice-text">{{ safetyNoticeText }}</div>
-        </a-collapse-panel>
-      </a-collapse>
-    </div>
-    
-    <!-- 无安全提示时显示生成按钮 -->
-    <div v-else class="safety-notice-empty">
-      <a-empty 
-        :description="t('travelDetail.safetyNotice.noNotice') || '暂无安全提示'"
-        :image="false"
-      >
-        <template #description>
-          <span>{{ t('travelDetail.safetyNotice.noNotice') || '暂无安全提示' }}</span>
-        </template>
-      </a-empty>
-      <a-button 
-        type="primary" 
-        :loading="generating"
-        @click="handleGenerate"
-        block
-      >
-        {{ t('travelDetail.safetyNotice.generate') || '生成安全提示' }}
-      </a-button>
-    </div>
-    
+  <!-- 只有在有数据时才显示整个卡片 -->
+  <a-card v-if="hasAlerts" class="safety-notice-card" :bordered="false">
     <!-- 通用旅行安全通知列表 -->
-    <a-divider v-if="alerts.length > 0" />
-    <div v-if="alerts.length > 0" class="travel-alerts">
+    <div class="travel-alerts">
       <div class="alerts-header">
-        <span class="alerts-title">{{ t('travelDetail.safetyNotice.alerts') || '旅行安全通知' }}</span>
+        <span class="alerts-title">🛡️ {{ t('travelDetail.safetyNotice.alerts') || '旅行安全通知' }}</span>
         <a-button 
           type="link" 
           size="small" 
@@ -65,7 +22,9 @@
           :message="alert.title"
           :description="alert.content"
           show-icon
-          style="margin-bottom: 12px;"
+          :closable="false"
+          style="margin-bottom: 12px; cursor: pointer;"
+          @click="handleAlertClick(alert.id)"
         >
           <template #icon>
             <span v-if="alert.severity === 'critical'">🚨</span>
@@ -77,15 +36,51 @@
       </div>
     </div>
   </a-card>
+
+  <!-- 安全提示详情模态框（放在卡片外部，确保即使卡片隐藏也能显示） -->
+  <a-modal
+    v-model:open="showAlertDetailModal"
+    :title="selectedAlert?.title || '安全提示详情'"
+    :width="600"
+    :footer="null"
+  >
+    <div v-if="selectedAlert" class="alert-detail">
+      <a-descriptions :column="1" bordered>
+        <a-descriptions-item label="严重程度">
+          <a-tag :color="getSeverityColor(selectedAlert.severity)">
+            {{ getSeverityText(selectedAlert.severity) }}
+          </a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="状态">
+          <a-tag :color="getStatusColor(selectedAlert.status)">
+            {{ getStatusText(selectedAlert.status) }}
+          </a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="目的地" v-if="selectedAlert.destination">
+          {{ selectedAlert.destination }}
+        </a-descriptions-item>
+        <a-descriptions-item label="国家代码" v-if="selectedAlert.countryCode">
+          {{ selectedAlert.countryCode }}
+        </a-descriptions-item>
+        <a-descriptions-item label="生效开始日期">
+          {{ formatDate(selectedAlert.startDate) }}
+        </a-descriptions-item>
+        <a-descriptions-item label="生效结束日期" v-if="selectedAlert.endDate">
+          {{ formatDate(selectedAlert.endDate) }}
+        </a-descriptions-item>
+        <a-descriptions-item label="内容">
+          <div class="alert-content">{{ selectedAlert.content }}</div>
+        </a-descriptions-item>
+      </a-descriptions>
+    </div>
+  </a-modal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { getSafetyNotice, generateSafetyNotice } from '@/services/itineraryAPI'
-import { getTravelAlerts, type TravelAlert } from '@/services/externalAPI'
-import { getUserNationalityCode } from '@/config/userProfile'
+import { getTravelAlerts, getAlertById, type TravelAlert } from '@/services/externalAPI'
 
 const { t } = useI18n()
 
@@ -101,94 +96,20 @@ const props = withDefaults(defineProps<Props>(), {
   countryCode: ''
 })
 
-const safetyNoticeText = ref<string>('')
-const generating = ref(false)
 const loadingAlerts = ref(false)
 const alerts = ref<TravelAlert[]>([])
-const activeKeys = ref<string[]>(['notice']) // 默认展开
+const showAlertDetailModal = ref(false)
+const selectedAlert = ref<TravelAlert | null>(null)
 
-// 获取安全提示
-const loadSafetyNotice = async () => {
-  if (!props.journeyId) {
-    return
+// 判断是否有数据需要显示（只有在加载完成且没有数据时不显示）
+const hasAlerts = computed(() => {
+  // 如果正在加载，显示组件（避免闪烁）
+  if (loadingAlerts.value) {
+    return true
   }
-
-  try {
-    const safetyData = await getSafetyNotice(props.journeyId)
-    if (safetyData.noticeText && !safetyData.noticeText.includes('暂无安全提示')) {
-      safetyNoticeText.value = safetyData.noticeText
-    } else {
-      safetyNoticeText.value = ''
-    }
-  } catch (error: any) {
-    console.warn('[SafetyNoticeCard] 获取安全提示失败:', error.message)
-    safetyNoticeText.value = ''
-  }
-}
-
-// 生成安全提示
-const handleGenerate = async () => {
-  if (!props.journeyId) {
-    message.warning('无法生成：缺少行程 ID')
-    return
-  }
-
-  generating.value = true
-  try {
-    // 获取用户国籍
-    const userNationality = getUserNationalityCode()
-    
-    const safetyData = await generateSafetyNotice(props.journeyId, {
-      lang: 'zh-CN',
-      forceRefresh: false,
-      userNationality: userNationality || undefined
-    })
-    
-    if (safetyData.noticeText) {
-      safetyNoticeText.value = safetyData.noticeText
-      message.success('安全提示已生成')
-    } else {
-      message.warning('生成安全提示失败：未返回内容')
-    }
-  } catch (error: any) {
-    console.error('[SafetyNoticeCard] 生成安全提示失败:', error)
-    message.error(`生成安全提示失败: ${error.message || '未知错误'}`)
-  } finally {
-    generating.value = false
-  }
-}
-
-// 刷新安全提示
-const handleRefresh = async () => {
-  if (!props.journeyId) {
-    message.warning('无法刷新：缺少行程 ID')
-    return
-  }
-
-  generating.value = true
-  try {
-    // 获取用户国籍
-    const userNationality = getUserNationalityCode()
-    
-    const safetyData = await generateSafetyNotice(props.journeyId, {
-      lang: 'zh-CN',
-      forceRefresh: true,
-      userNationality: userNationality || undefined
-    })
-    
-    if (safetyData.noticeText) {
-      safetyNoticeText.value = safetyData.noticeText
-      message.success('安全提示已刷新')
-    } else {
-      message.warning('刷新安全提示失败：未返回内容')
-    }
-  } catch (error: any) {
-    console.error('[SafetyNoticeCard] 刷新安全提示失败:', error)
-    message.error(`刷新安全提示失败: ${error.message || '未知错误'}`)
-  } finally {
-    generating.value = false
-  }
-}
+  // 加载完成后，只有在有数据时才显示
+  return alerts.value.length > 0
+})
 
 // 获取通用旅行安全通知
 const loadAlerts = async () => {
@@ -209,6 +130,86 @@ const loadAlerts = async () => {
   }
 }
 
+// 点击 alert 时获取详情
+const handleAlertClick = async (alertId: string) => {
+  try {
+    const alertDetail = await getAlertById(alertId)
+    selectedAlert.value = alertDetail
+    showAlertDetailModal.value = true
+  } catch (error: any) {
+    console.error('[SafetyNoticeCard] 获取安全提示详情失败:', error)
+    message.error(`获取安全提示详情失败: ${error.message || '未知错误'}`)
+  }
+}
+
+// 格式化日期
+const formatDate = (dateStr: string): string => {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) {
+    return dateStr
+  }
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 获取严重程度颜色
+const getSeverityColor = (severity: string): string => {
+  switch (severity) {
+    case 'critical':
+      return 'red'
+    case 'high':
+      return 'orange'
+    case 'medium':
+      return 'blue'
+    default:
+      return 'green'
+  }
+}
+
+// 获取严重程度文本
+const getSeverityText = (severity: string): string => {
+  switch (severity) {
+    case 'critical':
+      return '严重'
+    case 'high':
+      return '高'
+    case 'medium':
+      return '中等'
+    default:
+      return '低'
+  }
+}
+
+// 获取状态颜色
+const getStatusColor = (status: string): string => {
+  switch (status) {
+    case 'active':
+      return 'green'
+    case 'expired':
+      return 'default'
+    case 'archived':
+      return 'gray'
+    default:
+      return 'default'
+  }
+}
+
+// 获取状态文本
+const getStatusText = (status: string): string => {
+  switch (status) {
+    case 'active':
+      return '生效中'
+    case 'expired':
+      return '已过期'
+    case 'archived':
+      return '已归档'
+    default:
+      return status
+  }
+}
+
 // 根据严重程度获取 Alert 类型
 const getAlertType = (severity: string): 'error' | 'warning' | 'info' | 'success' => {
   switch (severity) {
@@ -223,13 +224,6 @@ const getAlertType = (severity: string): 'error' | 'warning' | 'info' | 'success
   }
 }
 
-// 监听 journeyId 变化，重新加载
-watch(() => props.journeyId, (newId) => {
-  if (newId) {
-    loadSafetyNotice()
-  }
-}, { immediate: true })
-
 // 监听目的地变化，重新加载通知
 watch([() => props.destination, () => props.countryCode], () => {
   if (props.destination || props.countryCode) {
@@ -238,9 +232,6 @@ watch([() => props.destination, () => props.countryCode], () => {
 }, { immediate: true })
 
 onMounted(() => {
-  if (props.journeyId) {
-    loadSafetyNotice()
-  }
   if (props.destination || props.countryCode) {
     loadAlerts()
   }
@@ -252,51 +243,8 @@ onMounted(() => {
   width: 100%;
 }
 
-.safety-notice-content {
-  margin-bottom: 16px;
-}
-
-.notice-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-  padding-right: 8px;
-}
-
-.notice-header-text {
-  font-weight: 500;
-  color: #333;
-}
-
-.refresh-btn {
-  padding: 0;
-  height: auto;
-  font-size: 12px;
-}
-
-.notice-text {
-  white-space: pre-wrap;
-  line-height: 1.6;
-  color: #333;
-  padding-top: 8px;
-}
-
-:deep(.ant-collapse-header) {
-  padding: 8px 0 !important;
-}
-
-:deep(.ant-collapse-content-box) {
-  padding: 0 !important;
-}
-
-.safety-notice-empty {
-  text-align: center;
-  padding: 20px 0;
-}
-
 .travel-alerts {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .alerts-header {
@@ -311,9 +259,24 @@ onMounted(() => {
   font-size: 14px;
 }
 
+.alerts-empty {
+  text-align: center;
+  padding: 20px 0;
+}
+
 .alerts-list {
   max-height: 400px;
   overflow-y: auto;
+}
+
+.alert-detail {
+  margin-top: 16px;
+}
+
+.alert-content {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: #333;
 }
 </style>
 

@@ -144,20 +144,28 @@
     </div>
 
     </template>
+    
+    <!-- AI旅行助手 -->
+    <TravelAssistant 
+      v-if="travel?.id || travel?.data?.backendItineraryId"
+      :travel-id="travel?.data?.backendItineraryId || travel?.id" 
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import type { VisaInfo } from '@/config/visa'
 import { useRouter, useRoute } from 'vue-router'
 import { useTravelListStore, type Travel } from '@/stores/travelList'
 import { useTravelStore } from '@/stores/travel'
 import { useI18n } from 'vue-i18n'
+import { message } from 'ant-design-vue'
 // 只保留灵感模式相关组件
 import ExperienceDay from '@/components/TravelDetail/ExperienceDay.vue'
 import TravelSidebar from '@/components/TravelDetail/TravelSidebar.vue'
+import TravelAssistant from '@/components/TravelDetail/TravelAssistant.vue'
 import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
 import WeatherCard from '@/components/TravelDetail/WeatherCard.vue'
 import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
@@ -860,22 +868,47 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
     })
     
     // 3. 检查是否需要获取位置信息
+    // 优化检查逻辑：检查每个活动是否都有完整的位置信息
     // 如果 batchGetActivities 已经返回了完整的 details（包含位置信息），则跳过 enrichItineraryWithLocationInfo
-    const hasLocationInfo = frontendData.days.some(day => 
-      day.timeSlots.some(slot => {
+    let needsLocationInfo = false
+    let locationInfoCount = 0
+    let totalSlotsCount = 0
+    
+    frontendData.days.forEach(day => {
+      day.timeSlots.forEach(slot => {
+        totalSlotsCount++
         const details = slot.details
-        return details && (
-          details.tripAdvisorId || 
-          details.location || 
-          details.coordinates ||
-          (details.pricing && details.pricing.detail)
+        // 检查是否有完整的位置信息（至少需要 coordinates 和基本的位置详情）
+        const hasLocationInfo = details && (
+          (details.tripAdvisorId && details.location) || 
+          (details.location && details.address) ||
+          (details.coordinates && details.name) ||
+          (details.pricing && details.pricing.detail && details.address)
         )
+        if (hasLocationInfo) {
+          locationInfoCount++
+        } else if (slot.coordinates && slot.title && slot.type) {
+          // 如果有坐标和标题，但没有详细信息，需要生成位置信息
+          needsLocationInfo = true
+        }
       })
-    )
+    })
+    
+    // 如果大部分活动（超过80%）都有位置信息，则认为不需要生成
+    const locationInfoRatio = totalSlotsCount > 0 ? locationInfoCount / totalSlotsCount : 0
+    const shouldEnrich = needsLocationInfo && locationInfoRatio < 0.8
+    
+    console.log('[TravelDetailView] 位置信息检查结果:', {
+      totalSlots: totalSlotsCount,
+      hasLocationInfo: locationInfoCount,
+      locationInfoRatio: `${(locationInfoRatio * 100).toFixed(1)}%`,
+      needsLocationInfo,
+      shouldEnrich
+    })
     
     let enrichedData = frontendData
-    if (!hasLocationInfo && frontendData.days.length > 0 && frontendData.days[0].timeSlots.length > 0) {
-      // 只有当前端数据中没有位置信息时，才调用 enrichItineraryWithLocationInfo
+    if (shouldEnrich && frontendData.days.length > 0 && frontendData.days[0].timeSlots.length > 0) {
+      // 只有当前端数据中缺少位置信息时，才调用 enrichItineraryWithLocationInfo
       console.log('[TravelDetailView] 批量接口未返回完整位置信息，开始获取位置信息...')
       try {
         enrichedData = await enrichItineraryWithLocationInfo(
@@ -1038,7 +1071,17 @@ const loadItineraryFromBackend = async (backendItineraryId: string) => {
             travelListStore.updateTravel(travel.value.id, travel.value)
             console.log('[TravelDetailView] ✅ loadItineraryFromBackend: 已更新 store 中的 travel 数据')
           } else {
-            travelListStore.addTravel(travel.value)
+            travelListStore.createTravel({
+              title: travel.value.title,
+              location: travel.value.location,
+              description: travel.value.description,
+              mode: travel.value.mode,
+              status: travel.value.status,
+              duration: travel.value.duration,
+              participants: travel.value.participants,
+              budget: travel.value.budget,
+              data: travel.value.data
+            })
             console.log('[TravelDetailView] ✅ loadItineraryFromBackend: 已添加 travel 数据到 store')
           }
         }
@@ -1230,6 +1273,24 @@ onMounted(async () => {
     }, 2000)
     return
   }
+  
+  // 监听行程修改事件，自动刷新数据
+  const handleItineraryUpdated = (event: CustomEvent) => {
+    const eventJourneyId = event.detail?.journeyId
+    const currentJourneyId = travel.value?.data?.backendItineraryId || travel.value?.id
+    
+    if (eventJourneyId && eventJourneyId === currentJourneyId) {
+      console.log('[TravelDetailView] 收到行程修改事件，刷新数据:', eventJourneyId)
+      handleTravelRefresh()
+    }
+  }
+  
+  window.addEventListener('itinerary-updated', handleItineraryUpdated as EventListener)
+  
+  // 清理事件监听器
+  onUnmounted(() => {
+    window.removeEventListener('itinerary-updated', handleItineraryUpdated as EventListener)
+  })
   
   if (!travel.value) {
     console.error('[TravelDetailView] ❌ 最终未找到 travel 数据，id:', id)

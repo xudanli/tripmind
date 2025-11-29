@@ -122,58 +122,6 @@
                   </div>
                 </a-card>
               </a-col>
-
-              <a-col :xs="24" :sm="12" :lg="8">
-                <a-card 
-                  class="mode-card seeker-card"
-                  hoverable
-                  @click="handleSeekerMode"
-                >
-                  <div class="card-content">
-                    <div class="card-icon">
-                      <heart-outlined />
-                    </div>
-                    <h3 class="card-title">{{ t('home.seekerMode.title') }}</h3>
-                    <span class="card-subtitle">{{ t('home.seekerMode.subtitle') }}</span>
-                    <p class="card-description">
-                      {{ t('home.seekerMode.description') }}
-                      <br />
-                      <span class="quote">「{{ t('home.seekerMode.quote') }}」</span>
-                    </p>
-                    <div class="card-features">
-                      <a-space direction="vertical" size="small">
-                        <span v-for="(feature, index) in getFeatures('seeker')" :key="index">{{ feature }}</span>
-                      </a-space>
-                    </div>
-                  </div>
-                </a-card>
-              </a-col>
-
-              <a-col :xs="24" :sm="12" :lg="8">
-                <a-card 
-                  class="mode-card inspiration-card"
-                  hoverable
-                  @click="handleInspirationMode"
-                >
-                  <div class="card-content">
-                    <div class="card-icon">
-                      <bulb-outlined />
-                    </div>
-                    <h3 class="card-title">{{ t('home.inspirationMode.title') }}</h3>
-                    <span class="card-subtitle">{{ t('home.inspirationMode.subtitle') }}</span>
-                    <p class="card-description">
-                      {{ t('home.inspirationMode.description') }}
-                      <br />
-                      <span class="quote">「{{ t('home.inspirationMode.quote') }}」</span>
-                    </p>
-                    <div class="card-features">
-                      <a-space direction="vertical" size="small">
-                        <span v-for="(feature, index) in getFeatures('inspiration')" :key="index">{{ feature }}</span>
-                      </a-space>
-                    </div>
-                  </div>
-                </a-card>
-              </a-col>
             </a-row>
     </div>
 
@@ -197,7 +145,7 @@ watchEffect(() => {
 })
 
 // 获取特性列表
-const getFeatures = (mode: 'planner' | 'seeker' | 'inspiration') => {
+const getFeatures = (mode: 'planner') => {
   const key = `home.${mode}Mode.features` as const
   const features = t(key)
   // 如果是数组，直接返回；如果是字符串，说明 i18n 有问题，返回空数组
@@ -253,35 +201,13 @@ const handlePlannerMode = async () => {
   }
 }
 
-const handleSeekerMode = async () => {
-  console.log('进入 Seeker 模式')
-  
-  if (userStore.isLoggedIn) {
-    userStore.saveIntent({ mode: 'seeker' })
-    router.push('/seeker')
-  } else {
-    showLoginModal('seeker')
-  }
-}
-
-const handleInspirationMode = async () => {
-  console.log('进入 Inspiration 模式')
-  
-  if (userStore.isLoggedIn) {
-    userStore.saveIntent({ mode: 'inspiration' })
-    router.push('/inspiration')
-  } else {
-    showLoginModal('inspiration')
-  }
-}
-
-const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
+const showLoginModal = (mode: 'planner') => {
   // 保存意图并跳转到登录页（首页）
         userStore.saveIntent({ mode })
   router.push({
     path: '/',
     query: {
-      redirect: mode === 'planner' ? '/planner' : mode === 'seeker' ? '/seeker' : '/inspiration'
+      redirect: '/planner'
     }
   })
 }
@@ -464,34 +390,6 @@ const showLoginModal = (mode: 'planner' | 'seeker' | 'inspiration') => {
 
 .planner-card:hover {
   background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%) !important;
-}
-
-/* Seeker 卡片样式（暖色调） */
-.seeker-card {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
-  color: white !important;
-}
-
-.seeker-card::before {
-  background: linear-gradient(90deg, transparent, #ffecd2, transparent);
-}
-
-.seeker-card:hover {
-  background: linear-gradient(135deg, #ee82e8 0%, #f3455a 100%) !important;
-}
-
-/* Inspiration 卡片样式（创新色调） */
-.inspiration-card {
-  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
-  color: white !important;
-}
-
-.inspiration-card::before {
-  background: linear-gradient(90deg, transparent, #a8edea, transparent);
-}
-
-.inspiration-card:hover {
-  background: linear-gradient(135deg, #0f8a7a 0%, #2dd46a 100%) !important;
 }
 
 .card-icon {

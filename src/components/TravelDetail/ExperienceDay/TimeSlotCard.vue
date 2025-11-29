@@ -239,9 +239,13 @@
             v-for="(attraction, index) in getNearbyAttractionsList()"
             :key="index"
             class="time-slot__attraction-tag"
+            :class="{ 'time-slot__attraction-tag--clickable': true }"
+            @click.stop="handleAddNearbyAttraction(attraction)"
+            :title="t('travelDetail.experienceDay.addToItinerary') || '添加到行程'"
           >
             {{ attraction.name }}
             <span v-if="attraction.distance" class="time-slot__attraction-tag-distance">{{ attraction.distance }}</span>
+            <span class="time-slot__attraction-tag-icon">+</span>
           </span>
         </div>
       </div>
@@ -302,6 +306,16 @@ interface TimeSlotCardProps {
 }
 
 const props = defineProps<TimeSlotCardProps>()
+// 处理添加附近景点
+const handleAddNearbyAttraction = (attraction: { name: string; distance: string; image?: string }) => {
+  emit('add-nearby-attraction', {
+    attractionName: attraction.name,
+    distance: attraction.distance,
+    currentSlot: props.slot,
+    day: props.day
+  })
+}
+
 const emit = defineEmits([
   'navigate',
   'book',
@@ -313,6 +327,7 @@ const emit = defineEmits([
   'rating-click',
   'toggle',
   'image-error',
+  'add-nearby-attraction',
 ])
 
 const { t, locale } = useI18n()
@@ -2289,11 +2304,36 @@ const Chip = defineComponent({
   line-height: 1.4;
 }
 
+.time-slot__attraction-tag--clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.time-slot__attraction-tag--clickable:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #2563eb;
+  transform: translateY(-1px);
+}
+
 .time-slot__attraction-tag-distance {
   font-size: 11px;
   color: #64748b;
   font-weight: 400;
   margin-left: 4px;
+}
+
+.time-slot__attraction-tag-icon {
+  font-size: 14px;
+  font-weight: 600;
+  color: #3b82f6;
+  margin-left: 4px;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.time-slot__attraction-tag--clickable:hover .time-slot__attraction-tag-icon {
+  opacity: 1;
 }
 
 .time-slot__detail-section-title {

@@ -39,15 +39,31 @@
 **输入参数：**
 ```typescript
 interface GenerateItineraryRequest {
-  destination: string          // 目的地，必填
-  days: number                // 天数，必填
+  destination?: string         // 目的地，可选（不提供时系统会根据其他信息自动推荐）
+  days: number                // 天数，必填，范围 1-30
   startDate: string           // 开始日期，格式：YYYY-MM-DD，必填
   preferences?: {             // 用户偏好，可选
+    interests?: string[]      // 兴趣列表
     budget?: 'low' | 'medium' | 'high'
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
+  intent?: {                  // 意图识别数据（可选，用于优化行程生成）
+    intentType: string        // 意图类型，如 'photography_exploration', 'cultural_exchange', 'emotional_healing' 等
+    keywords: string[]        // 提取的关键词列表
+    emotionTone: string       // 情感倾向，如 'calm', 'active', 'romantic' 等
+    description: string       // 意图描述
+    confidence?: number       // 置信度（0-1）
+  }
 }
 ```
+
+**说明：**
+- `destination` 字段为可选，如果不提供，系统会根据 `intent`、`preferences.interests` 等信息自动推荐目的地
+- `intent` 字段为可选，如果提供，后端可以利用意图信息优化行程生成
+- 意图信息由前端通过意图识别接口（`POST /api/inspiration/detect-intent`）获取
+- 如果后端不支持 `intent` 字段，会忽略该字段，不影响正常流程
+- 如果不提供 `destination`，建议至少提供 `intent` 或 `preferences.interests` 之一，以便系统更好地推荐目的地
+- **详细文档：** 参见 [生成旅行行程接口文档](./JOURNEY_GENERATE_API.md)
 
 **调用位置：**
 - `src/stores/travel.ts` → `generateItinerary('planner')`

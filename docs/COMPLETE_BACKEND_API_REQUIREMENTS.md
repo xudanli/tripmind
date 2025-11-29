@@ -149,6 +149,79 @@ interface CreateItineraryResponse {
 
 **说明：** 用于处理前端 `timeSlots` 格式的数据，避免后端验证 `data.days` 为空的问题
 
+### 7. 生成行程（Planner 模式）
+
+**接口路径：** `POST /api/v1/journeys/generate`
+
+**优先级：** ⭐⭐⭐ 必须
+
+**详细文档：** 参见 [生成旅行行程接口文档](./JOURNEY_GENERATE_API.md)
+
+**请求体：**
+```typescript
+interface GenerateItineraryRequest {
+  destination?: string         // 目的地，可选（不提供时系统会根据其他信息自动推荐）
+  days: number                // 天数，必填，范围 1-30
+  startDate: string           // 开始日期，格式：YYYY-MM-DD，必填
+  preferences?: {             // 用户偏好，可选
+    interests?: string[]      // 兴趣列表
+    budget?: 'low' | 'medium' | 'high'
+    travelStyle?: 'relaxed' | 'moderate' | 'intensive'
+  }
+  intent?: {                  // 意图识别数据（可选，用于优化行程生成）
+    intentType: string        // 意图类型，如 'photography_exploration', 'cultural_exchange', 'emotional_healing' 等
+    keywords: string[]        // 提取的关键词列表
+    emotionTone: string       // 情感倾向，如 'calm', 'active', 'romantic' 等
+    description: string       // 意图描述
+    confidence?: number       // 置信度（0-1）
+  }
+}
+```
+
+**响应格式：**
+```typescript
+interface GenerateItineraryResponse {
+  success: boolean
+  data: {
+    destination: string
+    days: Array<{
+      day: number
+      date: string
+      activities: Array<{
+        time: string
+        title: string
+        type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+        duration: number
+        location: { lat: number; lng: number }
+        notes: string
+        cost: number
+      }>
+    }>
+    totalCost: number
+    summary: string
+    title?: string
+    currency?: string
+    currencyInfo?: {
+      code: string
+      symbol: string
+      name: string
+    }
+  }
+  generatedAt: string
+}
+```
+
+**说明：**
+- `destination` 字段为可选，如果不提供，系统会根据 `intent`、`preferences.interests` 等信息自动推荐目的地
+- `intent` 字段为可选，如果提供，后端可以利用意图信息优化行程生成
+- 意图信息由前端通过意图识别接口（`POST /api/inspiration/detect-intent`）获取
+- 如果后端不支持 `intent` 字段，会忽略该字段，不影响正常流程
+- 后端可以利用 `intent` 信息：
+  - 在生成提示词中加入意图类型和关键词
+  - 根据情感倾向调整行程风格
+  - 使用关键词优化活动推荐
+- 如果不提供 `destination`，建议至少提供 `intent` 或 `preferences.interests` 之一，以便系统更好地推荐目的地
+
 ---
 
 ## 二、Days 管理接口（✅ 已全部实现）

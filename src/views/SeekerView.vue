@@ -477,7 +477,7 @@ const goToDetail = async () => {
     const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
     const createRequest = {
       itineraryData: {
-        destination,
+      destination,
         duration: days.length,
         days: days.map((day: any) => ({
           day: day.day || 1,

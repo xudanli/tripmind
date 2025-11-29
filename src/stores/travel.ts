@@ -24,12 +24,14 @@ interface GenerationLogEntry {
 export interface PlannerFormData {
   destination: string        // 目的地，如 "瑞士琉森"、"日本东京"
   days: number              // 旅行天数，范围 1-30
+  participants?: number      // 旅行者数量，默认 1
   preferences?: {           // 用户偏好（可选）
     interests?: string[]    // 兴趣列表，如 ["自然风光", "户外活动"]
     budget?: "low" | "medium" | "high"  // 预算等级
     travelStyle?: "relaxed" | "moderate" | "intensive"  // 旅行风格
   }
   startDate: string         // 旅行开始日期，格式: "YYYY-MM-DD"
+  additionalDescription?: string  // 额外描述（可选），用户可以自由输入更多需求
 }
 
 export interface MoodData {
@@ -515,7 +517,7 @@ export const useTravelStore = defineStore('travel', () => {
   }
 
   // 使用 Planner API 生成行程
-  const generateItinerary = async (mode: 'planner' | 'seeker') => {
+  const generateItinerary = async (mode: 'planner' | 'seeker', intentData?: any) => {
     if (isRunning.value) return // 避免并发重复点击
     isRunning.value = true
     clearGenerationLogs()
@@ -536,13 +538,31 @@ export const useTravelStore = defineStore('travel', () => {
           throw new Error('请完成所有必填项：目的地、天数和开始日期')
         }
 
+        // 如果有意图识别数据，记录日志
+        if (intentData) {
+          pushGenerationLog(`🎯 已识别用户意图: ${intentData.intentType} (置信度: ${Math.round((intentData.confidence || 0) * 100)}%)`)
+          if (intentData.keywords && intentData.keywords.length > 0) {
+            pushGenerationLog(`🔑 提取关键词: ${intentData.keywords.join('、')}`)
+          }
+        }
+
         pushGenerationLog('📡 正在调用行程生成 API...')
         const apiResponse = await generateItineraryAPI(
           {
             destination: formData.destination,
             days: formData.days,
             startDate: formData.startDate,
-            preferences: formData.preferences
+            preferences: formData.preferences,
+            // 将意图信息作为额外上下文传递（如果后端支持）
+            ...(intentData ? {
+              intent: {
+                intentType: intentData.intentType,
+                keywords: intentData.keywords,
+                emotionTone: intentData.emotionTone,
+                description: intentData.description,
+                confidence: intentData.confidence
+              }
+            } : {})
           },
           {
             enrichWithLocationInfo: true, // 启用位置信息获取
@@ -580,6 +600,18 @@ export const useTravelStore = defineStore('travel', () => {
         ;(generatedData as any).totalCost = apiResponse.totalCost
         ;(generatedData as any).summary = apiResponse.summary
         ;(generatedData as any).title = apiResponse.title
+        
+        // 如果有意图识别数据，也存储到生成的行程数据中
+        if (intentData) {
+          ;(generatedData as any).detectedIntent = {
+            intentType: intentData.intentType,
+            keywords: intentData.keywords,
+            emotionTone: intentData.emotionTone,
+            description: intentData.description,
+            confidence: intentData.confidence
+          }
+          pushGenerationLog('💾 意图信息已保存到行程数据中')
+        }
       } else {
         // Seeker 模式：优先使用后端API，失败时回退到前端实现
         const USE_BACKEND_API = import.meta.env.VITE_USE_SEEKER_BACKEND_API !== 'false' // 默认启用

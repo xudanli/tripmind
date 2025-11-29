@@ -731,6 +731,91 @@ export interface GetAlertsResponse {
 }
 
 /**
+ * 获取单个安全提示详情响应
+ */
+export interface GetAlertByIdResponse {
+  success: boolean
+  data: TravelAlert
+  message?: string
+}
+
+/**
+ * 获取单个安全提示详情（公开接口，无需认证）
+ * @param alertId 安全提示 ID
+ * @returns 安全提示详情
+ */
+export async function getAlertById(alertId: string): Promise<TravelAlert> {
+  const endpoint = `/v1/alerts/${alertId}`
+  const url = buildUrl(endpoint)
+
+  console.log('[ExternalAPI] 获取安全提示详情:', {
+    url,
+    alertId
+  })
+
+  try {
+    // 这是公开接口，不需要认证
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include'
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ExternalAPI] 获取安全提示详情失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText,
+        alertId
+      })
+
+      // 如果是 404 错误，表示安全提示不存在
+      if (response.status === 404) {
+        try {
+          const errorData = JSON.parse(errorText)
+          throw new Error(errorData.message || '安全提示不存在')
+        } catch {
+          throw new Error('安全提示不存在')
+        }
+      }
+
+      // 其他错误，尝试解析错误信息
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `获取安全提示详情失败: ${response.status}`)
+      } catch {
+        throw new Error(`获取安全提示详情失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: GetAlertByIdResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.message || '获取安全提示详情失败')
+    }
+
+    console.log('[ExternalAPI] 获取安全提示详情成功:', {
+      alertId,
+      title: result.data.title,
+      severity: result.data.severity
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ExternalAPI] 获取安全提示详情失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      alertId
+    })
+    throw error
+  }
+}
+
+/**
  * 获取通用旅行安全通知列表
  * @param params 查询参数
  * @returns 安全通知列表

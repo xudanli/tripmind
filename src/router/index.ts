@@ -10,30 +10,8 @@ const router = createRouter({
     },
     {
       path: '/planner',
-      component: () => import('../views/PlannerStepLayout.vue'),
-      children: [
-        { path: '', redirect: '/planner/destination' },
-        { path: 'destination', name: 'planner-destination', component: () => import('../components/PlannerSteps/DestinationStep.vue') },
-        { path: 'duration', name: 'planner-duration', component: () => import('../components/PlannerSteps/DurationStep.vue') },
-        { path: 'budget', name: 'planner-budget', component: () => import('../components/PlannerSteps/BudgetStep.vue') },
-        { path: 'preferences', name: 'planner-preferences', component: () => import('../components/PlannerSteps/PreferencesStep.vue') },
-        { path: 'confirm', name: 'planner-confirm', component: () => import('../components/PlannerSteps/ConfirmStep.vue') },
-      ]
-    },
-    {
-      path: '/seeker',
-      name: 'seeker',
-      component: () => import('../views/SeekerView.vue'),
-    },
-    {
-      path: '/inspiration',
-      name: 'inspiration',
-      component: () => import('../views/InspirationView.vue'),
-    },
-    {
-      path: '/inspiration/catalog',
-      name: 'inspiration-catalog',
-      component: () => import('../views/InspirationCatalogView.vue'),
+      name: 'planner',
+      component: () => import('../views/PlannerView.vue'),
     },
     {
       path: '/api-test',

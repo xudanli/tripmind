@@ -20,8 +20,11 @@ const buildUrl = (endpoint: string) => {
  * 意图识别请求
  */
 export interface DetectIntentRequest {
-  input: string
-  language?: string
+  input: string                    // 用户自然语言输入，如"我想去一个安静的地方放松"
+  language?: string                 // 语言代码，默认 'zh-CN'
+  interests?: string[]              // 用户兴趣偏好列表（可选），如 ['自然风光', '摄影采风']
+  budget?: string                   // 预算等级（可选），可选值：'low'（经济）、'medium'（舒适）、'high'（豪华）、'economy'、'comfort'、'luxury'
+  days?: number                     // 旅行天数（可选），范围 1-30
 }
 
 /**
@@ -168,7 +171,11 @@ export async function detectIntent(
 
   console.log('[InspirationBackendAPI] 意图识别请求:', {
     url,
-    input: request.input.substring(0, 50) + '...'
+    input: request.input.substring(0, 50) + '...',
+    hasInterests: !!request.interests,
+    interestsCount: request.interests?.length || 0,
+    budget: request.budget,
+    days: request.days
   })
 
   try {

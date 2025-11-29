@@ -1566,13 +1566,14 @@ onMounted(async () => {
 
 .expense-list-title {
   font-weight: 600;
-  font-size: 0.95rem;
-  color: #333;
+  font-size: 1rem;
+  color: #1a1a1a;
 }
 
 .expense-count {
-  font-size: 0.85rem;
-  color: #999;
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
 }
 
 .expense-empty {
@@ -1587,12 +1588,18 @@ onMounted(async () => {
 }
 
 .expense-item {
-  padding: 0.5rem 0;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.expense-item:last-child {
+  border-bottom: none;
 }
 
 .expense-title {
-  font-weight: 500;
-  color: #333;
+  font-weight: 600;
+  color: #1a1a1a;
+  font-size: 0.95rem;
 }
 
 .expense-meta {
@@ -1600,17 +1607,19 @@ onMounted(async () => {
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.25rem;
+  flex-wrap: wrap;
 }
 
 .expense-date {
-  font-size: 0.8rem;
-  color: #999;
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
 }
 
 .expense-amount {
   font-weight: 600;
   color: #1890ff;
-  font-size: 1rem;
+  font-size: 1.05rem;
 }
 
 :deep(.ant-list-item-action) {
@@ -1650,8 +1659,9 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.8rem;
-  color: #999;
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
   margin-left: 0.5rem;
 }
 </style>

@@ -667,6 +667,7 @@ export default {
       // POI search related
       searchNearby: 'Search Nearby',
       searchCategory: 'Search Category',
+      searchPlaceholder: 'Enter keywords to search (e.g., cafe, museum, park, etc.)',
       gasStation: 'Gas Station',
       evCharging: 'EV Charging Station',
       restArea: 'Rest Area',
@@ -809,6 +810,9 @@ export default {
   // Planner Mode
   planner: {
     title: '✈️ Have a Plan',
+    heroTitle: 'Plan Your Dream Trip',
+    heroSubtitle: 'Tell us what you love, and we\'ll handle the rest.',
+    needInspiration: 'I need inspiration',
     step1: {
       title: '✈️ Where do you want to go?',
       description: 'Tell me your destination, and I\'ll customize the itinerary for you',
@@ -850,6 +854,7 @@ export default {
     days: 'day(s)',
     step5: {
       title: '❤️ Preference Type?',
+      label: 'Interests',
       description: 'Choose the type of travel you are interested in, and I will focus on arranging relevant activities',
       placeholder: 'Select your interests/preferences'
     },
@@ -865,7 +870,11 @@ export default {
       nature: 'Natural Scenery',
       shopping: 'Shopping & Entertainment',
       adventure: 'Adventure Experience',
-      leisure: 'Leisure Vacation'
+      leisure: 'Leisure Vacation',
+      art: 'Art & Museums',
+      photography: 'Photography',
+      nightlife: 'Nightlife',
+      family: 'Family Friendly'
     },
     travelRythm: {
       fast: 'Fast Pace',
@@ -973,5 +982,25 @@ export default {
     hint: {
       title: 'AI Inspiration Assistant'
     }
+  },
+
+  // AI Travel Assistant
+  travelAssistant: {
+    title: 'Nara Private Butler',
+    subtitle: 'Expert-level Route Planning Support',
+    inputPlaceholder: 'What can I help you optimize?',
+    defaultWelcome: 'Hello. I am your chief travel butler. How can I help you?',
+    fallbackWelcome: 'Hello. I am your chief travel butler. I have thoroughly analyzed the complete itinerary data for your trip to {destination}. How can I help you?',
+    defaultError: 'Sorry, I cannot answer this question at the moment. Please try again later.',
+    errorNoAccess: 'You do not have access to the AI assistant feature for this itinerary.',
+    errorNotFound: 'Itinerary not found. Please refresh the page and try again.',
+    errorGeneric: 'Sorry, I encountered some issues. Please try again later.',
+    modificationConfirmTitle: 'Confirm Modifications',
+    modificationConfirmMessage: 'Nara suggests the following modifications:',
+    modificationConfirm: 'Confirm',
+    modificationProgress: 'Executing modifications ({current}/{total})...',
+    modificationSuccess: 'Successfully completed {count} modification(s)',
+    modificationPartialSuccess: 'Completed {success} modification(s), {fail} failed',
+    modificationError: 'Failed to process modification suggestions'
   }
 }

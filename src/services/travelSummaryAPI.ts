@@ -142,13 +142,35 @@ export function convertItineraryToSummaryRequest(
   destination: string,
   totalCost?: number
 ): GenerateTravelSummaryRequest {
-  // 根据后端验证规则，activities 中不应该包含 time, title, type, notes 等字段
-  // 根据错误信息，后端可能期望 activities 为空数组，或者不包含这些字段
-  // 暂时发送空数组，如果后端需要其他格式，再调整
+  // 将前端的 timeSlots 转换为后端期望的 activities 格式
   const days: ItineraryDay[] = itineraryData.days.map((day) => ({
     day: day.day,
     date: day.date,
-    activities: [] // 后端验证不接受 activities 中的字段，暂时发送空数组
+    activities: (day.timeSlots || []).map((slot) => {
+      // 映射活动类型：前端类型 -> 后端类型
+      let backendType: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean' = 'attraction'
+      const slotType = (slot.type || '').toLowerCase()
+      if (slotType === 'restaurant' || slotType === 'meal') {
+        backendType = 'meal'
+      } else if (slotType === 'accommodation' || slotType === 'hotel') {
+        backendType = 'hotel'
+      } else if (slotType === 'shopping') {
+        backendType = 'shopping'
+      } else if (slotType === 'transport') {
+        backendType = 'transport'
+      } else if (slotType === 'ocean') {
+        backendType = 'ocean'
+      } else {
+        backendType = 'attraction'
+      }
+
+      return {
+        time: slot.time || '',
+        title: slot.title || slot.activity || '',
+        type: backendType,
+        notes: slot.details?.notes || slot.details?.description?.scenicIntro || ''
+      }
+    })
   }))
 
   return {

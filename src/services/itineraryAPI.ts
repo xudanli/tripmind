@@ -6,12 +6,135 @@
 import { API_CONFIG } from '@/config/api'
 import { authenticatedFetch, handleApiError } from './authAPI'
 
+/**
+ * AI助手聊天请求
+ */
+export interface AssistantChatRequest {
+  message: string
+  conversationId?: string
+  language?: 'zh-CN' | 'en-US'
+}
+
+/**
+ * 修改建议数据结构
+ */
+export interface ModificationSuggestion {
+  type: 'modify' | 'add' | 'delete' | 'reorder'
+  target: {
+    day?: number           // 天数（1-based）
+    dayId?: string         // 天数ID
+    activityId?: string    // 活动ID
+    slotId?: string        // 时间段ID（前端使用）
+  }
+  changes?: {               // 修改内容（用于 modify 类型）
+    time?: string
+    title?: string
+    type?: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+    duration?: number
+    location?: { lat: number; lng: number }
+    notes?: string
+    cost?: number
+  }
+  newActivity?: {           // 新活动数据（用于 add 类型）
+    time: string
+    title: string
+    type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+    duration: number
+    location: { lat: number; lng: number }
+    notes?: string
+    cost?: number
+  }
+  newOrder?: string[]       // 新的活动顺序（用于 reorder 类型）
+  reason?: string           // 修改原因（给用户看的说明）
+}
+
+/**
+ * AI助手聊天响应
+ */
+export interface AssistantChatResponse {
+  success: boolean
+  response: string
+  conversationId: string
+  message: string
+  modifications?: ModificationSuggestion[]  // 修改建议（可选）
+}
+
+/**
+ * 与行程AI助手对话
+ * @param journeyId 行程ID
+ * @param request 聊天请求
+ * @returns AI助手完整响应（包含回复和conversationId）
+ */
+export async function chatWithAssistant(
+  journeyId: string,
+  request: AssistantChatRequest
+): Promise<AssistantChatResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/assistant/chat`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] AI助手聊天请求:', {
+    url,
+    journeyId,
+    messageLength: request.message.length,
+    hasConversationId: !!request.conversationId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: request.message,
+        conversationId: request.conversationId,
+        language: request.language || 'zh-CN'
+      })
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: AssistantChatResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error(apiData.message || 'AI助手回复失败')
+    }
+
+    console.log('[ItineraryAPI] AI助手聊天成功:', {
+      responseLength: apiData.response.length,
+      conversationId: apiData.conversationId
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] AI助手聊天失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
 const baseUrl = (API_CONFIG.BASE_URL || '').replace(/\/$/, '')
 
 const buildUrl = (endpoint: string) => {
   if (!endpoint.startsWith('/')) return endpoint
   if (!baseUrl) return endpoint
   return `${baseUrl}${endpoint}`
+}
+
+/**
+ * 意图识别数据（可选，用于增强行程生成）
+ */
+export interface IntentData {
+  intentType: string
+  keywords: string[]
+  emotionTone: string
+  description: string
+  confidence?: number
 }
 
 /**
@@ -26,6 +149,7 @@ export interface GenerateItineraryRequest {
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
   startDate: string // YYYY-MM-DD
+  intent?: IntentData // 可选的意图识别数据，用于增强行程生成
 }
 
 /**
@@ -121,8 +245,8 @@ export function convertAPIResponseToFrontendFormat(
     // 如果后端返回的是 timeSlots，直接使用（新格式）
     if (day.timeSlots && Array.isArray(day.timeSlots)) {
       return {
-        day: day.day,
-        date: day.date,
+    day: day.day,
+    date: day.date,
         timeSlots: day.timeSlots  // 后端已返回统一格式，直接使用
       }
     }
@@ -134,16 +258,16 @@ export function convertAPIResponseToFrontendFormat(
         day: day.day,
         date: day.date,
         timeSlots: day.activities.map((activity) => ({
-          time: activity.time,
-          title: activity.title,
-          activity: activity.title, // 使用 title 作为 activity
-          type: activity.type,
+      time: activity.time,
+      title: activity.title,
+      activity: activity.title, // 使用 title 作为 activity
+      type: activity.type,
           coordinates: activity.location || activity.coordinates,
           notes: activity.notes || '',
-          details: {
+      details: {
             notes: activity.notes || '',
             description: activity.notes || ''
-          },
+      },
           cost: activity.cost || 0,
           duration: activity.duration || 60
         }))
@@ -202,10 +326,16 @@ export async function generateItinerary(
 
   try {
     // 清理请求数据：移除空数组和未定义的字段
-    const cleanedRequest: GenerateItineraryRequest = {
+    const cleanedRequest: any = {
       destination: request.destination,
       days: request.days,
       startDate: request.startDate
+    }
+    
+    // 如果存在意图信息，添加到请求中（后端可能支持也可能不支持，但不影响主流程）
+    if (request.intent) {
+      cleanedRequest.intent = request.intent
+      log(`🎯 包含意图信息: ${request.intent.intentType} (置信度: ${Math.round((request.intent.confidence || 0) * 100)}%)`)
     }
 
     // 处理 preferences：只包含有值的字段
@@ -389,9 +519,21 @@ export async function enrichItineraryWithLocationInfo(
     slotIndex: number
   }> = []
 
+  // 收集所有需要获取位置信息的活动（只收集缺少位置信息的活动）
   itineraryData.days.forEach((day, dayIndex) => {
     day.timeSlots.forEach((slot, slotIndex) => {
       if (slot.coordinates && slot.title && slot.type) {
+        const details = slot.details || {}
+        // 检查是否已有完整的位置信息
+        const hasLocationInfo = (
+          (details.tripAdvisorId && details.location) || 
+          (details.location && details.address) ||
+          (details.coordinates && details.name) ||
+          (details.pricing && details.pricing.detail && details.address)
+        )
+        
+        // 只对缺少位置信息的活动进行生成
+        if (!hasLocationInfo) {
         activities.push({
           activityName: slot.title,
           destination,
@@ -400,14 +542,17 @@ export async function enrichItineraryWithLocationInfo(
           dayIndex,
           slotIndex
         })
+        }
       }
     })
   })
 
   if (activities.length === 0) {
-    log('没有需要获取位置信息的活动')
+    log('所有活动都已包含位置信息，无需生成')
     return itineraryData
   }
+  
+  log(`发现 ${activities.length} 个活动需要获取位置信息（共 ${itineraryData.days.reduce((sum, day) => sum + day.timeSlots.length, 0)} 个活动）`)
 
   log(`准备获取 ${activities.length} 个活动的位置信息...`)
 
@@ -1919,6 +2064,91 @@ export interface DeleteSlotResponse {
   message: string
 }
 
+/**
+ * 重新排序活动请求参数
+ */
+export interface ReorderSlotsRequest {
+  activityIds: string[]  // 新的活动ID顺序
+}
+
+/**
+ * 重新排序活动响应
+ */
+export interface ReorderSlotsResponse {
+  success: boolean
+  message: string
+}
+
+/**
+ * 重新排序指定天数的活动
+ * @param journeyId 行程ID
+ * @param dayId 天数ID
+ * @param request 重新排序请求
+ * @returns 排序结果
+ */
+export async function reorderSlots(
+  journeyId: string,
+  dayId: string,
+  request: ReorderSlotsRequest
+): Promise<ReorderSlotsResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/days/${dayId}/slots/reorder`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 重新排序活动:', {
+    url,
+    journeyId,
+    dayId,
+    activityIdsCount: request.activityIds.length
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ItineraryAPI] 重新排序活动失败:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      })
+      
+      try {
+        const errorData = JSON.parse(errorText)
+        throw new Error(errorData.message || `重新排序活动失败: ${response.status} ${response.statusText}`)
+      } catch {
+        throw new Error(`重新排序活动失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: ReorderSlotsResponse = await response.json()
+
+    console.log('[ItineraryAPI] 重新排序活动成功:', {
+      journeyId,
+      dayId,
+      success: result.success
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 重新排序活动失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      dayId,
+      request
+    })
+    throw error
+  }
+}
+
 export async function deleteSlot(
   journeyId: string,
   dayId: string,
@@ -3348,6 +3578,100 @@ export async function generateSafetyNotice(
     return result.data
   } catch (error: any) {
     console.error('[ItineraryAPI] 生成安全提示失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId,
+      request: requestBody
+    })
+    throw error
+  }
+}
+
+/**
+ * 生成每日概要相关接口
+ */
+
+/**
+ * 生成每日概要请求参数
+ */
+export interface GenerateDailySummariesRequest {
+  day?: number // 指定要生成概要的日期（第几天），如果不提供则生成所有天的概要
+}
+
+/**
+ * 每日概要数据
+ */
+export interface DailySummary {
+  day: number
+  date: string // YYYY-MM-DD格式
+  summary: string // 每日概要内容（80-120字）
+  generatedAt: string // ISO 8601格式
+}
+
+/**
+ * 生成每日概要响应
+ */
+export interface GenerateDailySummariesResponse {
+  success: boolean
+  journeyId: string
+  destination: string
+  data: DailySummary[]
+  message?: string
+}
+
+/**
+ * 生成每日概要
+ * @param journeyId 行程ID
+ * @param request 生成请求参数
+ * @returns 每日概要列表
+ */
+export async function generateDailySummaries(
+  journeyId: string,
+  request: GenerateDailySummariesRequest = {}
+): Promise<DailySummary[]> {
+  const endpoint = `/v1/journeys/${journeyId}/daily-summaries`
+  const url = buildUrl(endpoint)
+
+  const requestBody: GenerateDailySummariesRequest = {}
+  if (request.day !== undefined) {
+    requestBody.day = request.day
+  }
+
+  console.log('[ItineraryAPI] 生成每日概要:', {
+    url,
+    journeyId,
+    request: requestBody
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GenerateDailySummariesResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error(result.message || '生成每日概要失败')
+    }
+
+    console.log('[ItineraryAPI] 生成每日概要成功:', {
+      journeyId,
+      summaryCount: result.data.length,
+      destination: result.destination
+    })
+
+    return result.data
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 生成每日概要失败:', {
       error: error.message,
       stack: error.stack,
       url,

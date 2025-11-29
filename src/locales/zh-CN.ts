@@ -751,6 +751,7 @@ export default {
       // POI搜索相关
       searchNearby: '搜索附近',
       searchCategory: '搜索类别',
+      searchPlaceholder: '输入关键词搜索（如：咖啡厅、博物馆、公园等）',
       gasStation: '加油站',
       evCharging: '充电桩',
       restArea: '休息站',
@@ -889,6 +890,9 @@ export default {
   // Planner 模式
   planner: {
     title: '✈️ 已有计划',
+    heroTitle: '规划你的梦想之旅',
+    heroSubtitle: '告诉我们你的喜好，剩下的交给我们',
+    needInspiration: '我需要灵感',
     step1: {
       title: '✈️ 你要去哪？',
       description: '告诉我你的目的地，我会为你量身定制行程',
@@ -930,6 +934,7 @@ export default {
     days: '天',
     step5: {
       title: '❤️ 偏好类型？',
+      label: '兴趣',
       description: '选择你感兴趣的旅行类型，我会重点安排相关活动',
       placeholder: '选择你的兴趣偏好'
     },
@@ -945,7 +950,11 @@ export default {
       nature: '自然风光',
       shopping: '购物娱乐',
       adventure: '冒险体验',
-      leisure: '休闲度假'
+      leisure: '休闲度假',
+      art: '艺术与博物馆',
+      photography: '摄影',
+      nightlife: '夜生活',
+      family: '家庭友好'
     },
     travelRythm: {
       fast: '快节奏',
@@ -1053,5 +1062,25 @@ export default {
     hint: {
       title: 'AI 灵感助手'
     }
+  },
+
+  // AI旅行助手
+  travelAssistant: {
+    title: 'Nara 私人管家',
+    subtitle: '专家级路线规划支持',
+    inputPlaceholder: '请问有什么可以帮您优化?',
+    defaultWelcome: '您好。我是您的首席旅行管家nara。请问有什么可以帮您的吗？',
+    fallbackWelcome: '您好。我是您的首席旅行管家nara。已为您深入分析了前往{destination}的全套行程数据。请问有什么可以帮您的吗？',
+    defaultError: '抱歉，我暂时无法回答这个问题，请稍后再试。',
+    errorNoAccess: '您无权访问此行程的AI助手功能。',
+    errorNotFound: '行程不存在，请刷新页面重试。',
+    errorGeneric: '抱歉，我遇到了一些问题，请稍后再试。',
+    modificationConfirmTitle: '确认执行修改',
+    modificationConfirmMessage: 'Nara 建议进行以下修改：',
+    modificationConfirm: '确认执行',
+    modificationProgress: '正在执行修改 ({current}/{total})...',
+    modificationSuccess: '成功完成 {count} 项修改',
+    modificationPartialSuccess: '完成 {success} 项修改，{fail} 项失败',
+    modificationError: '处理修改建议失败'
   }
 }

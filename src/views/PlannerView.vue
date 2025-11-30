@@ -276,13 +276,16 @@ const decreaseTravelers = () => {
 
 
 // 验证是否可以提交
+// 注意：根据新文档，destination 是可选的，系统会自动推荐
 const canSubmit = computed(() => {
-  return formData.value.destination && 
-         formData.value.destination.trim().length > 0 &&
-         formData.value.days &&
-             formData.value.days >= 1 && 
-             formData.value.days <= 30 &&
-         formData.value.preferences?.budget
+  return formData.value.days &&
+         formData.value.days >= 1 && 
+         formData.value.days <= 30 &&
+         formData.value.startDate &&
+         // 至少需要提供目的地、意图信息或偏好兴趣之一
+         (formData.value.destination?.trim() || 
+          formData.value.preferences?.interests?.length > 0 ||
+          formData.value.preferences?.budget)
 })
 
 // 移除旧的步骤相关代码，直接使用 handleSubmit
@@ -342,7 +345,8 @@ const handleSubmit = async () => {
           totalCost: (itineraryData as any).totalCost || 0,
           summary: (itineraryData as any).summary || '',
           title: `${formData.value.destination}之旅`,
-          preferences: formData.value.preferences
+          preferences: formData.value.preferences,
+          practicalInfo: (itineraryData as any).practicalInfo
         },
         startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
       }

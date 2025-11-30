@@ -8,7 +8,7 @@
             <a-form-item label="目的地">
               <a-input 
                 v-model:value="demoForm.destination" 
-                placeholder="例如：日本东京"
+                placeholder="例如：中国杭州"
                 size="large"
               />
             </a-form-item>

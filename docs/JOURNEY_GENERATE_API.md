@@ -332,7 +332,5 @@ if (result.success) {
 
 ## 相关接口
 
-- [意图识别接口](./INSPIRATION_API.md#1-意图识别接口) - `POST /api/inspiration/detect-intent`
-- [目的地推荐接口](./INSPIRATION_API.md#2-目的地推荐接口) - `POST /api/inspiration/recommend-destinations`
 - [创建行程接口](./COMPLETE_BACKEND_API_REQUIREMENTS.md#1-创建行程) - `POST /api/v1/journeys`
 

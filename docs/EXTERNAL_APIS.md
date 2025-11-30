@@ -5,7 +5,7 @@
 ---
 
 ## 1. OpenAI Chat Completions
-- **用途**：灵感模式与 Planner 模式调用 LLM（默认 `gpt-4o-mini`）生成行程框架、每日详情、提示语等。
+- **用途**：Planner 模式调用 LLM（默认 `gpt-4o-mini`）生成行程框架、每日详情、提示语等。
 - **端点**：`POST https://api.openai.com/v1/chat/completions`
 - **环境变量**：`VITE_OPENAI_API_KEY`（可选 `VITE_OPENAI_PROXY_BASE` 指向中转服务）
 - **控制台输出**：若网络/代理异常，会出现 `net::ERR_PROXY_CONNECTION_FAILED` 或 `OpenAI API call failed`。

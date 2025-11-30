@@ -12,7 +12,7 @@
 
 Planner 模式在生成行程前，会：
 1. 从用户填写的结构化表单数据构建自然语言描述
-2. 调用意图识别接口（`POST /api/inspiration/detect-intent`）获取意图信息
+2. 调用意图识别服务（`intentService.ts`）获取意图信息
 3. 将意图信息作为上下文传递给行程生成接口
 
 ### 优势
@@ -31,7 +31,7 @@ Planner 模式在生成行程前，会：
   ↓
 构建自然语言描述："我想去京都，计划5天，舒适型预算，喜欢自然风光、美食探店..."
   ↓
-调用意图识别接口：POST /api/inspiration/detect-intent
+调用意图识别服务：intentService.detectIntent()
   { input: "我想去京都...", language: "zh-CN" }
   ↓
 获取意图信息：
@@ -317,9 +317,7 @@ try {
 ## 🔗 相关文档
 
 - [生成旅行行程接口详细文档](./JOURNEY_GENERATE_API.md) - 完整的接口文档，包含请求/响应格式、错误处理、使用示例等
-- [三种模式对比文档](./MODES_COMPARISON.md) - 对比 Planner、Inspiration、Seeker 三种模式的接口差异
 - [后端接口需求完整文档](./COMPLETE_BACKEND_API_REQUIREMENTS.md) - 所有后端接口的汇总文档
-- [意图识别接口文档](./INSPIRATION_API.md) - 意图识别接口的详细说明
 
 ---
 

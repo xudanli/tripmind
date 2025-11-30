@@ -26,22 +26,7 @@
 | 获取行程天数 | GET | `/api/v1/journeys/{journeyId}/days` | ✅ 已实现 | `itineraryAPI.ts:getJourneyDays` |
 | 创建行程天数 | POST | `/api/v1/journeys/{journeyId}/days` | ✅ 已实现 | `itineraryAPI.ts:createJourneyDays` |
 
-### 三、Inspiration 模式接口（/api/inspiration）
-
-| 接口 | 方法 | 路径 | 实现状态 | 实现位置 |
-|------|------|------|---------|---------|
-| 意图识别 | POST | `/api/inspiration/detect-intent` | ✅ 已实现 | `inspirationBackendAPI.ts:detectIntent` |
-| 目的地推荐 | POST | `/api/inspiration/recommend-destinations` | ✅ 已实现 | `inspirationBackendAPI.ts:recommendDestinations` |
-| 生成行程 | POST | `/api/inspiration/generate-itinerary` | ✅ 已实现 | `inspirationBackendAPI.ts:generateItinerary` |
-| 天数提取 | POST | `/api/inspiration/extract-days` | ✅ 已实现 | `inspirationBackendAPI.ts:extractDays` |
-
-### 四、Seeker 模式接口（/api/seeker）
-
-| 接口 | 方法 | 路径 | 实现状态 | 实现位置 |
-|------|------|------|---------|---------|
-| 生成行程 | POST | `/api/seeker/generate-travel-plan` | ✅ 已实现 | `seekerBackendAPI.ts:generateSeekerTravelPlan` |
-
-### 五、外部数据接口（/api/external, /api/v1）
+### 三、外部数据接口（/api/external, /api/v1）
 
 | 接口 | 方法 | 路径 | 实现状态 | 实现位置 |
 |------|------|------|---------|---------|
@@ -144,12 +129,10 @@
 |---------|--------|--------|--------|--------|
 | 行程管理 | 6 | 6 | 0 | 100% |
 | Days 管理 | 2 | 2 | 0 | 100% |
-| Inspiration 模式 | 4 | 4 | 0 | 100% |
-| Seeker 模式 | 1 | 1 | 0 | 100% |
 | 外部数据 | 3 | 3 | 0 | 100% |
 | 预算管理 | 4 | 4 | 0 | 100% |
 | 成员管理 | 6 | 6 | 0 | 100% |
-| **总计** | **26** | **26** | **0** | **100%** |
+| **总计** | **21** | **21** | **0** | **100%** |
 
 ---
 
@@ -161,11 +144,9 @@
 
 1. ✅ **行程管理接口** - 6个接口全部完成
 2. ✅ **Days 管理接口** - 2个接口全部完成
-3. ✅ **Inspiration 模式接口** - 4个接口全部完成
-4. ✅ **Seeker 模式接口** - 1个接口全部完成
-5. ✅ **外部数据接口** - 3个接口全部完成
-6. ✅ **预算管理接口** - 4个接口全部完成
-7. ✅ **成员管理接口** - 6个接口全部完成（包括邀请验证）
+3. ✅ **外部数据接口** - 3个接口全部完成
+4. ✅ **预算管理接口** - 4个接口全部完成
+5. ✅ **成员管理接口** - 6个接口全部完成（包括邀请验证）
 
 ### 实现质量
 

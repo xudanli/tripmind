@@ -204,13 +204,19 @@
             />
           </div>
 
-          <!-- 开始日期（自动设置为今天，隐藏显示） -->
-          <div class="form-section" style="display: none;">
+          <!-- 开始日期 -->
+          <div class="form-section">
+            <label class="form-label">
+              <calendar-outlined class="label-icon" />
+              开始日期
+            </label>
             <a-date-picker
               :value="formData.startDate ? dayjs(formData.startDate) : dayjs()"
               @update:value="(value) => travelStore.setPlannerData({ startDate: value ? value.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })"
               size="large"
               style="width: 100%"
+              :placeholder="'请选择开始日期'"
+              :disabled-date="(current) => current && current < dayjs().startOf('day')"
             />
           </div>
 

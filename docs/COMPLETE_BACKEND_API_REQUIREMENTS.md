@@ -29,12 +29,10 @@
 |---------|--------|--------|--------|--------|
 | 行程管理 | 6 | 6 | 0 | 100% |
 | Days 管理 | 2 | 2 | 0 | 100% |
-| Inspiration 模式 | 4 | 4 | 0 | 100% |
-| Seeker 模式 | 1 | 1 | 0 | 100% |
 | 外部数据 | 3 | 3 | 0 | 100% |
 | 预算管理 | 5 | 5 | 0 | 100% |
 | 成员管理 | 6 | 6 | 0 | 100% |
-| **总计** | **27** | **27** | **0** | **100%** |
+| **总计** | **22** | **22** | **0** | **100%** |
 
 ---
 
@@ -81,7 +79,7 @@ interface CreateItineraryRequest {
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
   status?: 'draft' | 'published' | 'archived'
-  mode?: 'planner' | 'seeker' | 'inspiration'
+  mode?: 'planner'
 }
 ```
 
@@ -123,7 +121,7 @@ interface CreateItineraryResponse {
 
 **查询参数：**
 - `status?: 'draft' | 'published' | 'archived'`
-- `mode?: 'planner' | 'seeker' | 'inspiration'`
+- `mode?: 'planner'`
 - `page?: number`
 - `limit?: number`
 
@@ -214,7 +212,7 @@ interface GenerateItineraryResponse {
 **说明：**
 - `destination` 字段为可选，如果不提供，系统会根据 `intent`、`preferences.interests` 等信息自动推荐目的地
 - `intent` 字段为可选，如果提供，后端可以利用意图信息优化行程生成
-- 意图信息由前端通过意图识别接口（`POST /api/inspiration/detect-intent`）获取
+- 意图信息由前端通过意图识别服务获取（`intentService.ts`）
 - 如果后端不支持 `intent` 字段，会忽略该字段，不影响正常流程
 - 后端可以利用 `intent` 信息：
   - 在生成提示词中加入意图类型和关键词
@@ -240,45 +238,7 @@ interface GenerateItineraryResponse {
 
 ---
 
-## 三、Inspiration 模式接口（✅ 已全部实现）
-
-### 1. 意图识别
-
-**接口路径：** `POST /api/inspiration/detect-intent`
-
-**优先级：** ⭐⭐ 推荐
-
-### 2. 目的地推荐
-
-**接口路径：** `POST /api/inspiration/recommend-destinations`
-
-**优先级：** ⭐⭐ 推荐
-
-### 3. 生成行程
-
-**接口路径：** `POST /api/inspiration/generate-itinerary`
-
-**优先级：** ⭐⭐⭐ 必须
-
-### 4. 天数提取
-
-**接口路径：** `POST /api/inspiration/extract-days`
-
-**优先级：** ⭐ 可选
-
----
-
-## 四、Seeker 模式接口（✅ 已全部实现）
-
-### 1. 生成行程
-
-**接口路径：** `POST /api/seeker/generate-travel-plan`
-
-**优先级：** ⭐⭐⭐ 必须
-
----
-
-## 五、外部数据接口（✅ 已全部实现）
+## 三、外部数据接口（✅ 已全部实现）
 
 ### 1. 搜索目的地
 

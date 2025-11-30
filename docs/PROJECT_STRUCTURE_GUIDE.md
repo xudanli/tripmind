@@ -29,8 +29,8 @@
 | `stores/` | Pinia 状态管理（旅程列表、用户信息、i18n 等）。 |
 | `assets/` | 全局样式、图片等静态资源。 |
 | `components/` | 业务组件库：<br>• `TravelDetail/` 行程详情页组件（核心逻辑在 `ExperienceDay.vue`）<br>• `TravelDetail/TaskList.vue` 任务清单<br>• `TravelDetail/ExperienceDay/TimeSlotCard.vue` 行程卡片等 |
-| `views/` | 页面级组件（与路由对应，如 `InspirationView.vue`、`TravelDetailView.vue`）。 |
-| `services/` | 与外部世界交互的模块：<br>• `journeyService.ts` 行程生成 orchestrator<br>• `journey/` 子目录拆分框架/日程/交通/Tips 生成<br>• `deepseekAPI.ts`、`openaiAPI.ts` LLM 调用封装<br>• `locationInsights.ts`（Mapbox）、`eventInsights.ts`（Eventbrite）<br>• `guidesAPI.ts` 等指南/拓展服务 |
+| `views/` | 页面级组件（与路由对应，如 `PlannerView.vue`、`TravelDetailView.vue`）。 |
+| `services/` | 与外部世界交互的模块：<br>• `itineraryAPI.ts` 行程生成和管理 API<br>• `deepseekAPI.ts`、`openaiAPI.ts` LLM 调用封装<br>• `locationAPI.ts` 位置信息生成 API<br>• `locationInsights.ts`（Mapbox）、`eventInsights.ts`（Eventbrite）<br>• `externalAPI.ts` 外部数据 API |
 | `utils/` | 通用工具：`preparationChecklist.ts`（目的地准备任务）、`geocode.ts`、`travelConstants.ts` 等。 |
 | `prompts/` | LLM 提示词模板，按业务拆分。 |
 | `llm/` | LLM 客户端封装。 |
@@ -50,7 +50,6 @@
 | `TRAVEL_GUIDES_API.md` | 旅行攻略聚合服务说明。 |
 | `EXTERNAL_APIS.md`、`external-integrations.md` | 外部平台集成与环境变量说明。 |
 | `PROMPT_USAGE_GUIDE.md` | LLM 提示词设计规范。 |
-| `inspiration-mode-flow.md` | 灵感模式流程、调用数据流。 |
 | `TEST_GUIDE.md` | 测试策略建议。 |
 
 公开给业务或 QA 使用的文档副本保存在 `public/docs/` 中，可直接通过开发服务器访问。

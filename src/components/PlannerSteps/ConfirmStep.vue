@@ -119,7 +119,8 @@ const handleSubmit = async () => {
             })),
             totalCost: (itineraryData as any).totalCost || 0,
             summary: (itineraryData as any).summary || '',
-            title: (itineraryData as any).title || `${formData.value.destination}之旅`
+            title: (itineraryData as any).title || `${formData.value.destination}之旅`,
+            practicalInfo: (itineraryData as any).practicalInfo
           },
           startDate: formData.value.startDate || new Date().toISOString().split('T')[0]
         }

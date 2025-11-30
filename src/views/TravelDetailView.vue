@@ -139,6 +139,13 @@
             :country-code="destinationCountry"
             class="sidebar-block"
           />
+
+          <!-- 实用信息 -->
+          <PracticalInfoCard
+            v-if="travel?.data?.itineraryData?.practicalInfo"
+            :practical-info="travel.data.itineraryData.practicalInfo"
+            class="sidebar-block"
+          />
         </aside>
       </div>
     </div>
@@ -172,6 +179,7 @@ import InspirationHero from '@/components/TravelDetail/InspirationHero.vue'
 import PersonaJourneySidebar from '@/components/TravelDetail/PersonaJourneySidebar.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
 import SafetyNoticeCard from '@/components/TravelDetail/SafetyNoticeCard.vue'
+import PracticalInfoCard from '@/components/TravelDetail/PracticalInfoCard.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
 import { getVisaInfo, analyzeMultiDestinationVisa, extractAllDestinationCountries } from '@/config/visa'
 import { PRESET_COUNTRIES } from '@/constants/countries'

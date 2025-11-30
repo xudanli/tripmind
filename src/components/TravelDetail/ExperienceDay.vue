@@ -395,11 +395,11 @@
             </div>
             
             <div class="edit-form-item">
-              <label class="edit-form-label">备注</label>
+              <label class="edit-form-label">活动描述</label>
               <a-textarea
                 v-model:value="editingData.notes" 
                 :rows="4"
-                placeholder="备注"
+                placeholder="活动描述"
               />
             </div>
           </a-collapse-panel>

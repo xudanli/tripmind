@@ -2,10 +2,8 @@
 import { defineStore } from 'pinia'
 import { ref, onUnmounted } from 'vue'
 import i18n from '@/i18n'
-import emotionalTravelAPI from '@/services/emotionalTravelAPI'
-import type { EmotionDetectionRequest, TravelPlanRequest, FeedbackRequest } from '@/services/emotionalTravelAPI'
 // plannerAPI 已删除
-import { subscribeLogEvents, LogLevel } from '@/utils/inspiration/core/logger'
+// inspiration/core/logger 已删除
 import { type InspirationVideo } from '@/services/pexelsAPI'
 import { searchVideo } from '@/services/mediaAPI'
 import { getCachedMedia, setCachedMedia } from '@/utils/mediaCache'
@@ -267,7 +265,7 @@ export interface ItineraryData {
 }
 
 // -------------------- Helpers --------------------
-let unsubscribeLogEvents: (() => void) | null = null
+// unsubscribeLogEvents 已删除（inspiration/core/logger 已删除）
 
 function safeStr(v: unknown, fallback = ''): string {
   const s = (v ?? '').toString().trim()
@@ -291,6 +289,7 @@ interface HighlightSource {
 
 interface GenerateInspirationOptions {
   selectedDestination?: string
+  mode?: 'full' | 'candidates'  // 添加 mode 属性
 }
 
 const MAX_VIDEOS_PER_INSPIRATION = 6
@@ -420,23 +419,11 @@ export const useTravelStore = defineStore('travel', () => {
     generationLogs.value = []
   }
 
-  // Subscribe once, provide disposer
-  if (!unsubscribeLogEvents) {
-    unsubscribeLogEvents = subscribeLogEvents(event => {
-      if (event.namespace && !event.namespace.includes('adapter')) return
-      const level: 'info' | 'warn' | 'error' =
-        event.level === LogLevel.ERROR ? 'error' :
-        event.level === LogLevel.WARN ? 'warn' : 'info'
-      pushGenerationLog(event.message, level, event.timestamp)
-    })
-  }
+  // Subscribe once, provide disposer（已删除，inspiration/core/logger 已删除）
 
   // Expose disposer & ensure GC on unmount
   function dispose() {
-    if (unsubscribeLogEvents) {
-      unsubscribeLogEvents()
-      unsubscribeLogEvents = null
-    }
+    // unsubscribeLogEvents 已删除
   }
   onUnmounted(dispose)
 
@@ -450,11 +437,10 @@ export const useTravelStore = defineStore('travel', () => {
   const setError = (message: string | null) => { error.value = message }
   // planner 相关函数已删除
 
-  // Local inspiration DB
+  // Local inspiration DB（已删除，改用后端接口）
   async function getLocalInspirationDestinations(params?: { country?: string; stage?: any; keyword?: string }): Promise<Array<{ name: string; country: string }>> {
-    const { listDestinations } = await import('@/utils/inspirationDb')
-    const list = listDestinations(params as any)
-    return list.map(d => ({ name: d.name, country: d.country }))
+    // inspirationDb 已删除
+    return []
   }
 
   function buildInspirationFromLocal(name: string): InspirationData {
@@ -482,46 +468,13 @@ export const useTravelStore = defineStore('travel', () => {
   // ---------- Mapping helpers ----------
   // planner 相关函数已删除
 
-  function toItineraryFromSeeker(aiData: any, mood: MoodData, intent: any): ItineraryData {
-    const days = arr<any>(aiData?.data?.itinerary)
-    const itinerary = days.map((day, index) => ({
-      day: day?.day || index + 1,
-      title: safeStr(day?.title, `第${day?.day || index + 1}天`),
-      activities: arr<any>(day?.activities).map((a) => ({
-        time: safeStr(a?.time, '待定'),
-        activity: safeStr(a?.activity || a?.name),
-        type: safeStr(a?.type, '观光')
-      }))
-    }))
-
-    return {
-      destination: safeStr(aiData?.data?.destination, '未知目的地'),
-      duration: Number.isFinite(aiData?.data?.duration) ? aiData.data.duration : 5,
-      budget: mood.budget,
-      preferences: getPreferencesByMood(mood.currentMood),
-      travelStyle: 'slow',
-      itinerary,
-      recommendations: {
-        accommodation: safeStr(aiData?.data?.recommendations?.accommodation, '推荐当地特色住宿'),
-        transportation: safeStr(aiData?.data?.recommendations?.transportation, '建议使用当地交通工具'),
-        food: safeStr(aiData?.data?.recommendations?.food, '品尝当地特色美食'),
-        tips: safeStr(aiData?.data?.recommendations?.tips, '注意当地文化和习俗')
-      },
-      detectedIntent: {
-        intentType: safeStr(intent?.intentType, 'seeker'),
-        keywords: arr<string>(intent?.keywords),
-        emotionTone: safeStr(intent?.emotionTone, 'healing'),
-        description: safeStr(intent?.description, '疗愈型旅行体验')
-      }
-    }
-  }
 
   // 使用 Planner API 生成行程
-  const generateItinerary = async (mode: 'planner' | 'seeker', intentData?: any) => {
+  const generateItinerary = async (mode: 'planner', intentData?: any) => {
     if (isRunning.value) return // 避免并发重复点击
     isRunning.value = true
     clearGenerationLogs()
-    pushGenerationLog(mode === 'planner' ? '🚀 开始生成 Planner 智能行程...' : '🚀 开始生成 Seeker 心情行程...')
+    pushGenerationLog('🚀 开始生成 Planner 智能行程...')
     setLoading(true)
     setError(null)
     
@@ -600,6 +553,10 @@ export const useTravelStore = defineStore('travel', () => {
         ;(generatedData as any).totalCost = apiResponse.totalCost
         ;(generatedData as any).summary = apiResponse.summary
         ;(generatedData as any).title = apiResponse.title
+        // 保存 practicalInfo（如果后端返回）
+        if ((apiResponse as any).practicalInfo) {
+          ;(generatedData as any).practicalInfo = (apiResponse as any).practicalInfo
+        }
         
         // 如果有意图识别数据，也存储到生成的行程数据中
         if (intentData) {
@@ -613,99 +570,7 @@ export const useTravelStore = defineStore('travel', () => {
           pushGenerationLog('💾 意图信息已保存到行程数据中')
         }
       } else {
-        // Seeker 模式：优先使用后端API，失败时回退到前端实现
-        const USE_BACKEND_API = import.meta.env.VITE_USE_SEEKER_BACKEND_API !== 'false' // 默认启用
-        
-        const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
-        const userContext = `${safeStr(moodData.value.currentMood)} ${safeStr(moodData.value.desiredExperience)}`
-        
-        // 获取用户上下文信息
-        const { getUserLocationCode, getUserNationalityCode } = await import('@/config/userProfile')
-        const userCountry = getUserLocationCode() || undefined
-        const userNationality = getUserNationalityCode() || undefined
-        
-        if (USE_BACKEND_API) {
-          try {
-            // 调用后端 Seeker API
-            const { generateSeekerTravelPlan } = await import('@/services/seekerBackendAPI')
-            pushGenerationLog('📡 调用后端API生成 Seeker 旅行计划...')
-            
-            const backendResult = await generateSeekerTravelPlan({
-              currentMood: moodData.value.currentMood,
-              desiredExperience: moodData.value.desiredExperience,
-              budget: moodData.value.budget,
-              duration: moodData.value.duration,
-              language: currentLanguage,
-              userCountry: userCountry || undefined,
-              userNationality: userNationality || undefined
-            })
-            
-            pushGenerationLog(`✅ 后端API生成成功，共 ${backendResult.duration} 天行程`)
-            
-            // 将后端响应转换为 ItineraryData 格式
-            const days = backendResult.itinerary || []
-            const itinerary = days.map((day) => ({
-              day: day.day,
-              title: day.title || `第${day.day}天`,
-              activities: (day.activities || []).map((a) => ({
-                time: a.time,
-                activity: a.activity,
-                type: a.type
-              }))
-            }))
-            
-            generatedData = {
-              destination: backendResult.destination,
-              duration: backendResult.duration,
-              budget: moodData.value.budget,
-              preferences: getPreferencesByMood(moodData.value.currentMood),
-              travelStyle: 'slow',
-              itinerary,
-              recommendations: {
-                accommodation: backendResult.recommendations?.accommodation || '推荐当地特色住宿',
-                transportation: backendResult.recommendations?.transportation || '建议使用当地交通工具',
-                food: backendResult.recommendations?.food || '品尝当地特色美食',
-                tips: backendResult.recommendations?.tips || '注意当地文化和习俗'
-              },
-              detectedIntent: backendResult.detectedIntent ? {
-                intentType: backendResult.detectedIntent.intentType,
-                keywords: backendResult.detectedIntent.keywords || [],
-                emotionTone: backendResult.detectedIntent.emotionTone,
-                description: backendResult.detectedIntent.description
-              } : {
-                intentType: 'seeker',
-                keywords: [],
-                emotionTone: moodData.value.currentMood,
-                description: '疗愈型旅行体验'
-              }
-            }
-            
-            // 保存完整的后端响应数据（用于后续保存到数据库）
-            ;(generatedData as any).backendResponse = backendResult
-          } catch (error: any) {
-            console.warn('⚠️ Seeker 后端API调用失败，使用前端实现:', error.message)
-            pushGenerationLog('⚠️ 后端API调用失败，使用前端实现...')
-            // Fallback to frontend implementation
-          }
-        }
-        
-        // 如果后端API未启用或调用失败，使用前端实现
-        if (!USE_BACKEND_API || !generatedData) {
-          const { detectInspirationIntent } = await import('@/services/deepseekAPI')
-          pushGenerationLog('🧭 正在识别旅行意图...')
-          const intent = await detectInspirationIntent(userContext, currentLanguage)
-          
-          pushGenerationLog('📡 Seeker：正在生成情绪化旅程草稿...')
-          const aiData: any = await emotionalTravelAPI.generateTravelPlan({
-            mood: moodData.value.currentMood,
-            experience: moodData.value.desiredExperience,
-            budget: moodData.value.budget,
-            duration: moodData.value.duration
-          } as any)
-          
-          pushGenerationLog(`✅ Seeker：行程草稿已生成，AI 返回 ${Array.isArray(aiData?.data?.itinerary) ? aiData.data.itinerary.length : 0} 天数据`)
-          generatedData = toItineraryFromSeeker(aiData, moodData.value, intent)
-        }
+        throw new Error('不支持的生成模式')
       }
       
       setItineraryData(generatedData)
@@ -721,8 +586,8 @@ export const useTravelStore = defineStore('travel', () => {
     }
   }
 
-  // 生成心理旅程（基于问卷）
-  const generatePsychologicalJourney = async (personalityProfile: any, selectedDestination?: string) => {
+  // 生成心理旅程（已删除，改用后端接口）
+  const _generatePsychologicalJourney_removed = async (personalityProfile: any, selectedDestination?: string) => {
     if (isRunning.value) return
     isRunning.value = true
     clearGenerationLogs()
@@ -1132,18 +997,14 @@ export const useTravelStore = defineStore('travel', () => {
       if (autoDestinationAfterRun) {
         const nextDestination = autoDestinationAfterRun
         autoDestinationAfterRun = null
-        setTimeout(() => {
-          generateInspirationForDestination(nextDestination).catch((error) => {
-            console.error('自动生成详细行程失败:', error)
-            pushGenerationLog('⚠️ 自动生成详细行程失败，请手动重试', 'warn')
-          })
-        })
+        // generateInspirationForDestination 已删除
+        console.warn('自动生成详细行程功能已禁用')
       }
     }
   }
 
   // 提交反馈（静默失败）
-  const generateInspirationForDestination = async (destination: string) => {
+  const _generateInspirationForDestination_removed = async (destination: string) => {
     const baseInput = lastInspirationInput.value
     const normalizedDestination = safeStr(destination)
     if (!baseInput) {
@@ -1163,7 +1024,8 @@ export const useTravelStore = defineStore('travel', () => {
         timestamp: new Date().toISOString(),
         rating
       }
-      await emotionalTravelAPI.submitFeedback(feedbackData as any)
+      // emotionalTravelAPI 已删除，反馈功能暂时禁用
+      console.log('反馈提交功能已禁用:', feedbackData)
     } catch (err) {
       console.error('反馈提交失败:', err)
     }
@@ -1223,9 +1085,6 @@ export const useTravelStore = defineStore('travel', () => {
     setError,
     clearGenerationLogs,
     generateItinerary,
-    generateInspiration,
-    generateInspirationForDestination,
-    generatePsychologicalJourney,
     getLocalInspirationDestinations,
     submitFeedback,
     resetData,

@@ -73,7 +73,6 @@ if (query) {
     limit: 1
   })
   const video = result.data[0] || null
-  // 需要将 VideoInfo 转换为 InspirationVideo 格式（如果需要）
 }
 ```
 
@@ -112,64 +111,6 @@ const imageUrl = result.data[0]?.url || null
 
 ---
 
-### 2. 灵感模式视频加载 - `travel.ts` (store)
-
-#### 位置: 为灵感模式丰富视频内容
-
-**文件**: `src/stores/travel.ts`  
-**行数**: 338  
-**当前实现**:
-```typescript
-const results = await searchPexelsVideos(query, { perPage: 1, orientation: 'landscape' })
-video = results?.[0] ?? null
-```
-
-**当前使用的函数**: `searchPexelsVideos` from `@/services/pexelsAPI.ts`  
-**应该改为**: 使用 `searchVideo` from `@/services/mediaAPI.ts`
-
-**迁移方案**:
-```typescript
-import { searchVideo } from '@/services/mediaAPI'
-
-const result = await searchVideo({
-  query: query,
-  provider: 'pexels',
-  limit: 1
-})
-
-// 需要将 VideoInfo 转换为 InspirationVideo 格式
-const video = result.data[0] ? convertVideoInfoToInspiration(result.data[0]) : null
-```
-
-**注意**: 需要创建一个转换函数，将 `VideoInfo` 转换为 `InspirationVideo` 格式。
-
----
-
-## 数据格式转换
-
-### VideoInfo → InspirationVideo
-
-需要创建一个转换函数：
-
-```typescript
-import { VideoInfo } from '@/services/mediaAPI'
-import { InspirationVideo } from '@/services/pexelsAPI'
-
-function convertVideoInfoToInspiration(videoInfo: VideoInfo): InspirationVideo {
-  return {
-    id: videoInfo.id,
-    downloadUrl: videoInfo.url,
-    thumbnailUrl: videoInfo.thumbnailUrl || '',
-    width: videoInfo.width,
-    height: videoInfo.height,
-    duration: videoInfo.duration,
-    description: videoInfo.description || '',
-    photographer: videoInfo.photographer || '',
-    photographerUrl: videoInfo.sourceUrl || ''
-  }
-}
-```
-
 ### ImageInfo → 图片 URL
 
 新接口返回的 `ImageInfo` 已经包含 `url` 字段，直接使用即可：
@@ -199,9 +140,6 @@ const thumbnailUrl = imageInfo.thumbnailUrl || imageInfo.url // 使用缩略图�
    - 影响：活动预览中的视频
    - 用户影响：中
 
-4. ⚠️ **travel.ts - 灵感模式视频** (位置 4)
-   - 影响：灵感模式的视频内容
-   - 用户影响：中
 
 ---
 
@@ -225,11 +163,6 @@ import { generateSearchQuery } from '@/services/unsplashAPI' // 保留用于生�
 
 ```typescript
 import { VideoInfo, ImageInfo } from '@/services/mediaAPI'
-import { InspirationVideo } from '@/services/pexelsAPI'
-
-export function convertVideoInfoToInspiration(videoInfo: VideoInfo): InspirationVideo {
-  // 转换逻辑
-}
 
 export function convertImageInfoToUrl(imageInfo: ImageInfo, size: 'small' | 'regular' | 'full' = 'regular'): string {
   // 根据 size 返回合适的 URL
@@ -302,7 +235,6 @@ async function getActivityImageWithFallback(slot: any, destination?: string) {
 - [ ] 视频搜索功能正常
 - [ ] 图片预览模态框正常
 - [ ] 活动卡片封面图片正常显示
-- [ ] 灵感模式视频正常加载
 - [ ] 错误处理正常（API 不可用时的降级）
 - [ ] 性能无明显下降
 

@@ -144,7 +144,7 @@ async function selectImageForActivity(activityName: string, destination: string)
 const media = await selectImageForActivity('埃菲尔铁塔', '巴黎')
 ```
 
-### 场景：搜索视频用于灵感模式
+### 场景：搜索视频用于目的地
 
 ```typescript
 import { searchVideo } from '@/services/mediaAPI'

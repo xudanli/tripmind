@@ -198,30 +198,25 @@
         </div>
       </div>
 
-      <!-- Section 3: 游览建议 + 无障碍设施（体验好不好） -->
-      <div class="time-slot__detail-section time-slot__detail-section--grid" v-if="slot.details?.recommendations?.visitTips || slot.details?.accessibility">
-        <div class="time-slot__detail-grid">
-          <!-- 左列：游览建议 -->
-          <div class="time-slot__detail-grid-item" v-if="slot.details?.recommendations?.visitTips">
-            <h4 class="time-slot__detail-section-title">
-              <span class="time-slot__detail-section-icon">🌟</span>
-              {{ t('travelDetail.experienceDay.visitTips') }}
-            </h4>
-            <div class="time-slot__visit-tips-text">
-              {{ slot.details.recommendations.visitTips }}
-            </div>
-          </div>
+      <!-- Section 3: 最佳游览时间和注意事项 -->
+      <div class="time-slot__detail-section" v-if="slot.details?.recommendations?.visitTips">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">🌟</span>
+          {{ t('travelDetail.experienceDay.visitTips') }}
+        </h4>
+        <div class="time-slot__visit-tips-text">
+          {{ slot.details.recommendations.visitTips }}
+        </div>
+      </div>
 
-          <!-- 右列：无障碍设施 -->
-          <div class="time-slot__detail-grid-item" v-if="slot.details?.accessibility">
-            <h4 class="time-slot__detail-section-title">
-              <span class="time-slot__detail-section-icon">♿</span>
-              {{ t('travelDetail.experienceDay.accessibility') }}
-            </h4>
-            <div class="time-slot__accessibility-text">
-              {{ slot.details.accessibility }}
-            </div>
-          </div>
+      <!-- Section 4: 无障碍设施 -->
+      <div class="time-slot__detail-section" v-if="slot.details?.accessibility">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">♿</span>
+          {{ t('travelDetail.experienceDay.accessibility') }}
+        </h4>
+        <div class="time-slot__accessibility-text">
+          {{ slot.details.accessibility }}
         </div>
       </div>
     </div>

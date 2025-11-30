@@ -45,7 +45,7 @@
             </div>
           </div>
           <div class="message-bubble message-bubble-assistant">
-            <div class="message-content">{{ message.content }}</div>
+            <div class="message-content" v-html="renderMarkdown(message.content)"></div>
           </div>
         </template>
 
@@ -116,7 +116,8 @@ import {
   deleteSlot, 
   reorderSlots,
   type ModificationSuggestion,
-  getItineraryDetail
+  getItineraryDetail,
+  getConversationHistory
 } from '@/services/itineraryAPI'
 import {
   MessageOutlined,
@@ -154,13 +155,251 @@ const userInitial = computed(() => {
   return (user?.nickname || user?.name || user?.email || 'U').charAt(0).toUpperCase()
 })
 
+// Markdown渲染函数（支持加粗、列表、箭头、链接等）
+const renderMarkdown = (text: string): string => {
+  if (!text) return ''
+  
+  let html = text
+  
+  // 1. 转义HTML特殊字符（防止XSS，但保留已生成的HTML标签）
+  // 先标记已处理的链接和格式，避免重复处理
+  const placeholders: Record<string, string> = {}
+  let placeholderIndex = 0
+  
+  // 2. 先处理链接 [text](url)
+  const linkPattern = new RegExp('\\[([^\\]]+)\\]\\(([^)]+)\\)', 'g')
+  html = html.replace(linkPattern, (match, text, url) => {
+    const key = `__LINK_${placeholderIndex++}__`
+    // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+    const ampPattern = new RegExp('&', 'g')
+    const ltPattern = new RegExp('<', 'g')
+    const gtPattern = new RegExp('>', 'g')
+    const escapedUrl = url.replace(ampPattern, '&amp;').replace(ltPattern, '&lt;').replace(gtPattern, '&gt;')
+    placeholders[key] = '<a href="' + escapedUrl + '" target="_blank" rel="noopener noreferrer" class="markdown-link">' + text + '</a>'
+    return key
+  })
+  
+  // 3. 转义剩余的HTML特殊字符
+  // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+  const ampPattern2 = new RegExp('&', 'g')
+  const ltPattern2 = new RegExp('<', 'g')
+  const gtPattern2 = new RegExp('>', 'g')
+  html = html
+    .replace(ampPattern2, '&amp;')
+    .replace(ltPattern2, '&lt;')
+    .replace(gtPattern2, '&gt;')
+  
+  // 4. 恢复链接
+  Object.keys(placeholders).forEach(key => {
+    const placeholder = placeholders[key]
+    if (placeholder) {
+      html = html.replace(key, placeholder)
+    }
+  })
+  
+  // 5. 处理加粗 **text** 或 __text__
+  const boldPattern1 = new RegExp('\\*\\*(.+?)\\*\\*', 'g')
+  const boldPattern2 = new RegExp('__(.+?)__', 'g')
+  html = html.replace(boldPattern1, '<strong>$1</strong>')
+  html = html.replace(boldPattern2, '<strong>$1</strong>')
+  
+  // 6. 处理箭头符号（→ 或 ->）
+  const arrowPattern1 = new RegExp('→', 'g')
+  const arrowPattern2 = new RegExp('->', 'g')
+  html = html.replace(arrowPattern1, '<span class="markdown-arrow">→</span>')
+  html = html.replace(arrowPattern2, '<span class="markdown-arrow">→</span>')
+  
+  // 7. 处理直接URL（不在链接中的，避免重复处理）
+  // 使用字符串替换方法，避免使用不支持的负向后顾断言
+  // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+  const urlPattern = new RegExp('https?:\\/\\/[^\\s<>"\']+', 'g')
+  const urlMatches: Array<{ url: string; index: number }> = []
+  let match
+  
+  // 先收集所有URL的位置（使用原始html）
+  const originalHtml = html
+  while ((match = urlPattern.exec(originalHtml)) !== null) {
+    const url = match[0]
+    const index = match.index
+    
+    // 检查这个URL是否已经在链接标签内
+    const beforeUrl = originalHtml.substring(0, index)
+    const lastATag = beforeUrl.lastIndexOf('<a')
+    const lastATagClose = beforeUrl.lastIndexOf('</a>') // eslint-disable-line no-useless-escape
+    
+    // 如果最近的 <a> 标签没有关闭，说明这个URL已经在链接内，跳过
+    if (lastATag <= lastATagClose) {
+      urlMatches.push({ url, index })
+    }
+  }
+  
+  // 从后往前替换，避免索引偏移问题
+  for (let i = urlMatches.length - 1; i >= 0; i--) {
+    const match = urlMatches[i]
+    if (match) {
+      const { url, index } = match
+      // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+      const ampPattern3 = new RegExp('&', 'g')
+      const ltPattern3 = new RegExp('<', 'g')
+      const gtPattern3 = new RegExp('>', 'g')
+      const quotPattern = new RegExp('"', 'g')
+      const escapedUrl = url.replace(ampPattern3, '&amp;').replace(ltPattern3, '&lt;').replace(gtPattern3, '&gt;').replace(quotPattern, '&quot;')
+      const link = '<a href="' + escapedUrl + '" target="_blank" rel="noopener noreferrer" class="markdown-link">' + escapedUrl + '</a>'
+      html = html.substring(0, index) + link + html.substring(index + url.length)
+    }
+  }
+  
+  // 8. 处理无序列表（- 或 * 开头，行首）
+  const lines = html.split('\n')
+  const processedLines: string[] = []
+  let inList = false
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line !== undefined) {
+      // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+      const listPattern = new RegExp('^(\\s*)[-*]\\s+(.+)$')
+      const listMatch = line.match(listPattern)
+      
+      if (listMatch && listMatch[2]) {
+        if (!inList) {
+          processedLines.push('<ul>')
+          inList = true
+        }
+        processedLines.push(`<li>${listMatch[2]}</li>`)
+      } else {
+        if (inList) {
+          processedLines.push('</ul>')
+          inList = false
+        }
+        processedLines.push(line)
+      }
+    }
+  }
+  
+  if (inList) {
+    processedLines.push('</ul>')
+  }
+  
+  html = processedLines.join('\n')
+  
+  // 9. 处理换行（\n 转换为 <br>，但列表项内的换行保持）
+  // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+  // 避免在正则表达式中直接使用 </ 标签，改用字符类
+  const listTagOpen = '<[uo]l>'
+  const listTagClose = '</[uo]l>'
+  const listItemTag = '<li>'
+  const newlinePattern = new RegExp('\\n(?!' + listTagOpen + '|' + listTagClose + '|' + listItemTag + ')', 'g')
+  html = html.replace(newlinePattern, '<br>')
+  
+  return html
+}
+
+// 获取行程ID的辅助函数
+const getJourneyId = (): string | null => {
+  // 使用 RegExp 构造函数避免 Vue 编译器解析问题
+  const uuidPattern = new RegExp('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'i')
+  const isUUID = props.travelId && uuidPattern.test(props.travelId)
+  
+  if (isUUID) {
+    return props.travelId
+  } else {
+    const travel = getTravel()
+    return travel?.data?.backendItineraryId || travel?.id || props.travelId || null
+  }
+}
+
+// 获取本地存储的conversationId
+const getStoredConversationId = (): string | null => {
+  const journeyId = getJourneyId()
+  if (!journeyId) return null
+  
+  try {
+    const stored = localStorage.getItem(`assistant_conversation_${journeyId}`)
+    return stored || null
+  } catch (error) {
+    console.warn('[TravelAssistant] 读取本地存储失败:', error)
+    return null
+  }
+}
+
+// 保存conversationId到本地存储
+const saveConversationId = (id: string) => {
+  const journeyId = getJourneyId()
+  if (!journeyId) return
+  
+  try {
+    localStorage.setItem(`assistant_conversation_${journeyId}`, id)
+    conversationId.value = id
+  } catch (error) {
+    console.warn('[TravelAssistant] 保存本地存储失败:', error)
+  }
+}
+
+// 加载对话历史
+const loadConversationHistory = async (journeyId: string, convId: string) => {
+  try {
+    console.log('[TravelAssistant] 加载对话历史:', { journeyId, conversationId: convId })
+    
+    const history = await getConversationHistory(journeyId, convId)
+    
+    if (history.success && history.messages && history.messages.length > 0) {
+      // 将历史消息转换为Message格式
+      const historyMessages: Message[] = history.messages
+        .sort((a, b) => a.sequence - b.sequence) // 按序号排序
+        .map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          isOwn: msg.role === 'user',
+          timestamp: typeof msg.createdAt === 'string' 
+            ? new Date(msg.createdAt).getTime() 
+            : msg.createdAt instanceof Date 
+            ? msg.createdAt.getTime() 
+            : Date.now()
+        }))
+      
+      // 添加到消息列表
+      messages.value = historyMessages
+      
+      console.log('[TravelAssistant] 对话历史加载成功:', historyMessages.length, '条消息')
+      
+      return true
+    }
+    
+    return false
+  } catch (error: any) {
+    console.warn('[TravelAssistant] 加载对话历史失败:', error)
+    // 静默失败，不影响正常使用
+    return false
+  }
+}
+
 // 打开助手
 const openAssistant = async () => {
   isOpen.value = true
-  // 如果没有消息，从后端获取欢迎消息
+  
+  // 如果没有消息，尝试加载历史或获取欢迎消息
   if (messages.value.length === 0) {
+    const journeyId = getJourneyId()
+    const storedConvId = getStoredConversationId()
+    
+    // 如果有存储的conversationId，尝试加载历史
+    if (journeyId && storedConvId) {
+      const loaded = await loadConversationHistory(journeyId, storedConvId)
+      if (loaded) {
+        // 历史加载成功，恢复conversationId
+        conversationId.value = storedConvId
+        nextTick(() => {
+          scrollToBottom()
+        })
+        return
+      }
+    }
+    
+    // 如果没有历史或加载失败，获取欢迎消息
     await fetchWelcomeMessage()
   }
+  
   nextTick(() => {
     scrollToBottom()
   })
@@ -173,7 +412,7 @@ const closeAssistant = () => {
 
 // 获取 travel 对象的辅助函数
 const getTravel = () => {
-  if (!props.travelId) return null
+  if (!props.travelId) return undefined
   
   // 首先尝试直接获取
   let travel = travelListStore.getTravel(props.travelId)
@@ -184,7 +423,7 @@ const getTravel = () => {
     travel = allTravels.find(t => 
       t.id === props.travelId || 
       t.data?.backendItineraryId === props.travelId
-    ) || null
+    ) || undefined
   }
   
   return travel
@@ -193,17 +432,7 @@ const getTravel = () => {
 // 从后端获取欢迎消息
 const fetchWelcomeMessage = async () => {
   try {
-    // 获取行程ID
-    const isUUID = props.travelId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(props.travelId)
-    
-    let journeyId: string | null = null
-    
-    if (isUUID) {
-      journeyId = props.travelId
-    } else {
-      const travel = getTravel()
-      journeyId = travel?.data?.backendItineraryId || travel?.id || props.travelId || null
-    }
+    const journeyId = getJourneyId()
     
     if (!journeyId) {
       console.warn('[TravelAssistant] 无法获取行程ID，使用默认欢迎消息')
@@ -221,12 +450,13 @@ const fetchWelcomeMessage = async () => {
     // 调用后端接口获取欢迎消息（发送空消息或特殊初始化消息）
     const aiResponse = await chatWithAssistant(journeyId, {
       message: '', // 空消息表示获取欢迎消息
-      language: 'zh-CN'
+      language: 'zh-CN',
+      conversationId: conversationId.value || undefined // 如果有存储的conversationId，使用它
     })
 
     // 保存conversationId用于后续对话
     if (aiResponse.conversationId) {
-      conversationId.value = aiResponse.conversationId
+      saveConversationId(aiResponse.conversationId)
     }
     
     // 添加欢迎消息
@@ -281,20 +511,7 @@ const handleSend = async () => {
   isLoading.value = true
 
   try {
-    // 获取行程ID
-    // 优先使用 props.travelId（如果它是 UUID 格式，说明是 backendItineraryId）
-    const isUUID = props.travelId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(props.travelId)
-    
-    let journeyId: string | null = null
-    
-    if (isUUID) {
-      // 如果 travelId 是 UUID 格式，直接使用它作为 journeyId
-      journeyId = props.travelId
-    } else {
-      // 否则尝试从 travel 对象中获取
-      const travel = getTravel()
-      journeyId = travel?.data?.backendItineraryId || travel?.id || props.travelId || null
-    }
+    const journeyId = getJourneyId()
     
     if (!journeyId) {
       throw new Error('无法获取行程ID')
@@ -309,7 +526,7 @@ const handleSend = async () => {
 
     // 保存conversationId用于多轮对话
     if (aiResponse.conversationId) {
-      conversationId.value = aiResponse.conversationId
+      saveConversationId(aiResponse.conversationId)
     }
     
     // 添加AI回复
@@ -680,8 +897,45 @@ watch(() => messages.value.length, () => {
     .message-item .message-bubble .message-content {
       font-size: 14px;
       line-height: 1.6;
-      white-space: pre-wrap;
       word-wrap: break-word;
+      
+      /* Markdown样式 */
+      :deep(strong) {
+        font-weight: 600;
+        color: #0f172a;
+      }
+      
+      :deep(em) {
+        font-style: italic;
+      }
+      
+      :deep(ul), :deep(ol) {
+        margin: 8px 0;
+        padding-left: 24px;
+      }
+      
+      :deep(li) {
+        margin: 4px 0;
+        line-height: 1.6;
+      }
+      
+      :deep(.markdown-link) {
+        color: #1890ff;
+        text-decoration: none;
+        border-bottom: 1px solid rgba(24, 144, 255, 0.3);
+        transition: all 0.2s;
+      }
+      
+      :deep(.markdown-link:hover) {
+        color: #40a9ff;
+        border-bottom-color: #40a9ff;
+      }
+      
+      :deep(.markdown-arrow) {
+        color: #1890ff;
+        font-weight: 500;
+        margin: 0 4px;
+      }
     }
 
     .message-item .message-bubble .typing-indicator {

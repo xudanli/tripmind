@@ -60,6 +60,28 @@ export interface AssistantChatResponse {
 }
 
 /**
+ * 对话消息结构
+ */
+export interface ConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  sequence: number
+  metadata?: Record<string, unknown>
+  createdAt: Date | string
+}
+
+/**
+ * 对话历史响应
+ */
+export interface ConversationHistoryResponse {
+  success: boolean
+  conversationId: string
+  messages: ConversationMessage[]
+  totalCount: number
+}
+
+/**
  * 与行程AI助手对话
  * @param journeyId 行程ID
  * @param request 聊天请求
@@ -104,12 +126,66 @@ export async function chatWithAssistant(
 
     console.log('[ItineraryAPI] AI助手聊天成功:', {
       responseLength: apiData.response.length,
-      conversationId: apiData.conversationId
+      conversationId: apiData.conversationId,
+      hasModifications: !!(apiData.modifications && apiData.modifications.length > 0)
     })
 
     return apiData
   } catch (error: any) {
     console.error('[ItineraryAPI] AI助手聊天失败:', {
+      error: error.message,
+      stack: error.stack,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 获取对话历史
+ * @param journeyId 行程ID
+ * @param conversationId 对话ID
+ * @returns 对话历史消息列表
+ */
+export async function getConversationHistory(
+  journeyId: string,
+  conversationId: string
+): Promise<ConversationHistoryResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/assistant/conversations/${conversationId}/history`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取对话历史请求:', {
+    url,
+    journeyId,
+    conversationId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: ConversationHistoryResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取对话历史失败')
+    }
+
+    console.log('[ItineraryAPI] 获取对话历史成功:', {
+      conversationId: apiData.conversationId,
+      messageCount: apiData.totalCount
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取对话历史失败:', {
       error: error.message,
       stack: error.stack,
       url
@@ -141,14 +217,14 @@ export interface IntentData {
  * API 请求参数
  */
 export interface GenerateItineraryRequest {
-  destination: string
+  destination?: string // 可选：如果不提供，系统会根据其他信息自动推荐目的地
   days: number
+  startDate: string // YYYY-MM-DD
   preferences?: {
     interests?: string[]
     budget?: 'low' | 'medium' | 'high'
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
-  startDate: string // YYYY-MM-DD
   intent?: IntentData // 可选的意图识别数据，用于增强行程生成
 }
 
@@ -161,6 +237,8 @@ export interface GenerateItineraryResponse {
     days: ItineraryDay[]
     totalCost: number
     summary: string
+    /** 实用信息（可选） */
+    practicalInfo?: PracticalInfo
   }
   generatedAt: string
 }
@@ -169,7 +247,8 @@ export interface ItineraryDay {
   id?: string // 天数ID（可选，后端可能返回）
   day: number
   date: string // YYYY-MM-DD
-  activities: Activity[]
+  activities?: Activity[] // 旧格式（兼容）
+  timeSlots?: any[] // 新格式（统一使用 timeSlots）
 }
 
 export interface Activity {
@@ -182,9 +261,16 @@ export interface Activity {
     lat: number
     lng: number
   }
-  notes: string
+  coordinates?: { // 兼容字段（与 location 相同）
+    lat: number
+    lng: number
+  }
+  notes: string // ≥80字，包含具体怎么做、体验过程、行动细节
   cost: number
   details?: {
+    highlights?: string[] // 活动核心亮点（2-3个）
+    insiderTip?: string // 行家视角的私房建议
+    bookingSignal?: string // 预约要求说明
     [key: string]: any
   }
 }
@@ -204,6 +290,8 @@ export interface FrontendItineraryData {
     symbol: string
     name: string
   }
+  /** 实用信息（可选）：天气、安全、插座、汇率、文化禁忌、打包清单等 */
+  practicalInfo?: PracticalInfo
 }
 
 export interface FrontendItineraryDay {
@@ -325,9 +413,48 @@ export async function generateItinerary(
   log('发起行程生成请求...')
 
   try {
+    let finalDestination = request.destination
+    
+    // 如果没有提供目的地，根据其他信息自动推荐
+    if (!finalDestination) {
+      log('未提供目的地，开始推荐目的地...')
+      
+      // 构建推荐请求的输入文本
+      const recommendationInput = [
+        request.intent?.description || '',
+        request.intent?.keywords?.join(' ') || '',
+        request.preferences?.interests?.join(' ') || '',
+        `${request.days}天旅行`
+      ].filter(Boolean).join(' ')
+      
+      if (!recommendationInput.trim()) {
+        throw new Error('无法推荐目的地：请至少提供目的地、意图信息或偏好兴趣之一')
+      }
+      
+      try {
+        const { recommendDestinations } = await import('@/services/inspirationBackendAPI')
+        const recommendationResult = await recommendDestinations({
+          input: recommendationInput,
+          limit: 1,
+          language: 'zh-CN'
+        })
+        
+        if (recommendationResult.locations && recommendationResult.locations.length > 0) {
+          // locations 是 string[] 格式
+          finalDestination = recommendationResult.locations[0]
+          log(`✅ 自动推荐目的地: ${finalDestination}`)
+        } else {
+          throw new Error('无法推荐目的地：推荐结果为空')
+        }
+      } catch (error: any) {
+        console.error('[ItineraryAPI] 目的地推荐失败:', error)
+        throw new Error(`无法推荐目的地：${error.message || '请提供目的地或更多信息'}`)
+      }
+    }
+    
     // 清理请求数据：移除空数组和未定义的字段
     const cleanedRequest: any = {
-      destination: request.destination,
+      destination: finalDestination,
       days: request.days,
       startDate: request.startDate
     }
@@ -338,16 +465,14 @@ export async function generateItinerary(
       log(`🎯 包含意图信息: ${request.intent.intentType} (置信度: ${Math.round((request.intent.confidence || 0) * 100)}%)`)
     }
 
-    // 处理 preferences：只包含有值的字段
-    // 注意：根据后端验证规则，interests 字段不被接受，所以不发送
+    // 处理 preferences：包含所有字段（根据文档，interests 是支持的）
     if (request.preferences) {
       const cleanedPreferences: any = {}
       
-      // 注意：后端不接受 interests 字段，即使文档中标记为可选
-      // 如果需要传递兴趣信息，可能需要通过其他方式（如自定义字段）
-      // if (request.preferences.interests && request.preferences.interests.length > 0) {
-      //   cleanedPreferences.interests = request.preferences.interests
-      // }
+      // 根据文档，interests 字段是支持的
+      if (request.preferences.interests && request.preferences.interests.length > 0) {
+        cleanedPreferences.interests = request.preferences.interests
+      }
       
       // 只有当 budget 存在时才添加
       if (request.preferences.budget) {
@@ -415,23 +540,30 @@ export async function generateItinerary(
 
     log(`行程生成成功，共 ${apiData.data?.days?.length || 0} 天`)
 
-    // 转换为前端格式
-    let frontendData = convertAPIResponseToFrontendFormat(apiData, request.destination)
+    // 转换为前端格式（使用最终确定的目的地）
+    let frontendData = convertAPIResponseToFrontendFormat(apiData, finalDestination || '')
+
+    // 保存 practicalInfo（如果后端返回）
+    if (apiData.data.practicalInfo) {
+      // 将 practicalInfo 保存到 frontendData 中（如果需要在前端显示）
+      // 注意：FrontendItineraryData 接口可能需要扩展以支持 practicalInfo
+      ;(frontendData as any).practicalInfo = apiData.data.practicalInfo
+    }
 
     // 如果需要获取详细位置信息
-    if (enrichWithLocationInfo) {
+    if (enrichWithLocationInfo && finalDestination) {
       log('开始获取活动位置信息...')
-      frontendData = await enrichItineraryWithLocationInfo(frontendData, request.destination, onProgress)
+      frontendData = await enrichItineraryWithLocationInfo(frontendData, finalDestination, onProgress)
       log('位置信息获取完成')
     }
 
     // 如果需要生成旅行摘要
-    if (generateSummary) {
+    if (generateSummary && finalDestination) {
       log('开始生成旅行摘要...')
       try {
         const summary = await generateTravelSummaryForItinerary(
           frontendData,
-          request.destination,
+          finalDestination,
           frontendData.totalCost,
           onProgress
         )
@@ -701,6 +833,24 @@ export async function enrichItineraryWithLocationInfo(
 // ==================== 行程 CRUD 接口 ====================
 
 /**
+ * 实用信息对象
+ */
+export interface PracticalInfo {
+  /** 未来一周天气预报摘要 */
+  weather?: string
+  /** 安全提醒和注意事项 */
+  safety?: string
+  /** 当地插座类型和电压 */
+  plugType?: string
+  /** 当地货币及汇率 */
+  currency?: string
+  /** 文化禁忌和注意事项 */
+  culturalTaboos?: string
+  /** 针对性打包清单 */
+  packingList?: string
+}
+
+/**
  * 创建行程请求参数
  */
 export interface CreateItineraryRequest {
@@ -726,6 +876,8 @@ export interface CreateItineraryRequest {
     }>
     totalCost: number
     summary: string
+    /** 实用信息（可选）：天气、安全、插座、汇率、文化禁忌、打包清单等 */
+    practicalInfo?: PracticalInfo
   }
   preferences?: {
     interests?: string[]
@@ -754,6 +906,8 @@ export interface CreateItineraryResponse {
       budget?: 'low' | 'medium' | 'high'
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
+    /** 实用信息（可选） */
+    practicalInfo?: PracticalInfo
     status: 'draft' | 'published' | 'archived'
     mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
@@ -817,6 +971,8 @@ export interface GetItineraryDetailResponse {
       budget?: 'low' | 'medium' | 'high'
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
+    /** 实用信息（可选） */
+    practicalInfo?: PracticalInfo
     status: 'draft' | 'published' | 'archived'
     mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
@@ -838,6 +994,8 @@ export interface UpdateItineraryRequest {
     budget?: 'low' | 'medium' | 'high'
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
+  /** 实用信息（可选） */
+  practicalInfo?: PracticalInfo
   status?: 'draft' | 'published' | 'archived'
 }
 
@@ -859,6 +1017,8 @@ export interface UpdateItineraryResponse {
       budget?: 'low' | 'medium' | 'high'
       travelStyle?: 'relaxed' | 'moderate' | 'intensive'
     }
+    /** 实用信息（可选） */
+    practicalInfo?: PracticalInfo
     status: 'draft' | 'published' | 'archived'
     mode?: 'planner' | 'seeker' | 'inspiration' // 模式标识
     createdAt: string
@@ -916,6 +1076,8 @@ export interface UpdateJourneyFromFrontendDataRequest {
     totalCost?: number
     summary?: string
     title: string
+    /** 实用信息（可选） */
+    practicalInfo?: PracticalInfo
   }
   tasks?: Array<{
     title: string
@@ -1219,6 +1381,11 @@ export async function updateItinerary(
       }
     }
 
+    // 处理 practicalInfo：实用信息（天气、安全、插座、汇率、文化禁忌、打包清单等）
+    if (request.practicalInfo !== undefined) {
+      cleanedRequest.practicalInfo = request.practicalInfo
+    }
+
     const response = await authenticatedFetch(url, {
       method: 'PATCH',
       headers: {
@@ -1359,7 +1526,9 @@ export function convertFrontendDataToCreateRequest(
     data: {
       days,
       totalCost: frontendData.totalCost,
-      summary: frontendData.summary || ''
+      summary: frontendData.summary || '',
+      // 如果前端数据包含 practicalInfo，则传递到后端
+      practicalInfo: (frontendData as any).practicalInfo
     },
     preferences: cleanedPreferences,
     status
@@ -2629,77 +2798,78 @@ export async function deleteExpense(
 }
 
 /**
- * 从前端数据格式更新行程请求参数
- */
-export interface UpdateJourneyFromFrontendDataRequest {
-  itineraryData: {
-    destination: string
-    duration: number
-    budget?: string
-    preferences?: string[] | {
-      interests?: string[]
-      budget?: 'low' | 'medium' | 'high'
-      travelStyle?: 'relaxed' | 'moderate' | 'intensive'
-    }
-    travelStyle?: string
-    itinerary?: any[]
-    recommendations?: {
-      accommodation?: string
-      transportation?: string
-      food?: string
-      tips?: string
-      [key: string]: any
-    }
-    days: Array<{
-      day: number
-      date: string // YYYY-MM-DD
-      timeSlots: Array<{
-        time: string // HH:MM
-        title: string
-        activity?: string
-        type: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
-        coordinates: { lat: number; lng: number }
-        notes?: string
-        details?: {
-          [key: string]: any
-        }
-        cost?: number
-        duration?: number
-      }>
-    }>
-    totalCost?: number
-    summary?: string
-    title: string
-  }
-  tasks?: Array<{
-    title: string
-    completed?: boolean
-    links?: Array<{
-      label: string
-      url: string
-    }>
-  }>
-  startDate?: string // YYYY-MM-DD
-}
-
-/**
- * 从前端数据格式更新行程响应
- */
-export interface UpdateJourneyFromFrontendDataResponse {
-  success: boolean
-  data: CreateItineraryResponse['data']
-}
-
-/**
  * 从前端数据格式创建行程
+ * 
+ * 接口路径：POST /api/v1/journeys/from-frontend-data
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 接受前端提供的完整行程数据格式（包含 itineraryData 和 tasks），
+ * 自动转换为标准格式并创建行程，包括 days 数组的详细内容。
+ * 
+ * 支持字段：
+ * - itineraryData.practicalInfo: 实用信息（天气、安全、插座、汇率、文化禁忌、打包清单等）
+ * - itineraryData.days[].timeSlots[].details: 活动详细信息（会被保存到数据库）
+ * 
  * @param request 请求参数（前端数据格式）
- * @returns 创建的行程数据
+ * @param options 可选参数
+ * @param options.enrichWithLocationInfo 是否在创建后自动获取活动位置信息（默认 false）
+ * @param options.onProgress 进度回调函数
+ * @returns 创建的行程数据（包含 practicalInfo 字段，如果启用了位置信息获取，还会包含详细的位置信息）
+ * @throws {Error} 参数验证失败、未认证或创建失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * // 基础用法：只创建行程，不获取位置信息
+ * const journey = await createJourneyFromFrontendData({
+ *   itineraryData: {
+ *     destination: '冰岛',
+ *     duration: 5,
+ *     title: '冰岛之旅',
+ *     days: [...],
+ *     practicalInfo: {
+ *       weather: '未来一周以晴天为主',
+ *       safety: '整体安全状况良好',
+ *       plugType: 'Type C/F，220V，50Hz',
+ *       currency: 'ISK（冰岛克朗），1 ISK ≈ 0.05 CNY',
+ *       culturalTaboos: '进入教堂需保持安静',
+ *       packingList: '轻便外套、防滑徒步鞋、防晒用品'
+ *     }
+ *   },
+ *   startDate: '2025-11-24'
+ * })
+ * 
+ * // 高级用法：创建行程后自动获取位置信息
+ * const journeyWithLocation = await createJourneyFromFrontendData({
+ *   itineraryData: {
+ *     destination: '冰岛',
+ *     duration: 5,
+ *     title: '冰岛之旅',
+ *     days: [...]
+ *   },
+ *   startDate: '2025-11-24'
+ * }, {
+ *   enrichWithLocationInfo: true,
+ *   onProgress: (message) => console.log(message)
+ * })
+ * ```
  */
 export async function createJourneyFromFrontendData(
-  request: UpdateJourneyFromFrontendDataRequest
+  request: UpdateJourneyFromFrontendDataRequest,
+  options?: {
+    /** 是否在创建后自动获取活动位置信息（默认 false） */
+    enrichWithLocationInfo?: boolean
+    /** 进度回调函数 */
+    onProgress?: (message: string) => void
+  }
 ): Promise<UpdateJourneyFromFrontendDataResponse['data']> {
   const endpoint = `/v1/journeys/from-frontend-data`
   const url = buildUrl(endpoint)
+  
+  const { enrichWithLocationInfo = false, onProgress } = options || {}
+  const log = (message: string) => {
+    console.log(`[ItineraryAPI] ${message}`)
+    onProgress?.(message)
+  }
 
   // 详细记录请求数据
   const daysCount = request.itineraryData.days?.length || 0
@@ -2821,6 +2991,7 @@ export async function createJourneyFromFrontendData(
     }
 
     // 如果返回的数据中没有 days 或 days 为空，尝试重新获取详情
+    let finalData = apiData.data
     if (!apiData.data.days || apiData.data.days.length === 0 || 
         (apiData.data.days.length > 0 && (apiData.data.days[0]?.activities?.length === 0))) {
       console.log('[ItineraryAPI] 创建接口返回的 days 为空或 activities 为空，尝试重新获取详情...')
@@ -2828,18 +2999,119 @@ export async function createJourneyFromFrontendData(
         const fullDetail = await getItineraryDetail(apiData.data.id)
         console.log('[ItineraryAPI] 重新获取详情成功，days 数量:', fullDetail.days?.length || 0)
         // 合并返回的数据，确保包含完整的 days
-        return {
+        finalData = {
           ...apiData.data,
           days: fullDetail.days || []
         }
       } catch (detailError: any) {
         console.warn('[ItineraryAPI] 重新获取详情失败，使用创建接口返回的数据:', detailError.message)
-        // 如果重新获取失败，返回原始数据
-        return apiData.data
       }
     }
 
-    return apiData.data
+    // 如果需要获取位置信息，在创建行程后自动获取
+    if (enrichWithLocationInfo && finalData.days && finalData.days.length > 0) {
+      log('开始获取活动位置信息...')
+      try {
+        // 将后端返回的数据转换为前端格式
+        const frontendData: FrontendItineraryData = {
+          destination: finalData.destination,
+          days: finalData.days.map(day => ({
+            day: day.day,
+            date: day.date,
+            timeSlots: (day.activities || []).map(activity => ({
+              time: activity.time,
+              title: activity.title || '',
+              type: activity.type as any,
+              coordinates: activity.location,
+              notes: activity.notes || '',
+              details: activity.details || {},
+              cost: activity.cost || 0,
+              duration: activity.duration || 60
+            }))
+          })),
+          totalCost: finalData.totalCost || 0,
+          summary: finalData.summary || '',
+          practicalInfo: finalData.practicalInfo
+        }
+
+        // 获取位置信息
+        const enrichedData = await enrichItineraryWithLocationInfo(
+          frontendData,
+          finalData.destination,
+          onProgress
+        )
+
+        // 将位置信息更新回后端（通过更新接口）
+        if (enrichedData.days && enrichedData.days.length > 0) {
+          log('位置信息获取完成，正在更新到后端...')
+          try {
+            // 构建更新请求，只更新 activities 的 details 字段
+            const updateRequest: UpdateJourneyFromFrontendDataRequest = {
+              itineraryData: {
+                destination: finalData.destination,
+                duration: enrichedData.days.length,
+                title: request.itineraryData.title || `${finalData.destination}之旅`,
+                days: enrichedData.days.map((day, dayIndex) => ({
+                  day: day.day,
+                  date: day.date,
+                  timeSlots: day.timeSlots.map((slot, slotIndex) => {
+                    const originalActivity = finalData.days?.[dayIndex]?.activities?.[slotIndex]
+                    return {
+                      time: slot.time,
+                      title: slot.title || slot.activity || originalActivity?.title || '',
+                      type: (slot.type || 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
+                      coordinates: slot.coordinates || { lat: 0, lng: 0 },
+                      notes: slot.details?.notes || originalActivity?.notes || '',
+                      details: slot.details || {},
+                      cost: slot.cost || originalActivity?.cost || 0,
+                      duration: slot.duration || originalActivity?.duration || 60
+                    }
+                  })
+                })),
+                totalCost: enrichedData.totalCost,
+                summary: enrichedData.summary,
+                practicalInfo: enrichedData.practicalInfo
+              },
+              startDate: finalData.startDate
+            }
+
+            // 调用更新接口
+            await updateJourneyFromFrontendData(finalData.id, updateRequest)
+            log('位置信息已更新到后端')
+
+            // 重新获取更新后的数据
+            const updatedDetail = await getItineraryDetail(finalData.id)
+            return updatedDetail
+          } catch (updateError: any) {
+            console.warn('[ItineraryAPI] 更新位置信息到后端失败:', updateError.message)
+            log('位置信息获取成功，但更新到后端失败，将在前端显示')
+            // 即使更新失败，也返回包含位置信息的数据（前端显示）
+            return {
+              ...finalData,
+              days: enrichedData.days.map(day => ({
+                ...day,
+                activities: day.timeSlots.map(slot => ({
+                  time: slot.time,
+                  title: slot.title,
+                  type: slot.type || 'attraction',
+                  duration: slot.duration || 60,
+                  location: slot.coordinates || { lat: 0, lng: 0 },
+                  notes: slot.details?.notes || '',
+                  cost: slot.cost || 0,
+                  details: slot.details || {}
+                }))
+              }))
+            } as any
+          }
+        }
+      } catch (locationError: any) {
+        console.warn('[ItineraryAPI] 获取位置信息失败:', locationError.message)
+        log('位置信息获取失败，使用基础行程数据')
+        // 位置信息获取失败不影响行程创建，返回基础数据
+      }
+    }
+
+    return finalData
   } catch (error: any) {
     console.error('[ItineraryAPI] 从前端数据格式创建行程失败:', {
       error: error.message,
@@ -2852,9 +3124,48 @@ export async function createJourneyFromFrontendData(
 
 /**
  * 从前端数据格式更新行程
- * @param journeyId 行程ID
+ * 
+ * 接口路径：PATCH /api/v1/journeys/{journeyId}/from-frontend-data
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 接受前端提供的完整行程数据格式（包含 itineraryData 和 tasks），
+ * 自动转换为标准格式并更新行程，包括 days 数组的详细内容。
+ * 
+ * 注意：此接口会完全替换现有的 days 和 activities 数据（先删除再创建），
+ * 请确保提供完整的 days 数组。
+ * 
+ * 支持字段：
+ * - itineraryData.practicalInfo: 实用信息（天气、安全、插座、汇率、文化禁忌、打包清单等）
+ * - itineraryData.days[].timeSlots[].details: 活动详细信息（会被保存到数据库）
+ * 
+ * @param journeyId 行程ID（UUID）
  * @param request 请求参数（前端数据格式）
- * @returns 更新后的行程数据
+ * @returns 更新后的行程数据（包含 practicalInfo 字段）
+ * @throws {Error} 参数验证失败、未认证、行程不存在或更新失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const updatedJourney = await updateJourneyFromFrontendData(
+ *   '04d7126d-219f-49ab-b71a-a595c18d6b8f',
+ *   {
+ *     itineraryData: {
+ *       destination: '冰岛',
+ *       duration: 5,
+ *       title: '冰岛之旅',
+ *       days: [...],
+ *       practicalInfo: {
+ *         weather: '未来一周以晴天为主',
+ *         safety: '整体安全状况良好',
+ *         plugType: 'Type C/F，220V，50Hz',
+ *         currency: 'ISK（冰岛克朗），1 ISK ≈ 0.05 CNY',
+ *         culturalTaboos: '进入教堂需保持安静',
+ *         packingList: '轻便外套、防滑徒步鞋、防晒用品'
+ *       }
+ *     },
+ *     startDate: '2025-11-24'
+ *   }
+ * )
+ * ```
  */
 export async function updateJourneyFromFrontendData(
   journeyId: string,

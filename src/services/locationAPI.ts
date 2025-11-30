@@ -149,6 +149,49 @@ export interface GenerateLocationBatchResponse {
 }
 
 /**
+ * 异步任务状态
+ */
+export type JobStatus = 'waiting' | 'active' | 'completed' | 'failed' | 'delayed' | 'paused' | 'not_found'
+
+/**
+ * 任务状态响应
+ */
+export interface JobStatusData {
+  id: string
+  status: JobStatus
+  progress?: number
+  result?: BatchLocationResult[]  // 任务完成时的结果（包含 activityName 和 locationInfo）
+  error?: string
+  data?: {
+    activities: BatchActivity[]
+  }
+}
+
+/**
+ * 异步批量生成位置信息响应（入队响应）
+ */
+export interface EnqueueLocationBatchResponse {
+  success: boolean
+  jobId: string
+}
+
+/**
+ * 任务状态查询响应
+ */
+export interface JobStatusResponse {
+  success: boolean
+  data: JobStatusData
+}
+
+/**
+ * 任务结果响应
+ */
+export interface JobResultResponse {
+  success: boolean
+  data: BatchLocationResult[]
+}
+
+/**
  * 生成单个活动位置信息
  * 
  * 接口路径：POST /api/location/generate
@@ -288,6 +331,180 @@ export async function generateLocationBatch(
     console.error('[LocationAPI] 批量位置信息生成失败:', {
       error: error.message,
       activitiesCount: request.activities.length,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 异步批量生成活动位置信息
+ * 
+ * 接口路径：POST /api/location/generate-batch-async
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 适用于大量活动（> 5个）的场景，立即返回 jobId，不等待任务完成
+ * 
+ * @param request 批量请求参数
+ * @returns 任务 ID
+ * @throws {Error} 参数验证失败、未认证或入队失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const { jobId } = await generateLocationBatchAsync({
+ *   activities: [
+ *     {
+ *       activityName: '铁力士峰云端漫步',
+ *       destination: '瑞士琉森',
+ *       activityType: 'attraction',
+ *       coordinates: { lat: 46.7704, lng: 8.4050 }
+ *     }
+ *   ]
+ * })
+ * ```
+ */
+export async function generateLocationBatchAsync(
+  request: GenerateLocationBatchRequest
+): Promise<string> {
+  const endpoint = '/location/generate-batch-async'
+  const url = buildUrl(endpoint)
+
+  console.log('[LocationAPI] 发起异步批量位置信息生成请求:', {
+    url,
+    activitiesCount: request.activities.length
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: EnqueueLocationBatchResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('异步批量位置信息生成任务入队失败')
+    }
+
+    console.log('[LocationAPI] 异步批量位置信息生成任务已入队:', {
+      jobId: apiData.jobId,
+      activitiesCount: request.activities.length
+    })
+
+    return apiData.jobId
+  } catch (error: any) {
+    console.error('[LocationAPI] 异步批量位置信息生成任务入队失败:', {
+      error: error.message,
+      activitiesCount: request.activities.length,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 查询任务状态
+ * 
+ * 接口路径：GET /api/location/job/:jobId
+ * 认证：需要 JWT Bearer Token
+ * 
+ * @param jobId 任务 ID
+ * @returns 任务状态数据
+ * @throws {Error} 未认证或查询失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const status = await getLocationJobStatus('job-123')
+ * console.log(status.status, status.progress)
+ * ```
+ */
+export async function getLocationJobStatus(jobId: string): Promise<JobStatusData> {
+  const endpoint = `/location/job/${jobId}`
+  const url = buildUrl(endpoint)
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: JobStatusResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('查询任务状态失败')
+    }
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[LocationAPI] 查询任务状态失败:', {
+      error: error.message,
+      jobId,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 获取任务结果
+ * 
+ * 接口路径：GET /api/location/job/:jobId/result
+ * 认证：需要 JWT Bearer Token
+ * 
+ * @param jobId 任务 ID
+ * @returns 位置信息生成结果数组
+ * @throws {Error} 未认证或获取失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const results = await getLocationJobResult('job-123')
+ * ```
+ */
+export async function getLocationJobResult(jobId: string): Promise<BatchLocationResult[]> {
+  const endpoint = `/location/job/${jobId}/result`
+  const url = buildUrl(endpoint)
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: JobResultResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取任务结果失败')
+    }
+
+    console.log('[LocationAPI] 获取任务结果成功:', {
+      jobId,
+      count: apiData.data.length
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[LocationAPI] 获取任务结果失败:', {
+      error: error.message,
+      jobId,
       url
     })
     throw error

@@ -3,7 +3,29 @@
  * POI搜索服务 - 使用AI搜索附近的餐饮、景点、住宿、加油站、充电桩、休息站
  */
 
-import { askDeepSeek, parseJSONSafe, logger } from '@/utils/inspirationCore'
+import { chatWithLLM } from './deepseekAPI'
+import { SimpleLogger } from '@/utils/simpleLogger'
+import { JSONProcessor } from '@/utils/simpleJsonProcessor'
+
+const logger = new SimpleLogger(true)
+
+// 简单的 askDeepSeek 替代
+async function askDeepSeek(systemPrompt: string, userPrompt: string, options?: any): Promise<string> {
+  const response = await chatWithLLM({
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature: options?.temperature || 0.7,
+    max_tokens: options?.max_tokens || 3000
+  })
+  return response || ''
+}
+
+// 简单的 parseJSONSafe 替代
+function parseJSONSafe(json: string): any {
+  return JSONProcessor.parseSafe(json)
+}
 import { searchUnsplashPhoto } from './unsplashAPI'
 import { getCachedPOIResults, setCachedPOIResults } from '@/utils/poiCache'
 

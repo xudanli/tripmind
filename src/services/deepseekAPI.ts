@@ -287,14 +287,5 @@ ${contextSegments || '无额外行程摘要。'}
  * 识别用户意图并匹配体验类型
  */
 
-// 灵感模式相关函数已移动到 inspirationAPI.ts，此处重新导出以保持向后兼容
-export {
-  generateInspirationHint,
-  detectInspirationIntent,
-  personaVoiceBank,
-  getPersonaVoice,
-  switchPersonaBasedOnEmotion,
-  generatePersonaResponse,
-  generatePsychologicalJourney,
-  generateInspirationJourney
-} from './inspirationAPI'
+// 灵感模式相关函数已删除（inspiration 模式相关）
+// 如果需要这些功能，请使用后端 API

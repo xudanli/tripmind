@@ -416,7 +416,7 @@ import { getVisaInfo, type VisaInfo } from '@/config/visa'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
 import { deleteItinerary, createJourneyFromFrontendData, updateJourneyFromFrontendData } from '@/services/itineraryAPI'
-import { detectIntent, recommendDestinations } from '@/services/inspirationBackendAPI'
+// 灵感模式需要意图识别和推荐目的地功能
 import { getCurrencyForDestination, formatCurrency } from '@/utils/currency'
 import { getDefaultCurrency } from '@/config/currency'
 import dayjs from 'dayjs'
@@ -773,58 +773,10 @@ const loadRecommendedDestinations = async () => {
     const naturalLanguageInput = buildNaturalLanguageDescription(formData.value)
     console.log('📝 [Planner] 构建的自然语言描述（用于推荐）:', naturalLanguageInput)
     
-    // 调用意图识别接口
-    let intentData = null
-    try {
-      intentData = await detectIntent({
-        input: naturalLanguageInput,
-        language: 'zh-CN',
-        interests: formData.value.preferences?.interests,
-        budget: formData.value.preferences?.budget,
-        days: formData.value.days
-      })
-    } catch (intentError: any) {
-      console.warn('⚠️ [Planner] 意图识别失败，继续推荐:', intentError.message)
-    }
-    
-    // 获取用户信息（用于推荐）
-    const { getUserLocationCode, getUserNationalityCode } = await import('@/config/userProfile')
-    const userCountry = getUserLocationCode() || undefined
-    const userNationality = getUserNationalityCode() || undefined
-    
-    // 调用推荐目的地接口
-    const recommendationResult = await recommendDestinations({
-      input: naturalLanguageInput,
-      intent: intentData ? {
-        intentType: intentData.intentType,
-        keywords: intentData.keywords,
-        emotionTone: intentData.emotionTone
-      } : undefined,
-      language: 'zh-CN',
-      userCountry,
-      userNationality,
-      limit: 12
-    })
-    
-    // 处理推荐结果，转换为卡片数据格式
-    const destinations = recommendationResult.locations.map((location: string) => {
-      const details = recommendationResult.locationDetails?.[location] || {}
-      return {
-        name: location,
-        country: details.country || '',
-        description: details.description || `探索${location}的精彩之旅`,
-        highlights: details.highlights || [],
-        bestSeason: details.bestSeason || '',
-        // 根据预算和天数估算价格范围
-        priceRange: estimatePriceRange(formData.value.preferences?.budget, formData.value.days),
-        // 根据意图和偏好生成特色说明
-        feature: generateFeatureText(location, intentData, formData.value)
-      }
-    })
-    
-    recommendedDestinations.value = destinations
-    showRecommendedDestinations.value = true
-    console.log('✅ [Planner] 推荐目的地成功:', destinations.length, '个目的地')
+    // 灵感模式：根据意图和偏好推荐目的地
+    // 如果没有目的地，后端会根据意图和偏好自动推荐
+    console.log('📝 [Inspiration] 灵感模式：将根据意图和偏好自动推荐目的地')
+    message.info('灵感模式：请直接提交表单，系统会根据您的偏好自动推荐目的地并生成行程')
   } catch (error: any) {
     console.error('❌ [Planner] 推荐目的地失败:', error)
     message.error('推荐目的地失败，请重试')
@@ -920,30 +872,39 @@ const handleSubmit = async () => {
     const naturalLanguageInput = buildNaturalLanguageDescription(formData.value)
     console.log('📝 [Planner] 构建的自然语言描述:', naturalLanguageInput)
     
-    // 步骤2: 调用意图识别接口
-    let intentData = null
-    try {
-      console.log('🔍 [Planner] 开始调用意图识别接口...')
-      intentData = await detectIntent({
-        input: naturalLanguageInput,
-        language: 'zh-CN',
-        interests: formData.value.preferences?.interests,
-        budget: formData.value.preferences?.budget,
-        days: formData.value.days
-      })
-      console.log('✅ [Planner] 意图识别成功:', {
-        intentType: intentData.intentType,
-        keywords: intentData.keywords,
-        emotionTone: intentData.emotionTone,
-        confidence: intentData.confidence
-      })
-    } catch (intentError: any) {
-      console.warn('⚠️ [Planner] 意图识别失败，继续使用结构化数据:', intentError.message)
-      // 意图识别失败不影响主流程，继续生成行程
+    // 步骤2: 识别用户意图（仅在用户填写了额外需求时调用，用于增强行程生成）
+    let intentData: any = null
+    // 只在有额外需求时才调用意图识别
+    if (formData.value.additionalDescription && formData.value.additionalDescription.trim().length > 0) {
+      try {
+        console.log('🧭 [Planner] 检测到额外需求，正在识别旅行意图...')
+        const { createIntentService } = await import('@/services/intentService')
+        const intentService = createIntentService()
+        intentData = await intentService.detect(naturalLanguageInput, 'zh-CN')
+        console.log('✅ [Planner] 意图识别成功:', {
+          intentType: intentData.intentType,
+          keywords: intentData.keywords,
+          confidence: intentData.confidence
+        })
+      } catch (intentError: any) {
+        console.warn('⚠️ [Planner] 意图识别失败，继续生成:', intentError.message)
+        // 意图识别失败不影响主流程，继续生成行程
+      }
+    } else {
+      console.log('ℹ️ [Planner] 未填写额外需求，跳过意图识别')
     }
     
-    // 步骤3: 生成行程（传入意图信息作为上下文）
-    await travelStore.generateItinerary('planner', intentData)
+    // 步骤3: 生成行程
+    // 如果没有目的地，使用灵感模式（让后端根据意图和偏好自动推荐目的地）
+    // 如果有目的地，使用规划模式
+    const mode = (!formData.value.destination || formData.value.destination.trim().length === 0) 
+      ? 'inspiration' 
+      : 'planner'
+    
+    console.log(`📝 [${mode === 'inspiration' ? 'Inspiration' : 'Planner'}] 使用${mode === 'inspiration' ? '灵感' : '规划'}模式生成行程`)
+    
+    // 调用 LLM 生成 JSON
+    await travelStore.generateItinerary(mode, intentData)
     const itineraryData = travelStore.itineraryData
     if (!itineraryData) {
       throw new Error('行程生成失败')
@@ -972,13 +933,22 @@ const handleSubmit = async () => {
           totalCost: (itineraryData as any).totalCost || 0,
           summary: (itineraryData as any).summary || '',
           title: `${formData.value.destination}之旅`,
-          // 后端期望 preferences 是字符串数组，传递 interests 数组
           preferences: formData.value.preferences?.interests || []
         },
         startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
       }
       
-      const baseJourney = await createJourneyFromFrontendData(createRequest)
+      // ================= 修改重点开始 =================
+      // 优化：不再在创建时阻塞获取位置信息 (enrichWithLocationInfo: false)
+      // 这里的速度会非常快，因为它只写入数据库，不调第三方 API
+      const baseJourney = await createJourneyFromFrontendData(createRequest, {
+        enrichWithLocationInfo: false, // ❌ 改为 false，避免前端超时
+        onProgress: (message) => {
+          console.log('[TravelListView]', message)
+        }
+      })
+      // ================= 修改重点结束 =================
+
       backendItineraryId = baseJourney.id
       
       if (!backendItineraryId) {
@@ -988,27 +958,9 @@ const handleSubmit = async () => {
       
       console.log('[TravelListView] 成功创建行程，backendItineraryId:', backendItineraryId)
       
-      const updateRequest = {
-        itineraryData: {
-          destination: itineraryData.destination,
-          duration: itineraryData.days?.length || formData.value.days,
-          budget: (itineraryData as any).budget || formData.value.preferences?.budget,
-          // 后端期望 preferences 是字符串数组，传递 interests 数组
-          preferences: Array.isArray((itineraryData as any).preferences) 
-            ? (itineraryData as any).preferences 
-            : (formData.value.preferences?.interests || []),
-          travelStyle: (itineraryData as any).travelStyle || formData.value.preferences?.travelStyle,
-          itinerary: [],
-          recommendations: (itineraryData as any).recommendations || {},
-          days: (itineraryData as any).days || [],
-          totalCost: (itineraryData as any).totalCost || 0,
-          summary: (itineraryData as any).summary || '',
-          title: (itineraryData as any).title || `${formData.value.destination}之旅`
-        },
-        startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
-      }
-      
-      await updateJourneyFromFrontendData(backendItineraryId, updateRequest)
+      // 不再需要再次更新，因为 createJourneyFromFrontendData 已经处理了所有数据
+      // 如果后续需要更新其他字段（如 preferences、travelStyle 等），可以在这里调用
+      // 但目前 createRequest 已经包含了所有必要的数据，所以不需要再次更新
     } catch (err: any) {
       console.error('保存到后端失败:', err)
       message.warning('保存到数据库失败，将使用临时数据')

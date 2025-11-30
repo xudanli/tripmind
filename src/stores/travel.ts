@@ -469,8 +469,8 @@ export const useTravelStore = defineStore('travel', () => {
   // planner 相关函数已删除
 
 
-  // 使用 Planner API 生成行程
-  const generateItinerary = async (mode: 'planner', intentData?: any) => {
+  // 使用 Planner API 生成行程（支持 planner 和 inspiration 模式）
+  const generateItinerary = async (mode: 'planner' | 'inspiration' = 'planner', intentData?: any) => {
     if (isRunning.value) return // 避免并发重复点击
     isRunning.value = true
     clearGenerationLogs()
@@ -481,8 +481,8 @@ export const useTravelStore = defineStore('travel', () => {
     try {
       let generatedData: ItineraryData
 
-      if (mode === 'planner') {
-        // 调用新的行程生成 API
+      if (mode === 'planner' || mode === 'inspiration') {
+        // 调用新的行程生成 API（支持 planner 和 inspiration 模式）
         const { generateItinerary: generateItineraryAPI } = await import('@/services/itineraryAPI')
         
         // 从 plannerData 中获取表单数据
@@ -499,7 +499,8 @@ export const useTravelStore = defineStore('travel', () => {
           }
         }
 
-        pushGenerationLog('📡 正在调用行程生成 API...')
+        const modeLabel = mode === 'inspiration' ? '灵感' : '规划'
+        pushGenerationLog(`📡 正在调用行程生成 API (${modeLabel}模式)...`)
         const apiResponse = await generateItineraryAPI(
           {
             destination: formData.destination,
@@ -515,10 +516,12 @@ export const useTravelStore = defineStore('travel', () => {
                 description: intentData.description,
                 confidence: intentData.confidence
               }
-            } : {})
+            } : {}),
+            // 传递模式信息（如果后端支持）
+            mode: mode
           },
           {
-            enrichWithLocationInfo: true, // 启用位置信息获取
+            enrichWithLocationInfo: false, // 禁用位置信息获取，避免阻塞页面跳转（位置信息在详情页后台生成）
             onProgress: (message) => {
               pushGenerationLog(message)
             }
@@ -596,113 +599,9 @@ export const useTravelStore = defineStore('travel', () => {
     setError(null)
     
     try {
-      const { generatePsychologicalJourney: generateJourneyAPI } = await import('@/services/deepseekAPI')
-      const currentLanguage = i18n?.global?.locale?.value ?? 'zh-CN'
-      
-      // 用户国家
-      let userCountry: string | undefined = undefined
-      try {
-        const { getUserLocationCode } = await import('@/config/userProfile')
-        const code = getUserLocationCode()
-        userCountry = code || undefined
-      } catch {}
-      
-      // 国籍（用于显示格式）
-      let userNationality: string | undefined = undefined
-      try {
-        const { getUserNationalityCode } = await import('@/config/userProfile')
-        const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const nationalityCode = getUserNationalityCode() || undefined
-        if (nationalityCode) {
-          const countryInfo = (PRESET_COUNTRIES as any)[nationalityCode]
-          if (countryInfo) userNationality = countryInfo.name
-        }
-      } catch {}
-      
-      // 永久居民身份
-      let userPermanentResidency: string | undefined = undefined
-      try {
-        const { getUserPermanentResidencyCode } = await import('@/config/userProfile')
-        const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        const residencyCode = getUserPermanentResidencyCode() || undefined
-        if (residencyCode) {
-          const info = (PRESET_COUNTRIES as any)[residencyCode]
-          if (info) userPermanentResidency = info.name
-        }
-      } catch {}
-      
-      // 已持有签证
-      let heldVisas: string[] = []
-      try {
-        const { getHeldVisas } = await import('@/config/userProfile')
-        heldVisas = getHeldVisas() || []
-      } catch {}
-      
-      // 签证信息
-      let visaFreeDestinations: string[] = []
-      let visaInfoSummary: string | null = null
-      try {
-        const { getVisaFreeDestinations, getVisaDescription } = await import('@/config/visa')
-        const { getUserNationalityCode, getUserPermanentResidencyCode } = await import('@/config/userProfile')
-        const { PRESET_COUNTRIES } = await import('@/constants/countries')
-        
-        const nationalityCode = getUserNationalityCode() || undefined
-        const residencyCode = getUserPermanentResidencyCode() || undefined
-        
-        visaFreeDestinations = getVisaFreeDestinations(nationalityCode, residencyCode) || []
-        
-        if (selectedDestination) {
-          const destCountryInfo = Object.values(PRESET_COUNTRIES as any).find((country: any) =>
-            selectedDestination.includes(country.name) || selectedDestination.includes(country.code)
-          ) as any
-          if (destCountryInfo) {
-            visaInfoSummary = getVisaDescription(destCountryInfo.code, nationalityCode, residencyCode) || null
-        }
-        }
-      } catch {}
-
-      // 调用生成
-      const inspirationResp = await generateJourneyAPI(
-        personalityProfile,
-        currentLanguage,
-        userCountry,
-        selectedDestination,
-        userNationality,
-        userPermanentResidency,
-        heldVisas,
-        visaFreeDestinations,
-        visaInfoSummary
-      )
-      pushGenerationLog(`✅ 心理旅程数据返回：候选地点 ${Array.isArray(inspirationResp?.locations) ? inspirationResp.locations.length : 0} 个`)
-      
-      // 注入国家信息（SSR 兼容 navigator）
-      if (inspirationResp?.locations) {
-        const { detectCountryFromLocale, buildLocationCountries } = await import('@/utils/countryGuess')
-        const lang = i18n?.global?.locale?.value || (typeof navigator !== 'undefined' ? (navigator.language as string) : 'zh-CN')
-        const currentCountry = detectCountryFromLocale(lang)
-        const locationCountries = buildLocationCountries(inspirationResp.locations)
-
-        if (inspirationResp.locationDetails && locationCountries) {
-          Object.keys(inspirationResp.locationDetails).forEach((loc) => {
-            const detail = (inspirationResp.locationDetails as any)[loc]
-            const country = locationCountries[loc]
-            if (detail && country && !detail.country) detail.country = country
-          })
-        }
-        inspirationResp.currentCountry = inspirationResp.currentCountry || currentCountry
-        inspirationResp.locationCountries = inspirationResp.locationCountries || locationCountries
-      }
-      
-      const enrichedResp = await enrichInspirationMedia(inspirationResp, currentLanguage)
-      setInspirationData(enrichedResp)
-      setCurrentMode('inspiration')
-      
-      // ✅ 修复：此前这里变量名遮蔽导致 `.value` 读取错误
-      const currentData = inspirationData.value
-      console.log('✅ 数据已设置到 store')
-      console.log('✅ 验证：当前 inspirationData.locations:', currentData?.locations?.length || 0)
-      console.log('✅ 验证：当前 inspirationData.title:', currentData?.title)
-      pushGenerationLog('🗂️ 数据整理完成，正在更新界面...')
+      // generatePsychologicalJourney 已删除（inspiration 模式相关）
+      // 如果需要心理旅程功能，请使用后端 API
+      throw new Error('心理旅程功能已移除，请使用后端 API')
     } catch (err) {
       console.error('生成心理旅程失败:', err)
       pushGenerationLog('❌ 生成心理旅程失败', 'error')
@@ -788,7 +687,11 @@ export const useTravelStore = defineStore('travel', () => {
     
     let autoDestinationAfterRun: string | null = null
     try {
-        const { detectInspirationIntent, generateInspirationJourney } = await import('@/services/deepseekAPI')
+        // detectInspirationIntent 和 generateInspirationJourney 已删除（inspiration 模式相关）
+        // 灵感模式现在使用后端 API 生成行程
+        // 如果需要意图识别，可以使用 intentService
+        const { createIntentService } = await import('@/services/intentService')
+        const intentService = createIntentService()
       
       // 用户国家
       let userCountry: string | undefined = undefined
@@ -851,29 +754,75 @@ export const useTravelStore = defineStore('travel', () => {
         }
       } catch {}
       
-      // Intent
-      pushGenerationLog('🧭 正在识别旅行意图...')
-      const intent = await detectInspirationIntent(effectiveInput, currentLanguage)
+      // Intent（可选）
+      let intent: any = null
+      try {
+        pushGenerationLog('🧭 正在识别旅行意图...')
+        const { createIntentService } = await import('@/services/intentService')
+        const intentService = createIntentService()
+        intent = await intentService.detect(effectiveInput, currentLanguage)
+        pushGenerationLog(`✅ 意图识别成功: ${intent.intentType}`)
+      } catch (intentError: any) {
+        console.warn('⚠️ 意图识别失败，继续生成:', intentError.message)
+      }
 
-      // Gen
+      // 灵感模式现在使用后端 API 生成行程
+      // 调用 generateItinerary API，不传 destination，让后端根据意图和偏好自动推荐
       pushGenerationLog(
         generationMode === 'full'
           ? '📡 正在生成灵感旅程细节...'
           : '📡 正在生成候选目的地及旅程框架...'
       )
-      const inspResp = await generateInspirationJourney(
-        effectiveInput,
-        currentLanguage,
-        userCountry,
-        finalSelectedDestination || undefined,  // 使用检测到的目的地
-        userNationality,
-        userPermanentResidency,
-        heldVisas,
-        visaFreeDestinations,
-        visaInfoSummary,
-        undefined,
-        generationMode
-      )
+      
+      // 使用后端 API 生成灵感行程
+      const { generateItinerary: generateItineraryAPI } = await import('@/services/itineraryAPI')
+      
+      // 从 plannerData 获取表单数据（如果存在）
+      const formData = plannerData.value
+      const days = formData?.days || 5
+      const startDate = formData?.startDate || new Date().toISOString().split('T')[0]
+      
+      // 构建请求（不传 destination，让后端自动推荐）
+      const generateRequest: any = {
+        days: days,
+        startDate: startDate,
+        preferences: formData?.preferences,
+        mode: 'inspiration'
+      }
+      
+      // 如果有意图信息，添加到请求中
+      if (intent) {
+        generateRequest.intent = {
+          intentType: intent.intentType,
+          keywords: intent.keywords,
+          emotionTone: intent.emotionTone,
+          description: intent.description,
+          confidence: intent.confidence
+        }
+      }
+      
+      // 调用后端 API 生成行程
+      const apiResponse = await generateItineraryAPI(generateRequest, {
+        enrichWithLocationInfo: true,
+        onProgress: (message) => pushGenerationLog(message)
+      })
+      
+      // 将后端 API 返回的数据转换为 InspirationData 格式
+      const inspResp: any = {
+        title: apiResponse.title || '灵感之旅',
+        subtitle: 'AI 智能推荐',
+        location: apiResponse.destination,
+        destination: apiResponse.destination,
+        locations: [apiResponse.destination],
+        duration: `${days}天`,
+        budget: 'medium',
+        highlights: [],
+        aiMessage: intent 
+          ? `根据您的意图"${intent.description}"，我为您推荐了${apiResponse.destination}`
+          : `我为您推荐了${apiResponse.destination}`,
+        detectedIntent: intent,
+        days: apiResponse.days
+      }
       pushGenerationLog(`✅ 灵感旅程生成完成：候选地点 ${Array.isArray(inspResp?.locations) ? inspResp.locations.length : 0} 个`)
 
       // 注入国家

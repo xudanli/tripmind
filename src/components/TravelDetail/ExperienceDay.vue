@@ -77,110 +77,6 @@
         </a-timeline-item>
       </a-timeline>
     </section>
-
-    <!-- 心理流程阶段总览 -->
-    <section v-if="mentalFlowStages" class="mental-flow-section">
-      <h3 class="section-title">{{ t('travelDetail.experienceDay.mentalFlowStages') || '心理流程阶段' }}</h3>
-      <div class="mental-flow-grid">
-        <div
-          v-for="(stage, key) in mentalFlowStages"
-          :key="key"
-          class="mental-flow-card"
-        >
-          <h4 class="stage-title">{{ getStageName(key) }}</h4>
-          <div v-if="stage.theme" class="stage-theme">
-            <span class="stage-label">{{ t('travelDetail.experienceDay.theme') || '主题' }}：</span>
-            {{ stage.theme }}
-          </div>
-          <div v-if="stage.activities && stage.activities.length" class="stage-activities">
-            <span class="stage-label">{{ t('travelDetail.experienceDay.activities') || '活动' }}：</span>
-            <ul>
-              <li v-for="(activity, idx) in stage.activities" :key="idx">{{ activity }}</li>
-            </ul>
-          </div>
-          <div v-if="stage.emotionalGoal" class="stage-emotional">
-            <span class="stage-label">{{ t('travelDetail.experienceDay.emotionalGoal') || '情感目标' }}：</span>
-            {{ stage.emotionalGoal }}
-          </div>
-          <div v-if="stage.symbolicElement" class="stage-symbolic">
-            <span class="stage-label">{{ t('travelDetail.experienceDay.symbolicElement') || '象征元素' }}：</span>
-            {{ stage.symbolicElement }}
-          </div>
-        </div>
-      </div>
-    </section>
-
-
-    <!-- 认知触发器和疗愈设计 -->
-    <section v-if="cognitiveTriggers || healingDesign" class="cognitive-healing-section">
-      <h3 class="section-title">{{ t('travelDetail.experienceDay.cognitiveHealing') || '认知与疗愈' }}</h3>
-      
-      <!-- 认知触发器 -->
-      <div v-if="cognitiveTriggers" class="cognitive-triggers-card">
-        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.cognitiveTriggers') || '认知触发器' }}</h4>
-        <div v-if="cognitiveTriggers.questions && cognitiveTriggers.questions.length" class="trigger-group">
-          <span class="trigger-label">{{ t('travelDetail.experienceDay.questions') || '问题' }}：</span>
-          <ul class="trigger-list">
-            <li v-for="(question, idx) in cognitiveTriggers.questions" :key="idx">{{ question }}</li>
-          </ul>
-        </div>
-        <div v-if="cognitiveTriggers.rituals && cognitiveTriggers.rituals.length" class="trigger-group">
-          <span class="trigger-label">{{ t('travelDetail.experienceDay.rituals') || '仪式' }}：</span>
-          <ul class="trigger-list">
-            <li v-for="(ritual, idx) in cognitiveTriggers.rituals" :key="idx">{{ ritual }}</li>
-          </ul>
-        </div>
-        <div v-if="cognitiveTriggers.moments && cognitiveTriggers.moments.length" class="trigger-group">
-          <span class="trigger-label">{{ t('travelDetail.experienceDay.moments') || '时刻' }}：</span>
-          <ul class="trigger-list">
-            <li v-for="(moment, idx) in cognitiveTriggers.moments" :key="idx">{{ moment }}</li>
-          </ul>
-        </div>
-      </div>
-      
-      <!-- 疗愈设计 -->
-      <div v-if="healingDesign" class="healing-design-card">
-        <h4 class="subsection-title">{{ t('travelDetail.experienceDay.healingDesign') || '疗愈设计' }}</h4>
-        <div class="healing-grid">
-          <div v-if="healingDesign.sound" class="healing-item">
-            <span class="healing-icon">🔊</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.sound') || '声音' }}：</span>
-            {{ healingDesign.sound }}
-          </div>
-          <div v-if="healingDesign.scent" class="healing-item">
-            <span class="healing-icon">🌸</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.scent') || '气味' }}：</span>
-            {{ healingDesign.scent }}
-          </div>
-          <div v-if="healingDesign.light" class="healing-item">
-            <span class="healing-icon">💡</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.light') || '光线' }}：</span>
-            {{ healingDesign.light }}
-          </div>
-          <div v-if="healingDesign.texture" class="healing-item">
-            <span class="healing-icon">✨</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.texture') || '质感' }}：</span>
-            {{ healingDesign.texture }}
-          </div>
-          <div v-if="healingDesign.space" class="healing-item">
-            <span class="healing-icon">🏛️</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.space') || '空间' }}：</span>
-            {{ healingDesign.space }}
-          </div>
-          <div v-if="healingDesign.rhythm" class="healing-item">
-            <span class="healing-icon">🎵</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.rhythm') || '节奏' }}：</span>
-            {{ healingDesign.rhythm }}
-          </div>
-          <div v-if="healingDesign.community" class="healing-item">
-            <span class="healing-icon">👥</span>
-            <span class="healing-label">{{ t('travelDetail.experienceDay.community') || '社群' }}：</span>
-            {{ healingDesign.community }}
-          </div>
-            </div>
-          </div>
-    </section>
-    
     <!-- 编辑活动弹窗 -->
     <a-modal
       v-model:open="editModalVisible"
@@ -727,7 +623,19 @@ const itineraryData = computed(() => {
         date: data.itineraryData.days[0].date,
         timeSlotsCount: data.itineraryData.days[0].timeSlots?.length || 0,
         activitiesCount: data.itineraryData.days[0].activities?.length || 0
-      } : null
+      } : null,
+      // 详细日志：显示所有天的数据
+      allDaysInfo: data.itineraryData.days.map((day: any) => ({
+        day: day.day,
+        date: day.date,
+        timeSlotsCount: day.timeSlots?.length || 0,
+        activitiesCount: day.activities?.length || 0,
+        firstSlot: day.timeSlots?.[0] ? {
+          time: day.timeSlots[0].time,
+          title: day.timeSlots[0].title,
+          hasDetails: !!day.timeSlots[0].details
+        } : null
+      }))
     })
     return data.itineraryData
   }

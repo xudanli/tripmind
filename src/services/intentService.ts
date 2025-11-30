@@ -3,12 +3,12 @@
  * 融合本地评分和 AI 检测，提供冲突消解
  */
 
-import { buildDetectIntentPrompt } from '@/prompts/inspiration/intent'
+import { buildDetectIntentPrompt } from '@/utils/intentPrompt'
 import { IntentResultSchema } from '@/validators/itinerarySchema'
 import type { IntentResult } from '@/validators/itinerarySchema'
 import { DeepSeekClient } from '@/llm/deepseekClient'
-import { LoggingAdapter } from '@/utils/inspiration/core/logger'
-import { JSONProcessor } from '@/utils/inspiration/core/jsonProcessor'
+import { SimpleLogger } from '@/utils/simpleLogger'
+import { JSONProcessor } from '@/utils/simpleJsonProcessor'
 import { isEnglish } from '@/utils/lang'
 
 // ==================== 类型定义 ====================
@@ -16,7 +16,7 @@ import { isEnglish } from '@/utils/lang'
 export interface IntentServiceDeps {
   llm: DeepSeekClient
   jsonParser: typeof JSONProcessor
-  logger: LoggingAdapter
+  logger: SimpleLogger
 }
 
 // ==================== 意图检测服务 ====================
@@ -31,16 +31,8 @@ export class IntentService {
     const { llm, jsonParser, logger } = this.deps
     const isEn = isEnglish(language)
 
-    // 1. 本地评分（快速 fallback）
+    // 1. 本地评分（快速 fallback）- 已移除，直接使用 AI 检测
     let localScore: any = null
-    try {
-      const { scoreIntent } = await import('@/utils/inspiration/core/intent')
-      const lang: 'zh' | 'en' = isEn ? 'en' : 'zh'
-      localScore = scoreIntent(userInput, lang)
-      logger.log('🔍 本地意图评分:', JSON.stringify(localScore), 500)
-    } catch (err) {
-      logger.warn('⚠️ 本地意图评分失败，继续使用AI:', err)
-    }
 
     // 2. AI 检测
     const systemPrompt = buildDetectIntentPrompt(userInput, language)
@@ -145,7 +137,7 @@ export function createIntentService(deps?: Partial<IntentServiceDeps>): IntentSe
   const defaultDeps: IntentServiceDeps = {
     llm: new DeepSeekClient(),
     jsonParser: JSONProcessor,
-    logger: new LoggingAdapter(false)
+    logger: new SimpleLogger(false)
   }
 
   return new IntentService({ ...defaultDeps, ...deps })

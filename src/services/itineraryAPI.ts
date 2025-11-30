@@ -226,6 +226,7 @@ export interface GenerateItineraryRequest {
     travelStyle?: 'relaxed' | 'moderate' | 'intensive'
   }
   intent?: IntentData // 可选的意图识别数据，用于增强行程生成
+  mode?: 'planner' | 'inspiration' // 模式标识（可选，默认为 'planner'）
 }
 
 /**
@@ -345,20 +346,43 @@ export function convertAPIResponseToFrontendFormat(
       return {
         day: day.day,
         date: day.date,
-        timeSlots: day.activities.map((activity) => ({
-      time: activity.time,
-      title: activity.title,
-      activity: activity.title, // 使用 title 作为 activity
-      type: activity.type,
-          coordinates: activity.location || activity.coordinates,
-          notes: activity.notes || '',
-      details: {
+        timeSlots: day.activities.map((activity) => {
+          // 保留完整的 details 对象，包括 highlights, insiderTip, bookingSignal 等
+          let details: any = {}
+          
+          // 如果 activity.details 存在，直接使用（保留所有字段）
+          if (activity.details && typeof activity.details === 'object') {
+            details = { ...activity.details }
+          }
+          
+          // 确保 notes 和 description 字段存在（用于兼容性）
+          if (!details.notes && activity.notes) {
+            details.notes = activity.notes
+          }
+          if (!details.description && activity.notes) {
+            details.description = activity.notes
+          }
+          
+          // 如果没有任何 details，创建基础结构
+          if (!details || Object.keys(details).length === 0) {
+            details = {
+              notes: activity.notes || '',
+              description: activity.notes || ''
+            }
+          }
+          
+          return {
+            time: activity.time,
+            title: activity.title,
+            activity: activity.title, // 使用 title 作为 activity
+            type: activity.type,
+            coordinates: activity.location || activity.coordinates,
             notes: activity.notes || '',
-            description: activity.notes || ''
-      },
-          cost: activity.cost || 0,
-          duration: activity.duration || 60
-        }))
+            details: details, // 保留完整的 details 对象
+            cost: activity.cost || 0,
+            duration: activity.duration || 60
+          }
+        })
       }
     }
     
@@ -431,25 +455,14 @@ export async function generateItinerary(
         throw new Error('无法推荐目的地：请至少提供目的地、意图信息或偏好兴趣之一')
       }
       
-      try {
-        const { recommendDestinations } = await import('@/services/inspirationBackendAPI')
-        const recommendationResult = await recommendDestinations({
-          input: recommendationInput,
-          limit: 1,
-          language: 'zh-CN'
-        })
-        
-        if (recommendationResult.locations && recommendationResult.locations.length > 0) {
-          // locations 是 string[] 格式
-          finalDestination = recommendationResult.locations[0]
-          log(`✅ 自动推荐目的地: ${finalDestination}`)
-        } else {
-          throw new Error('无法推荐目的地：推荐结果为空')
-        }
-      } catch (error: any) {
-        console.error('[ItineraryAPI] 目的地推荐失败:', error)
-        throw new Error(`无法推荐目的地：${error.message || '请提供目的地或更多信息'}`)
+      // 如果是灵感模式，允许后端自动推荐目的地
+      // 如果是规划模式，需要用户明确提供目的地
+      if (request.mode !== 'inspiration') {
+        throw new Error('无法推荐目的地：规划模式需要明确指定目的地，请填写目的地或切换到灵感模式')
       }
+      
+      // 灵感模式：让后端根据意图和偏好自动推荐目的地
+      log('灵感模式：后端将根据意图和偏好自动推荐目的地')
     }
     
     // 清理请求数据：移除空数组和未定义的字段
@@ -629,6 +642,110 @@ async function generateTravelSummaryForItinerary(
  * @param onProgress 进度回调
  * @returns 增强后的行程数据
  */
+/**
+ * 使用异步接口获取位置信息（内部辅助函数）
+ */
+async function enrichWithLocationInfoAsync(
+  activities: Array<{
+    activityName: string
+    destination: string
+    activityType: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+    coordinates: { lat: number; lng: number }
+  }>,
+  onProgress?: (message: string) => void
+): Promise<Map<string, any>> {
+  const {
+    generateLocationBatchAsync,
+    getLocationJobStatus,
+    getLocationJobResult
+  } = await import('./locationAPI')
+  
+  const log = (message: string) => {
+    console.log(`[ItineraryAPI] ${message}`)
+    onProgress?.(message)
+  }
+
+  log(`使用异步接口获取 ${activities.length} 个活动的位置信息...`)
+
+  // 发起异步任务
+  const batchRequest = {
+    activities: activities.map(a => ({
+      activityName: a.activityName,
+      destination: a.destination,
+      activityType: a.activityType,
+      coordinates: a.coordinates
+    }))
+  }
+
+  const jobId = await generateLocationBatchAsync(batchRequest)
+  log(`异步任务已入队，任务ID: ${jobId}`)
+
+  // 轮询任务状态
+  const pollInterval = 2000 // 2秒
+  const maxPollAttempts = 300 // 最多轮询5分钟（300 * 2秒）
+  let pollAttempts = 0
+
+  while (pollAttempts < maxPollAttempts) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval))
+    pollAttempts++
+
+    try {
+      const jobStatus = await getLocationJobStatus(jobId)
+
+      // 更新进度
+      if (jobStatus.progress !== undefined) {
+        log(`生成进度: ${jobStatus.progress}%`)
+      }
+
+      // 任务完成
+      if (jobStatus.status === 'completed') {
+        log('异步任务完成，获取结果...')
+        
+        // 优先使用状态响应中的 result 字段（如果存在），避免额外请求
+        let results: any[] = []
+        if (jobStatus.result && jobStatus.result.length > 0) {
+          results = jobStatus.result
+          log('从任务状态响应中获取结果')
+        } else {
+          // 如果状态响应中没有结果，调用结果接口
+          results = await getLocationJobResult(jobId)
+          log('从结果接口获取结果')
+        }
+        
+        // 将结果存储到 Map 中
+        const locationResults: Map<string, any> = new Map()
+        results.forEach(result => {
+          locationResults.set(result.activityName, result.locationInfo)
+        })
+        
+        log(`成功获取 ${locationResults.size} 个活动的位置信息`)
+        return locationResults
+      }
+
+      // 任务失败
+      if (jobStatus.status === 'failed') {
+        const error = jobStatus.error || '任务执行失败'
+        throw new Error(`异步任务失败: ${error}`)
+      }
+
+      // 任务不存在
+      if (jobStatus.status === 'not_found') {
+        throw new Error('任务不存在，可能已过期')
+      }
+
+      // 继续轮询（waiting, active, delayed, paused）
+    } catch (error: any) {
+      if (error.message && error.message.includes('任务')) {
+        throw error
+      }
+      // 网络错误等，继续重试
+      console.warn('[ItineraryAPI] 轮询任务状态时出错，继续重试:', error.message)
+    }
+  }
+
+  throw new Error('异步任务超时，请稍后重试')
+}
+
 export async function enrichItineraryWithLocationInfo(
   itineraryData: FrontendItineraryData,
   destination: string,
@@ -651,6 +768,9 @@ export async function enrichItineraryWithLocationInfo(
     slotIndex: number
   }> = []
 
+  // 使用 Set 记录已处理的 keys (name + type)，防止重复调用 API
+  const processedKeys = new Set<string>()
+
   // 收集所有需要获取位置信息的活动（只收集缺少位置信息的活动）
   itineraryData.days.forEach((day, dayIndex) => {
     day.timeSlots.forEach((slot, slotIndex) => {
@@ -666,14 +786,19 @@ export async function enrichItineraryWithLocationInfo(
         
         // 只对缺少位置信息的活动进行生成
         if (!hasLocationInfo) {
-        activities.push({
-          activityName: slot.title,
-          destination,
-          activityType: slot.type as any,
-          coordinates: slot.coordinates,
-          dayIndex,
-          slotIndex
-        })
+          // 使用 title + type 作为去重 key，防止同一地点在不同天重复调用
+          const key = `${slot.title}|${slot.type}`
+          if (!processedKeys.has(key)) {
+            processedKeys.add(key)
+            activities.push({
+              activityName: slot.title,
+              destination,
+              activityType: slot.type as any,
+              coordinates: slot.coordinates,
+              dayIndex,
+              slotIndex
+            })
+          }
         }
       }
     })
@@ -686,32 +811,54 @@ export async function enrichItineraryWithLocationInfo(
   
   log(`发现 ${activities.length} 个活动需要获取位置信息（共 ${itineraryData.days.reduce((sum, day) => sum + day.timeSlots.length, 0)} 个活动）`)
 
-  log(`准备获取 ${activities.length} 个活动的位置信息...`)
+  // 根据活动数量选择使用同步或异步接口
+  const shouldUseAsync = activities.length > 5
+  const locationResults: Map<string, any> = new Map()
 
   try {
-    // 批量获取位置信息（每次最多 10 个）
-    const BATCH_SIZE = 10
-    const locationResults: Map<string, any> = new Map()
-
-    for (let i = 0; i < activities.length; i += BATCH_SIZE) {
-      const batch = activities.slice(i, i + BATCH_SIZE)
-      log(`正在获取第 ${i + 1}-${Math.min(i + BATCH_SIZE, activities.length)} 个活动的位置信息...`)
-
-      const batchRequest = {
-        activities: batch.map(a => ({
+    if (shouldUseAsync) {
+      // 使用异步接口
+      log(`活动数量较多（${activities.length} > 5），使用异步接口...`)
+      const asyncResults = await enrichWithLocationInfoAsync(
+        activities.map(a => ({
           activityName: a.activityName,
           destination: a.destination,
           activityType: a.activityType,
           coordinates: a.coordinates
-        }))
-      }
-
-      const results = await generateLocationBatch(batchRequest)
-
-      // 将结果存储到 Map 中，使用 activityName 作为 key
-      results.forEach(result => {
-        locationResults.set(result.activityName, result.locationInfo)
+        })),
+        onProgress
+      )
+      asyncResults.forEach((value, key) => {
+        locationResults.set(key, value)
       })
+    } else {
+      // 使用同步接口
+      log(`活动数量较少（${activities.length} <= 5），使用同步接口...`)
+      log(`准备获取 ${activities.length} 个活动的位置信息...`)
+
+      // 批量获取位置信息（每次最多 10 个）
+      const BATCH_SIZE = 10
+
+      for (let i = 0; i < activities.length; i += BATCH_SIZE) {
+        const batch = activities.slice(i, i + BATCH_SIZE)
+        log(`正在获取第 ${i + 1}-${Math.min(i + BATCH_SIZE, activities.length)} 个活动的位置信息...`)
+
+        const batchRequest = {
+          activities: batch.map(a => ({
+            activityName: a.activityName,
+            destination: a.destination,
+            activityType: a.activityType,
+            coordinates: a.coordinates
+          }))
+        }
+
+        const results = await generateLocationBatch(batchRequest)
+
+        // 将结果存储到 Map 中，使用 activityName 作为 key
+        results.forEach(result => {
+          locationResults.set(result.activityName, result.locationInfo)
+        })
+      }
     }
 
     // 对于景点类型的活动，额外获取门票价格信息
@@ -2806,15 +2953,20 @@ export async function deleteExpense(
  * 接受前端提供的完整行程数据格式（包含 itineraryData 和 tasks），
  * 自动转换为标准格式并创建行程，包括 days 数组的详细内容。
  * 
+ * 优化说明：
+ * 1. 移除了创建后的自动 Location Enrichment 和 Update 循环。
+ * 2. 这里的职责单一化：只负责将数据写入数据库。
+ * 3. 位置信息的获取应当在详情页加载后异步进行，或者是后端异步任务。
+ * 
  * 支持字段：
  * - itineraryData.practicalInfo: 实用信息（天气、安全、插座、汇率、文化禁忌、打包清单等）
  * - itineraryData.days[].timeSlots[].details: 活动详细信息（会被保存到数据库）
  * 
  * @param request 请求参数（前端数据格式）
  * @param options 可选参数
- * @param options.enrichWithLocationInfo 是否在创建后自动获取活动位置信息（默认 false）
+ * @param options.enrichWithLocationInfo @deprecated 前端不再处理创建时的同步富化，请在后端处理或在详情页懒加载
  * @param options.onProgress 进度回调函数
- * @returns 创建的行程数据（包含 practicalInfo 字段，如果启用了位置信息获取，还会包含详细的位置信息）
+ * @returns 创建的行程数据（包含 practicalInfo 字段）
  * @throws {Error} 参数验证失败、未认证或创建失败时抛出错误
  * 
  * @example
@@ -2865,7 +3017,7 @@ export async function createJourneyFromFrontendData(
   const endpoint = `/v1/journeys/from-frontend-data`
   const url = buildUrl(endpoint)
   
-  const { enrichWithLocationInfo = false, onProgress } = options || {}
+  const { onProgress } = options || {} // 移除 enrichWithLocationInfo 的解构，因为不再使用
   const log = (message: string) => {
     console.log(`[ItineraryAPI] ${message}`)
     onProgress?.(message)
@@ -3005,109 +3157,6 @@ export async function createJourneyFromFrontendData(
         }
       } catch (detailError: any) {
         console.warn('[ItineraryAPI] 重新获取详情失败，使用创建接口返回的数据:', detailError.message)
-      }
-    }
-
-    // 如果需要获取位置信息，在创建行程后自动获取
-    if (enrichWithLocationInfo && finalData.days && finalData.days.length > 0) {
-      log('开始获取活动位置信息...')
-      try {
-        // 将后端返回的数据转换为前端格式
-        const frontendData: FrontendItineraryData = {
-          destination: finalData.destination,
-          days: finalData.days.map(day => ({
-            day: day.day,
-            date: day.date,
-            timeSlots: (day.activities || []).map(activity => ({
-              time: activity.time,
-              title: activity.title || '',
-              type: activity.type as any,
-              coordinates: activity.location,
-              notes: activity.notes || '',
-              details: activity.details || {},
-              cost: activity.cost || 0,
-              duration: activity.duration || 60
-            }))
-          })),
-          totalCost: finalData.totalCost || 0,
-          summary: finalData.summary || '',
-          practicalInfo: finalData.practicalInfo
-        }
-
-        // 获取位置信息
-        const enrichedData = await enrichItineraryWithLocationInfo(
-          frontendData,
-          finalData.destination,
-          onProgress
-        )
-
-        // 将位置信息更新回后端（通过更新接口）
-        if (enrichedData.days && enrichedData.days.length > 0) {
-          log('位置信息获取完成，正在更新到后端...')
-          try {
-            // 构建更新请求，只更新 activities 的 details 字段
-            const updateRequest: UpdateJourneyFromFrontendDataRequest = {
-              itineraryData: {
-                destination: finalData.destination,
-                duration: enrichedData.days.length,
-                title: request.itineraryData.title || `${finalData.destination}之旅`,
-                days: enrichedData.days.map((day, dayIndex) => ({
-                  day: day.day,
-                  date: day.date,
-                  timeSlots: day.timeSlots.map((slot, slotIndex) => {
-                    const originalActivity = finalData.days?.[dayIndex]?.activities?.[slotIndex]
-                    return {
-                      time: slot.time,
-                      title: slot.title || slot.activity || originalActivity?.title || '',
-                      type: (slot.type || 'attraction') as 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean',
-                      coordinates: slot.coordinates || { lat: 0, lng: 0 },
-                      notes: slot.details?.notes || originalActivity?.notes || '',
-                      details: slot.details || {},
-                      cost: slot.cost || originalActivity?.cost || 0,
-                      duration: slot.duration || originalActivity?.duration || 60
-                    }
-                  })
-                })),
-                totalCost: enrichedData.totalCost,
-                summary: enrichedData.summary,
-                practicalInfo: enrichedData.practicalInfo
-              },
-              startDate: finalData.startDate
-            }
-
-            // 调用更新接口
-            await updateJourneyFromFrontendData(finalData.id, updateRequest)
-            log('位置信息已更新到后端')
-
-            // 重新获取更新后的数据
-            const updatedDetail = await getItineraryDetail(finalData.id)
-            return updatedDetail
-          } catch (updateError: any) {
-            console.warn('[ItineraryAPI] 更新位置信息到后端失败:', updateError.message)
-            log('位置信息获取成功，但更新到后端失败，将在前端显示')
-            // 即使更新失败，也返回包含位置信息的数据（前端显示）
-            return {
-              ...finalData,
-              days: enrichedData.days.map(day => ({
-                ...day,
-                activities: day.timeSlots.map(slot => ({
-                  time: slot.time,
-                  title: slot.title,
-                  type: slot.type || 'attraction',
-                  duration: slot.duration || 60,
-                  location: slot.coordinates || { lat: 0, lng: 0 },
-                  notes: slot.details?.notes || '',
-                  cost: slot.cost || 0,
-                  details: slot.details || {}
-                }))
-              }))
-            } as any
-          }
-        }
-      } catch (locationError: any) {
-        console.warn('[ItineraryAPI] 获取位置信息失败:', locationError.message)
-        log('位置信息获取失败，使用基础行程数据')
-        // 位置信息获取失败不影响行程创建，返回基础数据
       }
     }
 

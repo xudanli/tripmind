@@ -4,12 +4,12 @@
  */
 
 import { DeepSeekClient } from '@/llm/deepseekClient'
-import { LoggingAdapter } from '@/utils/inspiration/core/logger'
-import { JSONProcessor } from '@/utils/inspiration/core/jsonProcessor'
-import { pickLang, buildDestinationConstraint } from '@/utils/inspirationCore'
-import { parseJSONSafe, normalizeRecommendations, fallbackRecommendations } from '@/utils/inspirationCore'
-import { generateInspirationJourney } from '@/apis/inspiration'
+import { SimpleLogger } from '@/utils/simpleLogger'
+import { JSONProcessor } from '@/utils/simpleJsonProcessor'
+import { pickLang, buildDestinationConstraint, parseJSONSafe, normalizeRecommendations, fallbackRecommendations } from '@/utils/simpleHelpers'
 import type { TravelContext } from '@/types/travel'
+
+// generateInspirationJourney 已删除（inspiration 模式相关）
 
 // ==================== 类型定义 ====================
 
@@ -38,7 +38,7 @@ export interface RecommendedDestination {
 export interface PersonaServiceDeps {
   llm: DeepSeekClient
   jsonParser: typeof JSONProcessor
-  logger: LoggingAdapter
+  logger: SimpleLogger
 }
 
 // ==================== 人格服务 ====================
@@ -274,7 +274,7 @@ export function createPersonaService(deps?: Partial<PersonaServiceDeps>): Person
   const defaultDeps: PersonaServiceDeps = {
     llm: new DeepSeekClient(),
     jsonParser: JSONProcessor,
-    logger: new LoggingAdapter(false)
+    logger: new SimpleLogger(false)
   }
 
   return new PersonaService({ ...defaultDeps, ...deps })

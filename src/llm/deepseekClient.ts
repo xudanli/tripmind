@@ -4,7 +4,7 @@
  */
 
 import { chatWithLLM } from '@/services/deepseekAPI'
-import { LoggingAdapter } from '@/utils/inspiration/core/logger'
+import { SimpleLogger } from '@/utils/simpleLogger'
 import { parseSafe, tryRepairAndParse, extractDaysArray, extractTimeSlotsArray, type ParseResult } from '@/utils/jsonProcessor'
 
 // ==================== 类型定义 ====================
@@ -30,10 +30,10 @@ export interface LLMResponse {
 // ==================== LLM 客户端 ====================
 
 export class DeepSeekClient {
-  private logger: LoggingAdapter
+  private logger: SimpleLogger
 
-  constructor(logger?: LoggingAdapter) {
-    this.logger = logger || new LoggingAdapter(false)
+  constructor(logger?: SimpleLogger) {
+    this.logger = logger || new SimpleLogger(false)
   }
 
   /**
@@ -271,7 +271,7 @@ export class DeepSeekClient {
 /**
  * 创建 DeepSeek 客户端实例
  */
-export function createDeepSeekClient(logger?: LoggingAdapter): DeepSeekClient {
+export function createDeepSeekClient(logger?: SimpleLogger): DeepSeekClient {
   return new DeepSeekClient(logger)
 }
 

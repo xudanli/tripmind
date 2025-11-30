@@ -35,6 +35,13 @@
         <!-- 暗化遮罩 -->
         <div class="time-slot__hero-overlay"></div>
         
+        <!-- 图片下方：活动模式 -->
+        <div class="time-slot__hero-mode" v-if="slot.category || slot.type">
+          <span class="time-slot__hero-mode-text">
+            {{ formatCategory(slot.category || slot.type) }}
+          </span>
+        </div>
+        
         <!-- 左下角：活动名称 -->
         <div class="time-slot__hero-title-area">
           <h3 class="time-slot__hero-title">
@@ -49,13 +56,6 @@
         <div class="time-slot__hero-rating" v-if="slot.details?.rating">
           <span class="time-slot__hero-rating-icon">⭐</span>
           <span class="time-slot__hero-rating-value">{{ slot.details.rating }}</span>
-        </div>
-      </div>
-
-      <!-- ①.5 景点介绍（图片下方） -->
-      <div class="time-slot__scenic-intro-section" v-if="slot.details?.description?.scenicIntro">
-        <div class="time-slot__scenic-intro-text">
-          {{ slot.details.description.scenicIntro }}
         </div>
       </div>
 
@@ -198,18 +198,61 @@
         </div>
       </div>
 
-      <!-- Section 3: 最佳游览时间和注意事项 -->
-      <div class="time-slot__detail-section" v-if="slot.details?.recommendations?.visitTips">
+      <!-- Section 3: 核心亮点 -->
+      <div class="time-slot__detail-section" v-if="Array.isArray(slot.details?.highlights) && slot.details.highlights.length > 0">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">✨</span>
+          核心亮点
+        </h4>
+        <ul class="time-slot__highlights-list">
+          <li v-for="(highlight, index) in slot.details.highlights" :key="index" class="time-slot__highlights-item">
+            {{ highlight }}
+          </li>
+        </ul>
+      </div>
+
+      <!-- Section 4: 行家建议 -->
+      <div class="time-slot__detail-section" v-if="slot.details?.insiderTip">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">💡</span>
+          行家建议
+        </h4>
+        <div class="time-slot__insider-tip-text">
+          {{ slot.details.insiderTip }}
+        </div>
+      </div>
+
+      <!-- Section 5: 预约要求 -->
+      <div class="time-slot__detail-section" v-if="slot.details?.bookingSignal">
+        <h4 class="time-slot__detail-section-title">
+          <span class="time-slot__detail-section-icon">📋</span>
+          预约要求
+        </h4>
+        <div class="time-slot__booking-signal-text">
+          {{ slot.details.bookingSignal }}
+        </div>
+      </div>
+
+      <!-- Section 6: 最佳游览时间和注意事项 -->
+      <div class="time-slot__detail-section" v-if="slot.details?.recommendations?.visitTips || slot.details?.recommendations?.bestTimeToVisit || slot.details?.recommendations?.visitDuration">
         <h4 class="time-slot__detail-section-title">
           <span class="time-slot__detail-section-icon">🌟</span>
           {{ t('travelDetail.experienceDay.visitTips') }}
         </h4>
         <div class="time-slot__visit-tips-text">
-          {{ slot.details.recommendations.visitTips }}
+          <div v-if="slot.details?.recommendations?.bestTimeToVisit" class="visit-tip-item">
+            <strong>最佳游览时间：</strong>{{ slot.details.recommendations.bestTimeToVisit }}
+          </div>
+          <div v-if="slot.details?.recommendations?.visitDuration" class="visit-tip-item">
+            <strong>建议停留时长：</strong>{{ formatVisitDuration(slot.details.recommendations.visitDuration) }}
+          </div>
+          <div v-if="slot.details?.recommendations?.visitTips" class="visit-tip-item">
+            {{ slot.details.recommendations.visitTips }}
+          </div>
         </div>
       </div>
 
-      <!-- Section 4: 无障碍设施 -->
+      <!-- Section 7: 无障碍设施 -->
       <div class="time-slot__detail-section" v-if="slot.details?.accessibility">
         <h4 class="time-slot__detail-section-title">
           <span class="time-slot__detail-section-icon">♿</span>
@@ -430,6 +473,19 @@ const isInspirationMode = computed(
 const isPlannerMode = computed(() => props.isPlannerMode || false)
 
 const slotTypeMeta = computed(() => resolveSlotType(props.slot))
+
+// 格式化活动模式（category）
+const formatCategory = (category: string | undefined | null): string => {
+  if (!category) return ''
+  const isZh = locale.value?.startsWith('zh')
+  const normalized = category.trim().toLowerCase()
+  const mapping = TYPE_MAPPINGS[normalized]
+  if (mapping) {
+    return isZh ? mapping.zh : mapping.en
+  }
+  // 如果没有映射，返回首字母大写的原始值
+  return category.charAt(0).toUpperCase() + category.slice(1)
+}
 
 const summary = computed(() => {
   // 灵感模式不显示摘要
@@ -734,6 +790,27 @@ const formatDuration = (minutes: number): string => {
   } else {
     return locale.value === 'zh-CN' ? `${mins}分钟` : `${mins}m`
   }
+}
+
+// 格式化游览时长（支持字符串和数字）
+const formatVisitDuration = (duration: string | number): string => {
+  if (!duration) return '--'
+  if (typeof duration === 'string') {
+    // 如果已经是格式化的字符串，直接返回
+    if (duration.includes('小时') || duration.includes('分钟') || duration.includes('小时')) {
+      return duration
+    }
+    // 尝试解析为数字（分钟）
+    const minutes = parseInt(duration) || 0
+    if (minutes > 0) {
+      return formatDuration(minutes)
+    }
+    return duration
+  }
+  if (typeof duration === 'number') {
+    return formatDuration(duration)
+  }
+  return '--'
 }
 
 const formatLocation = (location: any): string => {
@@ -1889,6 +1966,32 @@ const Chip = defineComponent({
   border-radius: 16px;
 }
 
+.time-slot__hero-mode {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  padding: 12px 24px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 70%, transparent 100%);
+  pointer-events: none;
+  border-radius: 0 0 16px 16px;
+}
+
+.time-slot__hero-mode-text {
+  display: inline-block;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 .time-slot__hero-title-area {
   position: absolute;
   bottom: 24px;
@@ -2161,6 +2264,52 @@ const Chip = defineComponent({
   word-break: break-word;
 }
 
+/* 核心亮点列表 */
+.time-slot__highlights-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.time-slot__highlights-item {
+  padding: 8px 12px;
+  background: rgba(30, 125, 186, 0.05);
+  border-left: 3px solid #1E7DBA;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+}
+
+/* 行家建议文本 */
+.time-slot__insider-tip-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  background: rgba(255, 193, 7, 0.05);
+  border-left: 3px solid #FFC107;
+  border-radius: 4px;
+}
+
+/* 预约要求文本 */
+.time-slot__booking-signal-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 12px;
+  background: rgba(76, 175, 80, 0.05);
+  border-left: 3px solid #4CAF50;
+  border-radius: 4px;
+}
+
 /* 游览建议文本 */
 .time-slot__visit-tips-text {
   font-size: 14px;
@@ -2168,6 +2317,23 @@ const Chip = defineComponent({
   color: #0f172a;
   white-space: pre-wrap;
   word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.visit-tip-item {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.visit-tip-item:last-child {
+  border-bottom: none;
+}
+
+.visit-tip-item strong {
+  color: #1890ff;
+  margin-right: 6px;
 }
 
 /* 无障碍设施文本 */

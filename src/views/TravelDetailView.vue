@@ -51,7 +51,6 @@
         }"
       >
         <section class="primary-panel">
-          <!-- 所有模式统一显示：体验日 -->
           <ExperienceDay :travel="travel" @update="handleTravelUpdate" @refresh="handleTravelRefresh" />
         </section>
 
@@ -60,33 +59,6 @@
           v-if="shouldShowSidebar"
           class="sidebar-panel"
         >
-          <!-- 人格画像与旅程设计已移除（PersonaJourneySidebar 组件已删除） -->
-
-          <!-- 多目的地签证分析（已隐藏） -->
-          <!-- <MultiDestinationVisaAnalysis 
-            :analysis="multiDestinationVisaAnalysis"
-            class="sidebar-block"
-            :show-for-single-country="true"
-          /> -->
-
-          <!-- 调试信息（开发环境，已隐藏） -->
-          <!-- <a-card v-if="isDev" class="sidebar-block" title="🔍 签证信息调试">
-            <div style="font-size: 12px; line-height: 1.6;">
-              <p><strong>travel.value:</strong> {{ travel ? '存在' : '不存在' }}</p>
-              <p><strong>travel.location:</strong> {{ travel?.location || '无' }}</p>
-              <p><strong>travel.destination:</strong> {{ travel?.destination || '无' }}</p>
-              <p><strong>目的地国家代码:</strong> {{ destinationCountry || '未获取' }}</p>
-              <p><strong>目的地名称:</strong> {{ destinationName || '未获取' }}</p>
-              <p><strong>签证信息:</strong> {{ visaInfo ? '已获取' : '未获取' }}</p>
-              <p v-if="visaInfo"><strong>签证类型:</strong> {{ visaInfo.visaType }}</p>
-              <p v-if="visaInfo"><strong>适用对象:</strong> {{ visaInfo.applicableTo }}</p>
-              <p v-if="visaInfo"><strong>目的地国家:</strong> {{ visaInfo.destinationCountry }}</p>
-              <p v-if="visaInfo"><strong>目的地名称:</strong> {{ visaInfo.destinationName }}</p>
-              <p v-if="multiDestinationVisaAnalysis"><strong>多目的地国家:</strong> {{ multiDestinationVisaAnalysis.allCountries.join('、') }}</p>
-              <p><strong>显示条件:</strong> visaInfo={{ !!visaInfo }}, destinationCountry={{ !!destinationCountry }}</p>
-            </div>
-          </a-card> -->
-
           <TravelSidebar 
             v-if="travel?.id"
             class="sidebar-block"
@@ -153,8 +125,16 @@
 
           <!-- 实用信息 -->
           <PracticalInfoCard
-            v-if="travel?.data?.itineraryData?.practicalInfo"
-            :practical-info="travel.data.itineraryData.practicalInfo"
+            v-if="hasPracticalInfo"
+            :practical-info="practicalInfoForCard"
+            class="sidebar-block"
+          />
+
+          <!-- 文化红黑榜 -->
+          <CulturalGuideCard
+            v-if="travel?.data?.backendItineraryId"
+            :journey-id="travel.data.backendItineraryId"
+            :destination="travel?.destination || travel?.location"
             class="sidebar-block"
           />
         </aside>
@@ -191,6 +171,7 @@ import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestina
 import SafetyNoticeCard from '@/components/TravelDetail/SafetyNoticeCard.vue'
 import PracticalInfoCard from '@/components/TravelDetail/PracticalInfoCard.vue'
 import CurrencyInfoCard from '@/components/TravelDetail/CurrencyInfoCard.vue'
+import CulturalGuideCard from '@/components/TravelDetail/CulturalGuideCard.vue'
 import TravelDetailHeader from '@/components/TravelDetail/TravelDetailHeader.vue'
 import ItinerarySkeleton from '@/components/TravelDetail/ItinerarySkeleton.vue'
 import { getUserNationalityCode, getUserPermanentResidencyCode } from '@/config/userProfile'
@@ -212,6 +193,23 @@ const travelStore = useTravelStore()
 // 使用 Composable 管理行程数据
 const itineraryId = ref<string | undefined>(route.params.id as string)
 const { itinerary: travel, isLoading, error, loadData, refresh } = useItineraryData(itineraryId)
+
+// 处理 ExperienceDay 组件的更新事件
+const handleTravelUpdate = (updatedTravel: Travel) => {
+  console.log('[TravelDetailView] 收到 ExperienceDay 更新事件，更新 travel 数据')
+  travel.value = updatedTravel
+}
+
+// 处理行程信息更新后的刷新 - 使用 composable 的 refresh 方法
+const handleTravelRefresh = async () => {
+  if (!travel.value) {
+    console.warn('[TravelDetailView] 收到刷新事件，但 travel.value 为空')
+    return
+  }
+  
+  console.log('[TravelDetailView] 收到刷新事件，使用 composable 刷新数据')
+  await refresh()
+}
 const shouldShowSidebar = computed(() => {
   // 对灵感模式、经典模式和 planner 模式显示侧边栏
   const shouldShow = Boolean(travel.value && (travel.value.mode === 'inspiration' || travel.value.mode === 'classic' || travel.value.mode === 'planner'))
@@ -442,6 +440,54 @@ const practicalInfoData = computed(() => {
     plugType: info.plugType || undefined,
     emergencyContact: info.emergencyContact || '112' // 默认紧急电话
   }
+})
+
+// 实用信息数据（用于 PracticalInfoCard）
+const practicalInfoForCard = computed(() => {
+  return travel.value?.data?.itineraryData?.practicalInfo
+})
+
+// 检查是否有实用信息
+const hasPracticalInfo = computed(() => {
+  const info = travel.value?.data?.itineraryData?.practicalInfo
+  if (!info) {
+    if (isDev) {
+      console.log('🔍 [PracticalInfoCard] practicalInfo 不存在:', {
+        hasTravel: !!travel.value,
+        hasData: !!travel.value?.data,
+        hasItineraryData: !!travel.value?.data?.itineraryData,
+        itineraryDataKeys: travel.value?.data?.itineraryData ? Object.keys(travel.value.data.itineraryData) : []
+      })
+    }
+    return false
+  }
+  
+  // 检查是否至少有一个字段有值
+  const hasValue = !!(
+    info.weather ||
+    info.safety ||
+    info.plugType ||
+    info.currency ||
+    info.culturalTaboos ||
+    info.packingList
+  )
+  
+  if (isDev) {
+    console.log('🔍 [PracticalInfoCard] practicalInfo 检查:', {
+      hasValue,
+      practicalInfo: info,
+      fields: {
+        weather: !!info.weather,
+        safety: !!info.safety,
+        plugType: !!info.plugType,
+        currency: !!info.currency,
+        culturalTaboos: !!info.culturalTaboos,
+        packingList: !!info.packingList
+      }
+    })
+  }
+  
+  return hasValue
 })
 
 // 货币信息文本
@@ -803,23 +849,6 @@ onMounted(async () => {
       window.scrollTo(0, 0)
     }, 100)
   })
-  
-  // 处理 ExperienceDay 组件的更新事件
-  const handleTravelUpdate = (updatedTravel: Travel) => {
-    console.log('[TravelDetailView] 收到 ExperienceDay 更新事件，更新 travel 数据')
-    travel.value = updatedTravel
-  }
-
-  // 处理行程信息更新后的刷新 - 使用 composable 的 refresh 方法
-  const handleTravelRefresh = async () => {
-    if (!travel.value) {
-      console.warn('[TravelDetailView] 收到刷新事件，但 travel.value 为空')
-      return
-    }
-    
-    console.log('[TravelDetailView] 收到刷新事件，使用 composable 刷新数据')
-    await refresh()
-  }
   
   // 监听窗口大小变化，重新修复滚动
   window.addEventListener('resize', () => {

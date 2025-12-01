@@ -272,6 +272,17 @@ export default {
       alerts: 'Travel Safety Alerts',
       refreshAlerts: 'Refresh'
     },
+    culturalGuide: {
+      title: 'Cultural Guide',
+      loading: 'Loading cultural guide...',
+      load: 'Load',
+      loadError: 'Failed to load',
+      retry: 'Retry',
+      empty: 'No cultural guide available',
+      fromCache: 'Cached',
+      generatedAt: 'Generated at',
+      noJourneyId: 'Missing journey ID'
+    },
     budgetTotal: 'Total Budget',
     budgetRemaining: 'Remaining',
     totalBudget: 'Total Budget',

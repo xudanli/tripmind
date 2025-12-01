@@ -939,10 +939,10 @@ const handleSubmit = async () => {
       }
       
       // ================= 修改重点开始 =================
-      // 优化：不再在创建时阻塞获取位置信息 (enrichWithLocationInfo: false)
-      // 这里的速度会非常快，因为它只写入数据库，不调第三方 API
+      // 优化：创建行程后异步获取位置信息（不阻塞页面跳转）
+      // 使用异步方式，立即返回，位置信息在后台获取
       const baseJourney = await createJourneyFromFrontendData(createRequest, {
-        enrichWithLocationInfo: false, // ❌ 改为 false，避免前端超时
+        enrichWithLocationInfo: true, // ✅ 启用异步位置信息获取（后台执行，不阻塞）
         onProgress: (message) => {
           console.log('[TravelListView]', message)
         }

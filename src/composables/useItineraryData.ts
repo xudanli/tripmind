@@ -284,6 +284,42 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       // 5. 更新状态（先设置 isLoading 为 false，确保 UI 立即显示数据）
       isLoading.value = false
       
+      // 5.1. 检查是否需要异步获取位置信息（后台执行，不阻塞）
+      if (newTravel.data?.backendItineraryId && newTravel.destination) {
+        // 检查是否有活动缺少位置信息
+        const hasMissingLocationInfo = unifiedData.days.some(day => 
+          day.timeSlots?.some(slot => {
+            if (!slot.title || !slot.type || !slot.coordinates) return false
+            const details = slot.details || {}
+            return !(
+              details.tripAdvisorId ||
+              details.address ||
+              (details.name && details.address)
+            )
+          })
+        )
+        
+        if (hasMissingLocationInfo) {
+          console.log('[useItineraryData] 检测到活动缺少位置信息，异步触发获取...')
+          // 异步触发位置信息获取（不阻塞）
+          Promise.resolve().then(async () => {
+            try {
+              const { triggerLocationInfoEnrichmentAsync } = await import('@/services/itineraryAPI')
+              await triggerLocationInfoEnrichmentAsync(
+                newTravel.data.backendItineraryId!,
+                newTravel.destination || newTravel.location || '',
+                (message) => {
+                  console.log('[useItineraryData]', message)
+                }
+              )
+            } catch (error: any) {
+              console.warn('[useItineraryData] 异步获取位置信息失败:', error)
+              // 不抛出错误，避免影响主流程
+            }
+          })
+        }
+      }
+      
       // 6. 更新 itinerary（这会触发响应式更新）
       itinerary.value = newTravel
       

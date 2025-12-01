@@ -521,7 +521,7 @@ export const useTravelStore = defineStore('travel', () => {
             mode: mode
           },
           {
-            enrichWithLocationInfo: false, // 禁用位置信息获取，避免阻塞页面跳转（位置信息在详情页后台生成）
+            enrichWithLocationInfo: false, // 生成时不获取位置信息，在创建行程后异步获取
             onProgress: (message) => {
               pushGenerationLog(message)
             }

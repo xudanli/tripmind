@@ -13,7 +13,7 @@ export interface EditingData {
   activity: string
   type: string
   category: string
-  duration: number | null
+  duration: number | string | null
   cost: number | null
   location: string
   coordinates: { lat: number; lng: number } | null

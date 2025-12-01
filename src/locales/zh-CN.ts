@@ -311,6 +311,17 @@ export default {
       alerts: '旅行安全通知',
       refreshAlerts: '刷新'
     },
+    culturalGuide: {
+      title: '文化红黑榜',
+      loading: '正在加载文化指南...',
+      load: '加载',
+      loadError: '加载失败',
+      retry: '重试',
+      empty: '暂无文化指南',
+      fromCache: '缓存',
+      generatedAt: '生成时间',
+      noJourneyId: '缺少行程ID'
+    },
     plannerHero: {
       completionLabel: '行程完成度',
       aiSuggestionLabel: '优化建议：',

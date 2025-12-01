@@ -16,6 +16,33 @@
     :body-style="{ maxHeight: '70vh', overflowY: 'auto' }"
   >
     <div class="edit-modal-content">
+      <!-- 自然语言输入（仅新增模式） -->
+      <div v-if="isNew" class="natural-language-input-section">
+        <div class="edit-form-item">
+          <label class="edit-form-label">
+            <span>💬 {{ t('travelDetail.experienceDay.naturalLanguageInput') || '自然语言输入' }}</span>
+            <span class="form-label-hint">（支持自然语言描述，如"那个有很多鹿的日本公园"）</span>
+          </label>
+          <a-input-search
+            v-model:value="naturalLanguageQuery"
+            :placeholder="t('travelDetail.experienceDay.naturalLanguagePlaceholder') || '输入地点描述，如：奈良公园、那个有很多鹿的日本公园'"
+            :loading="geocodingLoading"
+            @search="handleNaturalLanguageSearch"
+            @pressEnter="handleNaturalLanguageSearch"
+            allow-clear
+          >
+            <template #enterButton>
+              <a-button type="primary" :loading="geocodingLoading">
+                {{ t('travelDetail.experienceDay.search') || '搜索' }}
+              </a-button>
+            </template>
+          </a-input-search>
+          <div v-if="geocodingError" class="geocoding-error">
+            <a-alert type="error" :message="geocodingError" show-icon />
+          </div>
+        </div>
+      </div>
+
       <a-collapse v-model:activeKey="activeKeys" :bordered="false">
         <!-- 基础信息 -->
         <a-collapse-panel key="basic" :header="t('travelDetail.experienceDay.basicInfo') || '基础信息'">
@@ -277,15 +304,19 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { message } from 'ant-design-vue'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import type { EditingData } from './useItineraryModals'
 import type { CurrencyInfo } from '@/utils/currency'
+import { accurateGeocode } from '@/services/locationAPI'
+import { generateLocation } from '@/services/locationAPI'
 
 interface Props {
   open: boolean
   isNew: boolean
   formData: EditingData
   currency?: CurrencyInfo | null
+  destination?: string // 目的地信息，用于生成位置信息
 }
 
 const props = defineProps<Props>()
@@ -302,6 +333,11 @@ const { t } = useI18n()
 
 const activeKeys = ref<string[]>(['basic', 'details', 'booking'])
 
+// 自然语言输入相关状态
+const naturalLanguageQuery = ref('')
+const geocodingLoading = ref(false)
+const geocodingError = ref<string | null>(null)
+
 // 本地数据副本，用于双向绑定
 const localData = ref<EditingData>({ ...props.formData })
 
@@ -312,7 +348,7 @@ const isUpdatingFromProps = ref(false)
 watch(() => props.formData, (newData) => {
   if (!isUpdatingFromProps.value) {
     isUpdatingFromProps.value = true
-    localData.value = { ...newData }
+  localData.value = { ...newData }
     nextTick(() => {
       isUpdatingFromProps.value = false
     })
@@ -322,7 +358,7 @@ watch(() => props.formData, (newData) => {
 // 监听本地数据变化，同步到父组件
 watch(localData, (newData) => {
   if (!isUpdatingFromProps.value) {
-    emit('update:formData', { ...newData })
+  emit('update:formData', { ...newData })
   }
 }, { deep: true })
 
@@ -334,6 +370,175 @@ const currencySymbol = computed(() => {
 const currencyHint = computed(() => {
   const currencyName = props.currency?.name || '人民币'
   return `${t('travelDetail.currencyHint') || '使用'}${currencyName}${t('travelDetail.record') || '记录'}`
+})
+
+/**
+ * 处理自然语言搜索
+ */
+const handleNaturalLanguageSearch = async () => {
+  const query = naturalLanguageQuery.value.trim()
+  if (!query || query.length < 2) {
+    message.warning(t('travelDetail.experienceDay.queryTooShort') || '请输入至少2个字符')
+    return
+  }
+
+  geocodingLoading.value = true
+  geocodingError.value = null
+
+  try {
+    // 1. 获取目的地信息作为上下文（后续可能会被重新赋值，所以使用 let）
+    let destination = props.destination || localData.value.location || ''
+    
+    // 2. 调用准确地理编码接口，传入目的地作为上下文
+    const geocodeResult = await accurateGeocode({ 
+      query,
+      context: destination || undefined // 如果有目的地，作为上下文传入
+    })
+    
+    if (!geocodeResult || !geocodeResult.success || !geocodeResult.location) {
+      geocodingError.value = t('travelDetail.experienceDay.locationNotFound') || '未找到匹配的地点，请尝试使用更标准的地名'
+      message.error(geocodingError.value)
+      return
+    }
+
+    message.success(
+      geocodeResult.usedAI 
+        ? `${t('travelDetail.experienceDay.aiRecognized') || 'AI 识别出地点'}：${geocodeResult.name}`
+        : `${t('travelDetail.experienceDay.foundLocation') || '找到地点'}：${geocodeResult.name}`
+    )
+
+    // 3. 如果 destination 为空，尝试从地址中提取（用于后续生成位置信息）
+    if (!destination && geocodeResult.address) {
+      // 从地址中提取城市或国家（简单提取，取最后一个逗号后的内容）
+      const addressParts = geocodeResult.address.split(',').map(s => s.trim())
+      if (addressParts.length > 1) {
+        destination = addressParts[addressParts.length - 1] // 通常是国家或主要地区
+      } else {
+        destination = geocodeResult.address
+      }
+    }
+    
+    // 如果还是没有，使用国家代码或默认值
+    if (!destination) {
+      if (geocodeResult.countryCode) {
+        // 可以根据 countryCode 映射到国家名称，这里简化处理
+        destination = geocodeResult.countryCode
+      } else {
+        destination = geocodeResult.name || query
+      }
+    }
+
+    // 4. 调用位置信息生成接口
+    let locationInfo = null
+    try {
+      locationInfo = await generateLocation({
+        activityName: geocodeResult.name || query,
+        destination: destination,
+        activityType: localData.value.type || 'attraction',
+        coordinates: {
+          lat: geocodeResult.location.latitude,
+          lng: geocodeResult.location.longitude
+        }
+      })
+    } catch (error: any) {
+      console.warn('[SlotEditModal] 位置信息生成失败，使用基础信息:', error)
+      // 即使位置信息生成失败，也继续使用地理编码结果
+    }
+
+    // 5. 自动填充表单
+    isUpdatingFromProps.value = true
+    
+    // 基础信息（使用地理编码返回的数据）
+    localData.value.title = geocodeResult.name || query
+    localData.value.activity = geocodeResult.name || query
+    localData.value.location = geocodeResult.address || geocodeResult.name || ''
+    
+    // 坐标信息（确保使用正确的字段名）
+    if (geocodeResult.location) {
+      localData.value.coordinates = {
+        lat: geocodeResult.location.latitude,
+        lng: geocodeResult.location.longitude
+      }
+    }
+    
+    // 可选：保存国家代码和地点类型（如果后续需要）
+    // 这些信息可以用于后续的位置信息生成或其他功能
+    if (geocodeResult.countryCode) {
+      // 可以保存到 details 中，如果需要的话
+      // localData.value.details = localData.value.details || {}
+      // localData.value.details.countryCode = geocodeResult.countryCode
+    }
+    
+    if (geocodeResult.placeType) {
+      // 可以根据 placeType 调整活动类型
+      // 例如：poi -> attraction, place -> attraction 等
+    }
+
+    // 如果生成了详细位置信息，填充更多字段
+    if (locationInfo) {
+      localData.value.nameChinese = locationInfo.chineseName || ''
+      localData.value.nameEnglish = locationInfo.localName || ''
+      localData.value.openingHours = locationInfo.openingHours || ''
+      localData.value.pricingDetail = locationInfo.ticketPrice || ''
+      localData.value.visitTips = locationInfo.visitTips || ''
+      localData.value.scenicIntro = locationInfo.visitTips || ''
+      localData.value.transportation = locationInfo.transportInfo || ''
+      localData.value.accessibility = locationInfo.accessibility || ''
+      localData.value.outfitSuggestions = locationInfo.outfitSuggestions || ''
+      localData.value.culturalTips = locationInfo.culturalTips || ''
+      
+      if (locationInfo.rating) {
+        localData.value.rating = locationInfo.rating
+      }
+      
+      if (locationInfo.visitDuration) {
+        // 解析时长字符串，转换为分钟数
+        const durationMatch = locationInfo.visitDuration.match(/(\d+)/)
+        if (durationMatch) {
+          localData.value.duration = parseInt(durationMatch[1]) || null
+        }
+      }
+
+      // 更新活动类型（如果位置信息中有）
+      if (locationInfo.category) {
+        const categoryMap: Record<string, string> = {
+          '景点': 'attraction',
+          '餐厅': 'restaurant',
+          '酒店': 'accommodation',
+          '购物': 'shopping',
+          '交通': 'transport'
+        }
+        const mappedType = categoryMap[locationInfo.category] || localData.value.type
+        localData.value.type = mappedType
+        localData.value.category = locationInfo.category
+      }
+    }
+
+    nextTick(() => {
+      isUpdatingFromProps.value = false
+    })
+
+    // 自动展开基础信息面板
+    if (!activeKeys.value.includes('basic')) {
+      activeKeys.value.push('basic')
+    }
+
+    message.success(t('travelDetail.experienceDay.formFilled') || '表单已自动填充，您可以继续编辑或直接保存')
+  } catch (error: any) {
+    console.error('[SlotEditModal] 自然语言搜索失败:', error)
+    geocodingError.value = error.message || t('travelDetail.experienceDay.searchFailed') || '搜索失败，请稍后重试'
+    message.error(geocodingError.value)
+  } finally {
+    geocodingLoading.value = false
+  }
+}
+
+// 当模态框关闭时，清空自然语言查询
+watch(() => props.open, (isOpen) => {
+  if (!isOpen) {
+    naturalLanguageQuery.value = ''
+    geocodingError.value = null
+  }
 })
 </script>
 
@@ -384,6 +589,24 @@ const currencyHint = computed(() => {
 .form-item-hint {
   font-size: 12px;
   color: #999;
+}
+
+.form-label-hint {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: normal;
+  color: #999;
+}
+
+.natural-language-input-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.geocoding-error {
+  margin-top: 8px;
 }
 </style>
 

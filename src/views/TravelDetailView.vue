@@ -115,18 +115,18 @@
             class="sidebar-block"
           />
 
-          <!-- 货币信息 -->
-          <CurrencyInfoCard
-            v-if="travel?.data?.itineraryData?.currencyInfo || travel?.data?.itineraryData?.currency"
-            :currency-info="travel.data.itineraryData.currencyInfo"
-            :currency="travel.data.itineraryData.currency"
-            class="sidebar-block"
-          />
-
           <!-- 实用信息 -->
           <PracticalInfoCard
             v-if="hasPracticalInfo"
             :practical-info="practicalInfoForCard"
+            class="sidebar-block"
+          />
+
+          <!-- 目的地实用信息（语言、汇率、时区、插座、紧急电话） -->
+          <LocalEssentialsCard
+            v-if="travel?.data?.backendItineraryId"
+            :journey-id="travel.data.backendItineraryId"
+            :destination="destinationName || travel?.destination || travel?.location"
             class="sidebar-block"
           />
 
@@ -170,7 +170,7 @@ import VisaGuide from '@/components/TravelDetail/VisaGuide.vue'
 import MultiDestinationVisaAnalysis from '@/components/TravelDetail/MultiDestinationVisaAnalysis.vue'
 import SafetyNoticeCard from '@/components/TravelDetail/SafetyNoticeCard.vue'
 import PracticalInfoCard from '@/components/TravelDetail/PracticalInfoCard.vue'
-import CurrencyInfoCard from '@/components/TravelDetail/CurrencyInfoCard.vue'
+import LocalEssentialsCard from '@/components/TravelDetail/LocalEssentialsCard.vue'
 import CulturalGuideCard from '@/components/TravelDetail/CulturalGuideCard.vue'
 import TravelDetailHeader from '@/components/TravelDetail/TravelDetailHeader.vue'
 import ItinerarySkeleton from '@/components/TravelDetail/ItinerarySkeleton.vue'
@@ -430,14 +430,13 @@ const weatherDataHtml = computed(() => {
   return null
 })
 
-// 实用信息数据
+// 实用信息数据（用于头部显示，已移除 plugType，现在由 LocalEssentialsCard 提供）
 const practicalInfoData = computed(() => {
   if (!travel.value?.data?.itineraryData?.practicalInfo) return undefined
   
   const info = travel.value.data.itineraryData.practicalInfo
   return {
     language: info.language || undefined,
-    plugType: info.plugType || undefined,
     emergencyContact: info.emergencyContact || '112' // 默认紧急电话
   }
 })
@@ -462,12 +461,10 @@ const hasPracticalInfo = computed(() => {
     return false
   }
   
-  // 检查是否至少有一个字段有值
+  // 检查是否至少有一个字段有值（已移除 plugType 和 currency，现在由 LocalEssentialsCard 提供）
   const hasValue = !!(
     info.weather ||
     info.safety ||
-    info.plugType ||
-    info.currency ||
     info.culturalTaboos ||
     info.packingList
   )
@@ -479,8 +476,6 @@ const hasPracticalInfo = computed(() => {
       fields: {
         weather: !!info.weather,
         safety: !!info.safety,
-        plugType: !!info.plugType,
-        currency: !!info.currency,
         culturalTaboos: !!info.culturalTaboos,
         packingList: !!info.packingList
       }

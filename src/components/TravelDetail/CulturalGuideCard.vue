@@ -48,10 +48,52 @@
     </div>
 
     <div v-else-if="content" class="cultural-guide-content">
-      <div 
-        class="markdown-content" 
-        v-html="renderMarkdown(content)"
-      ></div>
+      <!-- 如果解析到了 Do's 和 Don'ts，显示两列布局 -->
+      <div v-if="dosItems.length > 0 || dontsItems.length > 0" class="dos-donts-container">
+        <div class="dos-donts-header">
+          <span class="header-icon">A</span>
+          <span class="header-title">文化红黑榜 (Do's & Don'ts)</span>
+        </div>
+        
+        <div class="dos-donts-columns">
+          <!-- 建议做 (Do's) -->
+          <div class="dos-column">
+            <div class="column-header dos-header">
+              <span class="header-icon-green">👍</span>
+              <span class="header-text">建议做 (Do's)</span>
+            </div>
+            <ul v-if="dosItems.length > 0" class="dos-list">
+              <li v-for="(item, index) in dosItems" :key="index" class="dos-item">
+                <span class="dot green-dot"></span>
+                <span class="item-text">{{ item }}</span>
+              </li>
+            </ul>
+            <div v-else class="empty-section">
+              <span class="empty-text">暂无建议</span>
+            </div>
+          </div>
+          
+          <!-- 禁止做 (Don'ts) -->
+          <div class="donts-column">
+            <div class="column-header donts-header">
+              <span class="header-icon-red">👎</span>
+              <span class="header-text">禁止做 (Don'ts)</span>
+            </div>
+            <ul v-if="dontsItems.length > 0" class="donts-list">
+              <li v-for="(item, index) in dontsItems" :key="index" class="donts-item">
+                <span class="dot red-dot"></span>
+                <span class="item-text">{{ item }}</span>
+              </li>
+            </ul>
+            <div v-else class="empty-section">
+              <span class="empty-text">暂无禁止项</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 如果无法解析，回退到原来的 markdown 渲染 -->
+      <div v-else class="markdown-content" v-html="renderMarkdown(content)"></div>
       
       <div v-if="generatedAt" class="guide-meta">
         <span class="meta-text">
@@ -104,6 +146,75 @@ const cardTitle = computed(() => {
   return props.destination 
     ? `🤝 ${props.destination}${t('travelDetail.culturalGuide.title') || '文化红黑榜'}`
     : `🤝 ${t('travelDetail.culturalGuide.title') || '文化红黑榜'}`
+})
+
+/**
+ * 解析内容，提取 Do's 和 Don'ts
+ */
+const parseContent = (text: string): { dos: string[], donts: string[] } => {
+  const dos: string[] = []
+  const donts: string[] = []
+  
+  if (!text) return { dos, donts }
+  
+  // 按行分割
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line)
+  
+  let currentSection: 'dos' | 'donts' | null = null
+  
+  for (const line of lines) {
+    // 检测标题（支持多种格式）
+    const lowerLine = line.toLowerCase()
+    if (lowerLine.match(/建议做|do'?s|推荐|应该|可以|请|务必|鼓励/i) && 
+        !lowerLine.match(/禁止|不要|don'?t/i)) {
+      currentSection = 'dos'
+      continue
+    }
+    if (lowerLine.match(/禁止做|don'?t'?s|不要|禁止|避免|切勿|不能|不应|避免/i)) {
+      currentSection = 'donts'
+      continue
+    }
+    
+    // 检测列表项（以 - 或 * 或 • 或数字开头）
+    const listItemMatch = line.match(/^[\-\*•]\s+(.+)$|^\d+\.\s+(.+)$/)
+    if (listItemMatch) {
+      const item = listItemMatch[1] || listItemMatch[2]
+      if (item) {
+        // 清理 markdown 格式
+        let cleanItem = item
+          .replace(/\*\*(.+?)\*\*/g, '$1') // 移除加粗
+          .replace(/__(.+?)__/g, '$1')
+          .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // 移除链接，保留文本
+          .replace(/<[^>]+>/g, '') // 移除 HTML 标签
+          .trim()
+        
+        // 如果当前有明确的 section，使用它
+        if (currentSection === 'dos') {
+          dos.push(cleanItem)
+        } else if (currentSection === 'donts') {
+          donts.push(cleanItem)
+        } else {
+          // 如果没有明确的 section，根据关键词推断
+          const lowerItem = cleanItem.toLowerCase()
+          if (lowerItem.match(/不要|禁止|避免|切勿|不能|不应|禁止|避免|切勿/i)) {
+            donts.push(cleanItem)
+          } else {
+            dos.push(cleanItem)
+          }
+        }
+      }
+    }
+  }
+  
+  return { dos, donts }
+}
+
+const dosItems = computed(() => {
+  return parseContent(content.value).dos
+})
+
+const dontsItems = computed(() => {
+  return parseContent(content.value).donts
 })
 
 /**
@@ -413,6 +524,121 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* 文化红黑榜样式 */
+.dos-donts-container {
+  width: 100%;
+}
+
+.dos-donts-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  font-weight: 700;
+  color: #666;
+}
+
+.header-title {
+  flex: 1;
+}
+
+.dos-donts-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .dos-donts-columns {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.column-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dos-header {
+  color: #52c41a;
+}
+
+.donts-header {
+  color: #ff4d4f;
+}
+
+.header-icon-green,
+.header-icon-red {
+  font-size: 20px;
+}
+
+.dos-list,
+.donts-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.dos-item,
+.donts-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+  font-size: 14px;
+  color: #333;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+}
+
+.green-dot {
+  background-color: #52c41a;
+}
+
+.red-dot {
+  background-color: #ff4d4f;
+}
+
+.item-text {
+  flex: 1;
+}
+
+.empty-section {
+  padding: 16px;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+}
+
+.empty-text {
+  display: inline-block;
 }
 </style>
 

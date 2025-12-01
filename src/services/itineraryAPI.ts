@@ -245,7 +245,7 @@ export interface GenerateItineraryResponse {
 }
 
 export interface ItineraryDay {
-  id?: string // 天数ID（可选，后端可能返回）
+  id?: string // 天数ID（创建时可选，但后端返回时必须存在）
   day: number
   date: string // YYYY-MM-DD
   activities?: Activity[] // 旧格式（兼容）
@@ -1429,10 +1429,23 @@ export async function getItineraryDetail(
       throw new Error('获取行程详情失败')
     }
 
+    // 检查 days 是否都有 id（后端必须返回）
+    const daysWithoutId = (apiData.data.days || []).filter(d => !d.id)
+    if (daysWithoutId.length > 0) {
+      console.error('[ItineraryAPI] ❌ 部分 day 缺少 id 字段（后端必须返回）:', {
+        totalDays: apiData.data.days?.length || 0,
+        daysWithoutId: daysWithoutId.length,
+        daysWithoutIdDetails: daysWithoutId.map(d => ({ day: d.day, date: d.date }))
+      })
+    }
+    
     console.log('[ItineraryAPI] 获取行程详情成功:', {
       id: apiData.data.id,
       destination: apiData.data.destination,
-      hasDays: !!apiData.data.days && apiData.data.days.length > 0
+      hasDays: !!apiData.data.days && apiData.data.days.length > 0,
+      daysCount: apiData.data.days?.length || 0,
+      daysWithId: (apiData.data.days || []).filter(d => d.id).length,
+      daysWithoutId: daysWithoutId.length
     })
 
     // 如果主接口返回的 days 为空或不存在，尝试从 days 接口获取
@@ -1441,6 +1454,14 @@ export async function getItineraryDetail(
         console.log('[ItineraryAPI] 主接口未返回 days 数据，尝试从 days 接口获取...')
         const days = await getJourneyDays(id)
         if (days && days.length > 0) {
+          // 检查从 days 接口获取的数据是否都有 id
+          const daysWithoutIdFromGet = days.filter(d => !d.id)
+          if (daysWithoutIdFromGet.length > 0) {
+            console.error('[ItineraryAPI] ❌ 从 days 接口获取的数据中，部分 day 缺少 id 字段:', {
+              totalDays: days.length,
+              daysWithoutId: daysWithoutIdFromGet.length
+            })
+          }
           apiData.data.days = days
           console.log('[ItineraryAPI] 从 days 接口获取成功，共', days.length, '天')
         }
@@ -3143,6 +3164,7 @@ export async function createJourneyFromFrontendData(
           title: slot.title,
           type: slot.type,
           hasCoordinates: !!slot.coordinates,
+          coordinates: slot.coordinates,
           hasDetails: !!slot.details,
           cost: slot.cost,
           duration: slot.duration
@@ -3160,12 +3182,17 @@ export async function createJourneyFromFrontendData(
       throw new Error('days 数组不能为空')
     }
     
-    // 验证每个 day 的 timeSlots
-    request.itineraryData.days.forEach((day, index) => {
-      if (!day.timeSlots || day.timeSlots.length === 0) {
+    // 验证和清理每个 day 的 timeSlots，确保数据格式正确
+    const cleanedDays = request.itineraryData.days.map((day, index) => {
+      const timeSlots = day.timeSlots || []
+      
+      if (timeSlots.length === 0) {
         console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 timeSlots 为空`)
       }
-      day.timeSlots?.forEach((slot, slotIndex) => {
+      
+      // 清理和验证每个 timeSlot
+      const cleanedTimeSlots = timeSlots.map((slot, slotIndex) => {
+        // 验证必要字段
         if (!slot.time || !slot.title || !slot.type) {
           console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 缺少必要字段:`, {
             hasTime: !!slot.time,
@@ -3173,10 +3200,72 @@ export async function createJourneyFromFrontendData(
             hasType: !!slot.type
           })
         }
-        if (!slot.coordinates || !slot.coordinates.lat || !slot.coordinates.lng) {
-          console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 缺少坐标信息`)
+        
+        // 验证坐标
+        if (!slot.coordinates || typeof slot.coordinates !== 'object') {
+          console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 坐标格式错误:`, slot.coordinates)
+        } else if (!slot.coordinates.lat || !slot.coordinates.lng) {
+          console.warn(`[ItineraryAPI] Day ${day.day || index + 1} 的 Slot ${slotIndex + 1} 缺少坐标信息:`, {
+            hasLat: !!slot.coordinates.lat,
+            hasLng: !!slot.coordinates.lng,
+            coordinates: slot.coordinates
+          })
         }
+        
+        // 确保坐标格式正确（lat/lng 而不是 latitude/longitude）
+        let coordinates = slot.coordinates
+        if (coordinates && ('latitude' in coordinates || 'longitude' in coordinates)) {
+          coordinates = {
+            lat: (coordinates as any).latitude || (coordinates as any).lat || 0,
+            lng: (coordinates as any).longitude || (coordinates as any).lng || 0
+          }
+        }
+        
+        // 返回清理后的 slot
+        return {
+          time: slot.time || '09:00',
+          title: slot.title || '',
+          activity: slot.activity || slot.title || '',
+          type: slot.type || 'attraction',
+          coordinates: coordinates || { lat: 0, lng: 0 },
+          notes: slot.notes || '',
+          details: slot.details || {},
+          cost: typeof slot.cost === 'number' ? slot.cost : (slot.cost ? Number(slot.cost) : undefined),
+          duration: typeof slot.duration === 'number' ? slot.duration : (slot.duration ? Number(slot.duration) : undefined)
+        }
+      }).filter(slot => {
+        // 过滤掉无效的 slot（至少需要有 title 和 type）
+        const isValid = slot.title && slot.type && slot.coordinates
+        if (!isValid) {
+          console.warn(`[ItineraryAPI] 过滤掉无效的 slot:`, slot)
+        }
+        return isValid
       })
+      
+      return {
+        day: typeof day.day === 'number' ? day.day : (index + 1),
+        date: day.date || request.startDate || new Date().toISOString().split('T')[0],
+        timeSlots: cleanedTimeSlots
+      }
+    })
+    
+    // 构建清理后的请求
+    const cleanedRequest = {
+      ...request,
+      itineraryData: {
+        ...request.itineraryData,
+        days: cleanedDays
+      }
+    }
+    
+    // 记录清理后的数据
+    const cleanedDaysCount = cleanedDays.length
+    const cleanedTimeSlotsCount = cleanedDays.reduce((sum, day) => sum + (day.timeSlots?.length || 0), 0)
+    console.log('[ItineraryAPI] 数据清理完成:', {
+      originalDaysCount: request.itineraryData.days.length,
+      cleanedDaysCount,
+      originalTimeSlotsCount: totalTimeSlots,
+      cleanedTimeSlotsCount
     })
     
     const response = await authenticatedFetch(url, {
@@ -3184,7 +3273,7 @@ export async function createJourneyFromFrontendData(
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(cleanedRequest)
     })
 
     if (!response.ok) {
@@ -3332,20 +3421,88 @@ export async function updateJourneyFromFrontendData(
   const endpoint = `/v1/journeys/${journeyId}/from-frontend-data`
   const url = buildUrl(endpoint)
 
+  const daysCount = request.itineraryData.days?.length || 0
+  const totalTimeSlots = request.itineraryData.days?.reduce((sum, day) => sum + (day.timeSlots?.length || 0), 0) || 0
+
   console.log('[ItineraryAPI] 从前端数据格式更新行程:', {
     url,
     journeyId,
     destination: request.itineraryData.destination,
-    daysCount: request.itineraryData.days?.length || 0
+    daysCount,
+    totalTimeSlots
   })
 
   try {
+    // 验证和清理数据（与创建接口保持一致）
+    if (!request.itineraryData.destination) {
+      throw new Error('destination 字段不能为空')
+    }
+    if (!request.itineraryData.days || request.itineraryData.days.length === 0) {
+      throw new Error('days 数组不能为空')
+    }
+    
+    // 清理和验证每个 day 的 timeSlots
+    const cleanedDays = request.itineraryData.days.map((day, index) => {
+      const timeSlots = day.timeSlots || []
+      
+      const cleanedTimeSlots = timeSlots.map((slot, slotIndex) => {
+        // 确保坐标格式正确（lat/lng 而不是 latitude/longitude）
+        let coordinates = slot.coordinates
+        if (coordinates && ('latitude' in coordinates || 'longitude' in coordinates)) {
+          coordinates = {
+            lat: (coordinates as any).latitude || (coordinates as any).lat || 0,
+            lng: (coordinates as any).longitude || (coordinates as any).lng || 0
+          }
+        }
+        
+        return {
+          time: slot.time || '09:00',
+          title: slot.title || '',
+          activity: slot.activity || slot.title || '',
+          type: slot.type || 'attraction',
+          coordinates: coordinates || { lat: 0, lng: 0 },
+          notes: slot.notes || '',
+          details: slot.details || {},
+          cost: typeof slot.cost === 'number' ? slot.cost : (slot.cost ? Number(slot.cost) : undefined),
+          duration: typeof slot.duration === 'number' ? slot.duration : (slot.duration ? Number(slot.duration) : undefined)
+        }
+      }).filter(slot => {
+        // 过滤掉无效的 slot（至少需要有 title 和 type）
+        const isValid = slot.title && slot.type && slot.coordinates
+        if (!isValid) {
+          console.warn(`[ItineraryAPI] 更新时过滤掉无效的 slot:`, slot)
+        }
+        return isValid
+      })
+      
+      return {
+        day: typeof day.day === 'number' ? day.day : (index + 1),
+        date: day.date || request.startDate || new Date().toISOString().split('T')[0],
+        timeSlots: cleanedTimeSlots
+      }
+    })
+    
+    const cleanedRequest = {
+      ...request,
+      itineraryData: {
+        ...request.itineraryData,
+        days: cleanedDays
+      }
+    }
+    
+    console.log('[ItineraryAPI] 更新请求数据清理完成:', {
+      originalDaysCount: daysCount,
+      cleanedDaysCount: cleanedDays.length,
+      originalTimeSlotsCount: totalTimeSlots,
+      cleanedTimeSlotsCount: cleanedDays.reduce((sum, day) => sum + (day.timeSlots?.length || 0), 0)
+    })
+    
     const response = await authenticatedFetch(url, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(cleanedRequest)
     })
 
     if (!response.ok) {
@@ -4115,6 +4272,78 @@ export async function getCulturalGuide(journeyId: string): Promise<GetCulturalGu
     return result
   } catch (error: any) {
     console.error('[ItineraryAPI] 获取文化红黑榜失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+/**
+ * 目的地实用信息相关接口
+ */
+
+/**
+ * 获取目的地实用信息响应
+ */
+export interface GetLocalEssentialsResponse {
+  success: boolean
+  destination: string
+  localEssentials: {
+    language: string
+    currencyRate: string
+    timeZone: string
+    powerOutlet: string
+    emergencyNumber: string
+  }
+  fromCache: boolean
+  generatedAt: string // ISO 8601 格式
+}
+
+/**
+ * 获取目的地实用信息
+ * @param journeyId 行程ID
+ * @returns 目的地实用信息数据
+ */
+export async function getLocalEssentials(journeyId: string): Promise<GetLocalEssentialsResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/local-essentials`
+  const url = buildUrl(endpoint)
+
+  console.log('[ItineraryAPI] 获取目的地实用信息:', {
+    url,
+    journeyId
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const result: GetLocalEssentialsResponse = await response.json()
+
+    if (!result.success) {
+      throw new Error('获取目的地实用信息失败')
+    }
+
+    console.log('[ItineraryAPI] 获取目的地实用信息成功:', {
+      journeyId,
+      destination: result.destination,
+      fromCache: result.fromCache,
+      generatedAt: result.generatedAt
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取目的地实用信息失败:', {
       error: error.message,
       stack: error.stack,
       url,

@@ -3,12 +3,13 @@
  * 提取所有格式化函数，提高代码可维护性
  */
 
-import { computed } from 'vue'
+import { computed, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CurrencyInfo } from '@/utils/currency'
 import { formatCurrency, getCurrencyByCode, getCurrencyForDestination } from '@/utils/currency'
 import { getDefaultCurrency } from '@/config/currency'
 import type { TimeSlot, TimeSlotDetails, TypeMapping } from '@/components/TravelDetail/ExperienceDay/types'
+import { getRatingPlatformForDestination } from '@/utils/ratingPlatform'
 
 /**
  * 类型映射配置
@@ -43,9 +44,20 @@ const TYPE_ICON_MAP: Record<string, string> = {
 
 /**
  * 格式化时间段相关的工具函数
+ * 支持两种调用方式：
+ * 1. useSlotFormatting(slot, currency) - 单个 slot 格式化
+ * 2. useSlotFormatting({ itineraryData, travel }) - 批量格式化，返回函数
  */
-export function useSlotFormatting(slot: TimeSlot, currency: CurrencyInfo | null = null) {
+export function useSlotFormatting(
+  slotOrOptions: TimeSlot | { itineraryData: Ref<any>; travel: Ref<any> },
+  currency?: CurrencyInfo | null
+) {
   const { t, locale } = useI18n()
+  
+  // 判断调用方式
+  const isBatchMode = slotOrOptions && typeof slotOrOptions === 'object' && 'itineraryData' in slotOrOptions
+  const slot = isBatchMode ? null : (slotOrOptions as TimeSlot)
+  const options = isBatchMode ? (slotOrOptions as { itineraryData: Ref<any>; travel: Ref<any> }) : null
 
   /**
    * 格式化类型
@@ -128,17 +140,20 @@ export function useSlotFormatting(slot: TimeSlot, currency: CurrencyInfo | null 
   }
 
   /**
-   * 获取活动货币信息
+   * 获取活动货币信息（批量模式）
    */
-  const getSlotCurrency = (): CurrencyInfo => {
+  const getSlotCurrency = (slotParam?: TimeSlot): CurrencyInfo => {
+    const targetSlot = slotParam || slot
+    if (!targetSlot) return getDefaultCurrency()
+    
     // 1. 优先使用明确的货币代码
     const explicitCode =
-      slot?.costCurrency ||
-      slot?.currency ||
-      slot?.details?.currency ||
-      slot?.details?.currencyCode ||
-      slot?.details?.pricing?.currency ||
-      slot?.details?.pricing?.currencyCode
+      targetSlot?.costCurrency ||
+      targetSlot?.currency ||
+      targetSlot?.details?.currency ||
+      targetSlot?.details?.currencyCode ||
+      targetSlot?.details?.pricing?.currency ||
+      targetSlot?.details?.pricing?.currencyCode
 
     if (explicitCode) {
       const currency = getCurrencyByCode(String(explicitCode))
@@ -147,9 +162,9 @@ export function useSlotFormatting(slot: TimeSlot, currency: CurrencyInfo | null 
 
     // 2. 从活动位置推断货币
     const slotLocation =
-      slot?.details?.address?.chinese ||
-      slot?.details?.address?.english ||
-      (typeof slot?.location === 'string' ? slot.location : '') ||
+      targetSlot?.details?.address?.chinese ||
+      targetSlot?.details?.address?.english ||
+      (typeof targetSlot?.location === 'string' ? targetSlot.location : '') ||
       ''
 
     if (slotLocation) {
@@ -159,13 +174,95 @@ export function useSlotFormatting(slot: TimeSlot, currency: CurrencyInfo | null 
       }
     }
 
-    // 3. 使用传入的货币（通常是行程整体货币）
+    // 3. 从行程数据获取货币
+    if (options?.itineraryData?.value?.currencyInfo) {
+      return options.itineraryData.value.currencyInfo
+    }
+    if (options?.travel?.value?.data?.itineraryData?.currencyInfo) {
+      return options.travel.value.data.itineraryData.currencyInfo
+    }
+
+    // 4. 使用传入的货币（通常是行程整体货币）
     if (currency) {
       return currency
     }
 
-    // 4. 默认返回系统配置的默认货币
+    // 5. 默认返回系统配置的默认货币
     return getDefaultCurrency()
+  }
+
+  /**
+   * 获取评分平台（批量模式）
+   * 始终返回字符串，不会返回 null
+   */
+  const getRatingPlatform = (slotParam?: TimeSlot): string => {
+    // 批量模式下必须传入 slot 参数
+    if (isBatchMode) {
+      if (!slotParam) {
+        // 如果没有 slot，尝试从目的地推断默认平台
+        const destination = 
+          options?.travel?.value?.destination || 
+          options?.travel?.value?.location ||
+          options?.itineraryData?.value?.destination ||
+          ''
+        if (destination) {
+          const platformInfo = getRatingPlatformForDestination(destination)
+          return locale.value === 'zh-CN' ? platformInfo.name : platformInfo.nameEn
+        }
+        // 默认返回 TripAdvisor
+        return 'TripAdvisor'
+      }
+    } else {
+      // 单个模式下使用内部的 slot
+      if (!slot) {
+        // 尝试从目的地推断
+        const destination = 
+          options?.travel?.value?.destination || 
+          options?.travel?.value?.location ||
+          options?.itineraryData?.value?.destination ||
+          ''
+        if (destination) {
+          const platformInfo = getRatingPlatformForDestination(destination)
+          return locale.value === 'zh-CN' ? platformInfo.name : platformInfo.nameEn
+        }
+        return 'TripAdvisor'
+      }
+    }
+    const targetSlot = slotParam || slot
+    if (!targetSlot) {
+      // 如果没有 slot，从目的地推断
+      const destination = 
+        options?.travel?.value?.destination || 
+        options?.travel?.value?.location ||
+        options?.itineraryData?.value?.destination ||
+        ''
+      if (destination) {
+        const platformInfo = getRatingPlatformForDestination(destination)
+        return locale.value === 'zh-CN' ? platformInfo.name : platformInfo.nameEn
+      }
+      return 'TripAdvisor'
+    }
+    
+    // 从 slot 的 rating 信息中获取平台
+    const rating = targetSlot?.details?.rating
+    if (rating && typeof rating === 'object' && 'platform' in rating && rating.platform) {
+      return String(rating.platform)
+    }
+    
+    // 从目的地推断平台
+    const destination = 
+      options?.travel?.value?.destination || 
+      options?.travel?.value?.location ||
+      options?.itineraryData?.value?.destination ||
+      ''
+    
+    if (destination) {
+      const platformInfo = getRatingPlatformForDestination(destination)
+      return locale.value === 'zh-CN' ? platformInfo.name : platformInfo.nameEn
+    }
+    
+    // 默认返回 TripAdvisor（全球通用）
+    return 'TripAdvisor'
   }
 
   /**
@@ -248,13 +345,21 @@ export function useSlotFormatting(slot: TimeSlot, currency: CurrencyInfo | null 
     return '--'
   }
 
+  // 批量模式返回函数，单个模式返回值
+  if (isBatchMode) {
+    return {
+      getSlotCurrency: (slot?: TimeSlot) => getSlotCurrency(slot),
+      getRatingPlatform: (slot?: TimeSlot) => getRatingPlatform(slot),
+    }
+  }
+
   return {
     formatType,
     getTypeIcon,
     formatCategory,
     formatDuration,
     formatLocation,
-    getSlotCurrency,
+    getSlotCurrency: () => getSlotCurrency(),
     getAddressText,
     hasCost,
     getCostValue,

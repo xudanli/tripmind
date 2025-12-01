@@ -17,21 +17,6 @@
         <div class="info-text">{{ practicalInfo.safety }}</div>
       </div>
 
-      <div v-if="practicalInfo.plugType" class="info-item">
-        <div class="info-label">
-          <span class="info-icon">🔌</span>
-          <strong>插座类型</strong>
-        </div>
-        <div class="info-text">{{ practicalInfo.plugType }}</div>
-      </div>
-
-      <div v-if="practicalInfo.currency" class="info-item">
-        <div class="info-label">
-          <span class="info-icon">💰</span>
-          <strong>货币信息</strong>
-        </div>
-        <div class="info-text">{{ practicalInfo.currency }}</div>
-      </div>
 
       <div v-if="practicalInfo.culturalTaboos" class="info-item">
         <div class="info-label">
@@ -56,8 +41,6 @@
 interface PracticalInfo {
   weather?: string
   safety?: string
-  plugType?: string
-  currency?: string
   culturalTaboos?: string
   packingList?: string
 }

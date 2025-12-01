@@ -144,14 +144,37 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       // 2. 批量获取活动详情
       let activitiesMap: { [dayId: string]: any[] } = {}
       try {
-        const dayIds = backendItinerary.days.map(day => day.id).filter(Boolean) as string[]
+        // 确保所有 day 都有 id
+        const dayIds = backendItinerary.days
+          .map(day => {
+            if (!day.id) {
+              console.warn(`[useItineraryData] Day ${day.day} 缺少 id 字段:`, day)
+            }
+            return day.id
+          })
+          .filter((id): id is string => Boolean(id))
         
         console.log('[useItineraryData] 准备批量获取活动详情:', {
           journeyId: itineraryId.value,
           dayIdsCount: dayIds.length,
           dayIds: dayIds,
-          daysFromBackend: backendItinerary.days.map(d => ({ id: d.id, day: d.day, activitiesCount: d.activities?.length || 0 }))
+          daysFromBackend: backendItinerary.days.map(d => ({ 
+            id: d.id, 
+            day: d.day, 
+            hasId: !!d.id,
+            activitiesCount: d.activities?.length || 0 
+          })),
+          daysWithoutId: backendItinerary.days.filter(d => !d.id).map(d => ({ day: d.day, date: d.date }))
         })
+        
+        // 如果有 day 缺少 id，记录警告
+        if (dayIds.length !== backendItinerary.days.length) {
+          console.error('[useItineraryData] ⚠️ 部分 day 缺少 id 字段，无法批量获取活动详情！', {
+            totalDays: backendItinerary.days.length,
+            daysWithId: dayIds.length,
+            daysWithoutId: backendItinerary.days.filter(d => !d.id).map(d => ({ day: d.day, date: d.date }))
+          })
+        }
         
         if (dayIds.length > 0) {
           const activitiesResponse = await batchGetActivities(itineraryId.value, { dayIds })
@@ -172,8 +195,16 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
             totalActivities: activitiesResponse.totalCount,
             activitiesByDay: Object.entries(activitiesMap).map(([dayId, activities]) => ({
               dayId,
-              count: activities.length
-            }))
+              count: activities.length,
+              firstActivity: activities[0] ? {
+                id: activities[0].id,
+                time: activities[0].time,
+                title: activities[0].title,
+                dayId: activities[0].dayId
+              } : null
+            })),
+            activitiesMapKeys: Object.keys(activitiesMap),
+            backendDayIds: backendItinerary.days.map((d: any) => ({ id: d.id, day: d.day }))
           })
         }
       } catch (activitiesError: any) {

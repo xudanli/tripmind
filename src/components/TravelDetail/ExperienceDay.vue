@@ -14,7 +14,7 @@
           <DayCard
             :day="day"
             :summary="getDaySummary(day)"
-            @expand="handleDayExpand(day.day)"
+            @expand="handleDayExpand"
           >
             <template #slots>
               <TimeSlotCard
@@ -80,6 +80,8 @@
       v-model:open="slotEditing.editModalVisible.value"
       v-model:formData="slotEditing.editingData.value"
       :is-new="slotEditing.isAddingNew.value"
+      :destination="destination"
+      :currency="getOverallCurrency()"
       @save="slotEditing.save"
       @add-booking-link="slotEditing.addBookingLink"
       @remove-booking-link="slotEditing.removeBookingLink"
@@ -258,13 +260,21 @@ const itineraryDays = computed(() => {
   })
   
   return uniqueDays.map((day: any) => {
+    // 优先使用 timeSlots，如果没有则使用 activities
     const timeSlots = day.timeSlots || day.activities || []
+    
+    // 确保 timeSlots 和 activities 同步（如果两者都存在）
+    if (day.timeSlots && day.activities && day.timeSlots.length !== day.activities.length) {
+      // 如果长度不一致，优先使用 timeSlots
+      day.activities = [...day.timeSlots]
+    }
+    
     return {
       ...day,
       timeSlots: timeSlots.map((slot: any) => ({
         ...slot,
         details: slot.details || {},
-        coordinates: slot.coordinates || slot.location || {},
+        coordinates: slot.coordinates || (typeof slot.location === 'object' ? slot.location : {}),
         title: slot.title || slot.activity || '',
         activity: slot.activity || slot.title || ''
       }))
@@ -395,6 +405,16 @@ const isSlotExpanded = (day: number, slotIndex: number, slot: any): boolean => {
 }
 const toggleDetailsByKey = (key: string) => {
   expandedDetails.value[key] = !expandedDetails.value[key]
+}
+
+// 处理天数展开
+const handleDayExpand = (dayNumber: number) => {
+  // 如果还没有这一天的摘要，且没有在生成中，则触发生成
+  if (dayNumber && !dailySummaries.value.has(dayNumber) && !generatingSummaries.value.has(dayNumber)) {
+    // 调用 getDaySummary 会自动触发 generateDailySummaries
+    // 这里只是确保在展开时触发一次检查
+    getDaySummary({ day: dayNumber })
+  }
 }
 
 // --- 业务逻辑 ---

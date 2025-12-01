@@ -20,8 +20,6 @@ export const API_CONFIG = {
   TRIPADVISOR_RAPIDAPI_KEY: import.meta.env.VITE_TRIPADVISOR_RAPIDAPI_KEY || '',
   TRIPADVISOR_RAPIDAPI_HOST: import.meta.env.VITE_TRIPADVISOR_RAPIDAPI_HOST || 'travel-advisor.p.rapidapi.com',
   GETYOURGUIDE_API_KEY: import.meta.env.VITE_GETYOURGUIDE_API_KEY || '',
-  EVENTBRITE_API_TOKEN: import.meta.env.VITE_EVENTBRITE_API_TOKEN || '',
-  EVENTBRITE_API_URL: import.meta.env.VITE_EVENTBRITE_API_URL || 'https://www.eventbriteapi.com',
   MAPBOX_ACCESS_TOKEN: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '',
   MAPBOX_API_URL: import.meta.env.VITE_MAPBOX_API_URL || 'https://api.mapbox.com',
   
@@ -58,9 +56,6 @@ export const API_CONFIG = {
     AUTH_PROFILE: '/auth/me',
     AUTH_LOGOUT: '/auth/logout',
     USER_PREFERENCES: '/user/preferences',
-    EVENTBRITE_AUTH_URL: '/eventbrite/auth-url',
-    EVENTBRITE_STATUS: '/eventbrite/status',
-    EVENTBRITE_DISCONNECT: '/eventbrite/disconnect',
   },
   
   // 请求配置

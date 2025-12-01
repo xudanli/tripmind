@@ -283,6 +283,22 @@ export default {
       generatedAt: 'Generated at',
       noJourneyId: 'Missing journey ID'
     },
+    localEssentials: {
+      title: 'Local Essentials',
+      fromCache: 'Cached',
+      load: 'Load',
+      loading: 'Loading local essentials...',
+      loadError: 'Failed to load',
+      retry: 'Retry',
+      empty: 'No local essentials available',
+      noJourneyId: 'Missing journey ID',
+      language: 'Language',
+      currencyRate: 'Currency Rate',
+      timeZone: 'Time Zone',
+      powerOutlet: 'Power Outlet',
+      emergencyNumber: 'Emergency Number',
+      generatedAt: 'Generated at'
+    },
     budgetTotal: 'Total Budget',
     budgetRemaining: 'Remaining',
     totalBudget: 'Total Budget',
@@ -796,27 +812,6 @@ export default {
     devLoginSuccess: 'Dev mode enabled'
   },
 
-  integrations: {
-    title: 'Integrations',
-    eventbrite: {
-      name: 'Eventbrite',
-      description: 'Connect to Eventbrite to bring curated festivals and events into your journeys.',
-      loading: 'Fetching status…',
-      connectedTag: 'Connected',
-      disconnectedTag: 'Not connected',
-      connectedAs: 'Connected as {id}',
-      unknownUser: 'Unknown user',
-      expiresAt: 'Token expires on {date}',
-      connectHint: 'Authorize to sync Eventbrite events and enhance your inspiration.',
-      connect: 'Connect Eventbrite',
-      disconnect: 'Disconnect',
-      connectedToast: 'Eventbrite connected successfully',
-      disconnectedToast: 'Eventbrite disconnected',
-      connectedError: 'Eventbrite connection failed, please try again.',
-      connectFailed: 'Failed to start Eventbrite authorization',
-      disconnectFailed: 'Failed to disconnect Eventbrite'
-    }
-  },
 
   // Planner Mode
   planner: {

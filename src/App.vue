@@ -19,7 +19,6 @@ import { message } from 'ant-design-vue'
 import { useI18n } from 'vue-i18n'
 import { API_CONFIG } from '@/config/api'
 import { getUserPreferences, updateUserPreferences } from '@/services/userPreferencesAPI'
-import { getEventbriteAuthUrl, getEventbriteStatus, disconnectEventbrite, type EventbriteStatus } from '@/services/eventbriteAPI'
 
 const i18nStore = useI18nStore()
 const userStore = useUserStore()
@@ -44,14 +43,7 @@ const savingPreferences = ref(false)
 const route = useRoute()
 const router = useRouter()
 
-const eventbriteStatus = ref<EventbriteStatus | null>(null)
-const eventbriteLoading = ref(false)
-const eventbriteActionLoading = ref(false)
-const eventbriteError = ref<string | null>(null)
 
-const clearEventbriteError = () => {
-  eventbriteError.value = null
-}
 
 // 货币选项
 const currencyOptions = computed(() => {
@@ -142,90 +134,6 @@ const syncPreferencesFromServer = async () => {
   }
 }
 
-const loadEventbriteStatus = async () => {
-  eventbriteLoading.value = true
-  eventbriteError.value = null
-  try {
-    const status = await getEventbriteStatus()
-    eventbriteStatus.value = status
-  } catch (error) {
-    const statusCode = (error as any)?.status
-    if (statusCode === 404) {
-      eventbriteStatus.value = { connected: false }
-      eventbriteError.value = null
-    } else {
-      const messageText = error instanceof Error ? error.message : String(error)
-      eventbriteError.value = messageText
-      eventbriteStatus.value = null
-    }
-  } finally {
-    eventbriteLoading.value = false
-  }
-}
-
-const handleEventbriteConnect = async () => {
-  eventbriteActionLoading.value = true
-  try {
-    const { url } = await getEventbriteAuthUrl()
-    if (url) {
-      window.location.href = url
-    } else {
-      message.error(t('integrations.eventbrite.connectFailed') || '无法获取授权地址')
-    }
-  } catch (error) {
-    console.error('[Eventbrite] 获取授权地址失败：', error)
-    message.error(t('integrations.eventbrite.connectFailed') || '连接失败，请稍后重试')
-  } finally {
-    eventbriteActionLoading.value = false
-  }
-}
-
-const handleEventbriteDisconnect = async () => {
-  eventbriteActionLoading.value = true
-  try {
-    await disconnectEventbrite()
-    message.success(t('integrations.eventbrite.disconnectedToast') || '已解除绑定')
-    await loadEventbriteStatus()
-  } catch (error) {
-    console.error('[Eventbrite] 解除绑定失败：', error)
-    message.error(t('integrations.eventbrite.disconnectFailed') || '解除绑定失败，请稍后重试')
-  } finally {
-    eventbriteActionLoading.value = false
-  }
-}
-
-const clearEventbriteQuery = () => {
-  if (route.query.eventbrite) {
-    const newQuery = { ...route.query }
-    delete (newQuery as Record<string, any>).eventbrite
-    router.replace({ query: newQuery })
-  }
-}
-
-const handleEventbriteQueryChange = async (value: string | string[] | undefined) => {
-  if (!value) return
-  const flag = Array.isArray(value) ? value[0] : value
-  if (flag === 'connected') {
-    message.success(t('integrations.eventbrite.connectedToast') || 'Eventbrite 已绑定')
-    await loadEventbriteStatus()
-  } else if (flag === 'error') {
-    message.error(t('integrations.eventbrite.connectedError') || 'Eventbrite 绑定失败，请重试')
-  }
-  clearEventbriteQuery()
-}
-
-const formatEventbriteDate = (value?: string | null) => {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(i18nStore.currentLocale || 'zh-CN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
 
 // 打开用户个人信息设置
 const handleUserProfileClick = () => {
@@ -362,15 +270,6 @@ const handleLanguageSwitch = () => {
   message.success(nextLang === 'zh-CN' ? '已切换到中文' : 'Switched to English')
 }
 
-watch(
-  () => route.query.eventbrite,
-  (value) => {
-    if (value) {
-      handleEventbriteQueryChange(value as string | string[] | undefined)
-    }
-  },
-  { immediate: true }
-)
 
 onMounted(() => {
   // 加载保存的语言设置
@@ -446,87 +345,6 @@ onMounted(() => {
               </a-select>
               <div class="form-hint">选择应用界面显示的语言</div>
             </div>
-          </div>
-        </a-card>
-
-        <!-- 7. 第三方集成 -->
-        <a-card class="profile-section-card" :bordered="true">
-          <template #title>
-            <span class="section-title">
-              <span class="section-icon">🔗</span>
-              {{ t('integrations.title') || '第三方集成' }}
-            </span>
-          </template>
-          <div class="section-content">
-            <div class="integration-row">
-              <div class="integration-info">
-                <div class="integration-name">{{ t('integrations.eventbrite.name') || 'Eventbrite' }}</div>
-                <div class="integration-desc">
-                  {{ t('integrations.eventbrite.description') || '同步 Eventbrite 上的节庆与活动，丰富你的旅程灵感。' }}
-                </div>
-                <div class="integration-status-line">
-                  <template v-if="eventbriteLoading">
-                    <a-spin size="small" />
-                    <span>{{ t('integrations.eventbrite.loading') || '正在获取状态…' }}</span>
-                  </template>
-                  <template v-else>
-                    <a-tag v-if="eventbriteStatus?.connected" color="green">
-                      {{ t('integrations.eventbrite.connectedTag') || '已绑定' }}
-                    </a-tag>
-                    <a-tag v-else color="default">
-                      {{ t('integrations.eventbrite.disconnectedTag') || '未绑定' }}
-                    </a-tag>
-                  </template>
-                </div>
-                <div class="integration-details" v-if="eventbriteStatus?.connected">
-                  <div>
-                    {{
-                      t('integrations.eventbrite.connectedAs', {
-                        id: eventbriteStatus.eventbriteUserId || t('integrations.eventbrite.unknownUser')
-                      }) || `已绑定账号：${eventbriteStatus.eventbriteUserId || '-'}`
-                    }}
-                  </div>
-                  <div v-if="eventbriteStatus.expiresAt">
-                    {{
-                      t('integrations.eventbrite.expiresAt', {
-                        date: formatEventbriteDate(eventbriteStatus.expiresAt)
-                      }) || `凭证有效期至：${formatEventbriteDate(eventbriteStatus.expiresAt)}`
-                    }}
-                  </div>
-                </div>
-                <div class="integration-details" v-else>
-                  {{ t('integrations.eventbrite.connectHint') || '授权后即可将 Eventbrite 活动同步到旅程体验中。' }}
-                </div>
-              </div>
-              <div class="integration-actions">
-                <a-button
-                  v-if="eventbriteStatus?.connected"
-                  danger
-                  @click="handleEventbriteDisconnect"
-                  :loading="eventbriteActionLoading"
-                  :disabled="eventbriteLoading"
-                >
-                  {{ t('integrations.eventbrite.disconnect') || '解除绑定' }}
-                </a-button>
-                <a-button
-                  v-else
-                  type="primary"
-                  @click="handleEventbriteConnect"
-                  :loading="eventbriteActionLoading"
-                  :disabled="eventbriteLoading"
-                >
-                  {{ t('integrations.eventbrite.connect') || '绑定 Eventbrite' }}
-                </a-button>
-              </div>
-            </div>
-            <a-alert
-              v-if="eventbriteError"
-              type="warning"
-              show-icon
-              :message="eventbriteError"
-              closable
-              @close="clearEventbriteError()"
-            />
           </div>
         </a-card>
 

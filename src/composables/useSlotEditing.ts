@@ -195,7 +195,13 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
     const dayIndex = itineraryData.value.days.findIndex((d: any) => d.day === day)
     if (dayIndex === -1) return
 
-    const timeSlots = itineraryData.value.days[dayIndex].timeSlots || []
+    // 确保 timeSlots 数组存在且是响应式的
+    const dayData = itineraryData.value.days[dayIndex]
+    if (!dayData.timeSlots) {
+      dayData.timeSlots = []
+    }
+    // 创建新的数组引用，确保响应式更新
+    const timeSlots = [...dayData.timeSlots]
 
     // 转换 duration 为分钟数
     const defaultDuration = DEFAULT_CONFIG.ACTIVITY.DEFAULT_DURATION
@@ -252,24 +258,40 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
       if (backendItineraryId && dayId) {
         try {
           const createdActivity = await addSlotToDay(backendItineraryId, dayId, slotRequest)
+          // 使用后端返回的数据，确保显示的数据和保存的数据一致
           slot = {
             id: createdActivity.id,
-            time: editingData.value.time,
-            title: editingData.value.title,
-            activity: editingData.value.activity || editingData.value.title,
-            type: editingData.value.type,
-            category: editingData.value.category || editingData.value.type,
-            duration: editingData.value.duration ?? undefined,
-            cost: editingData.value.cost ?? undefined,
-            location: editingData.value.location,
-            coordinates: editingData.value.coordinates ?? undefined,
+            time: createdActivity.time || editingData.value.time,
+            title: createdActivity.title || editingData.value.title,
+            activity: editingData.value.activity || createdActivity.title || editingData.value.title,
+            type: createdActivity.type || editingData.value.type,
+            category: editingData.value.category || createdActivity.type || editingData.value.type,
+            duration: createdActivity.duration ? createdActivity.duration : (editingData.value.duration ?? undefined),
+            cost: createdActivity.cost !== undefined ? createdActivity.cost : (editingData.value.cost ?? undefined),
+            location: editingData.value.location || '',
+            coordinates: createdActivity.location || editingData.value.coordinates || { lat: 0, lng: 0 },
             bookingLinks: editingData.value.bookingLinks || [],
-            notes: editingData.value.notes || '',
+            notes: createdActivity.notes || editingData.value.notes || '',
             details: {}
           }
           const insertIndex = newSlotInsertInfo.value.insertIndex
           timeSlots.splice(insertIndex, 0, slot)
           finalSlotIndex = insertIndex
+          
+          // 更新原始数组，确保响应式更新
+          dayData.timeSlots = timeSlots
+          // 同时更新 activities（如果存在），保持数据一致性
+          if (dayData.activities) {
+            dayData.activities = [...timeSlots]
+          }
+          
+          console.log('[useSlotEditing] 活动创建成功，使用后端返回的数据:', {
+            id: slot.id,
+            title: slot.title,
+            time: slot.time,
+            type: slot.type,
+            timeSlotsLength: timeSlots.length
+          })
         } catch (error: any) {
           message.error('添加活动失败: ' + (error.message || '未知错误'))
           return
@@ -293,6 +315,13 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
         const insertIndex = newSlotInsertInfo.value.insertIndex
         timeSlots.splice(insertIndex, 0, slot)
         finalSlotIndex = insertIndex
+        
+        // 更新原始数组，确保响应式更新
+        dayData.timeSlots = timeSlots
+        // 同时更新 activities（如果存在），保持数据一致性
+        if (dayData.activities) {
+          dayData.activities = [...timeSlots]
+        }
       }
     } else {
       // 编辑模式
@@ -306,19 +335,7 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
         return
       }
 
-      // 更新基础字段
-      slot.time = editingData.value.time
-      slot.title = editingData.value.title
-      slot.activity = editingData.value.activity || editingData.value.title
-      slot.type = editingData.value.type
-      slot.category = editingData.value.category || editingData.value.type
-      slot.duration = editingData.value.duration ?? undefined
-      slot.cost = editingData.value.cost ?? undefined
-      slot.location = editingData.value.location
-      slot.coordinates = editingData.value.coordinates ?? undefined
-      slot.bookingLinks = editingData.value.bookingLinks || []
-
-      // 调用后端接口更新
+      // 先调用后端接口更新，然后使用返回的数据更新前端
       const backendItineraryId = travel.value?.data?.backendItineraryId
       const dayData = itineraryData.value.days[dayIndex]
       const dayId = dayData?.id
@@ -335,9 +352,76 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
             notes: editingData.value.notes || slot.notes || '',
             cost: editingData.value.cost || slot.cost || 0
           }
-          await updateSlot(backendItineraryId, dayId, slotId, updateRequest)
+          const updatedActivity = await updateSlot(backendItineraryId, dayId, slotId, updateRequest)
+          
+          // 使用后端返回的数据更新前端，确保数据一致
+          slot.time = updatedActivity.time || editingData.value.time
+          slot.title = updatedActivity.title || editingData.value.title
+          slot.activity = editingData.value.activity || updatedActivity.title || editingData.value.title
+          slot.type = updatedActivity.type || editingData.value.type
+          slot.category = editingData.value.category || updatedActivity.type || editingData.value.type
+          slot.duration = updatedActivity.duration ? updatedActivity.duration : (editingData.value.duration ?? undefined)
+          slot.cost = updatedActivity.cost !== undefined ? updatedActivity.cost : (editingData.value.cost ?? undefined)
+          slot.location = editingData.value.location || slot.location || ''
+          slot.coordinates = updatedActivity.location || editingData.value.coordinates || slot.coordinates || { lat: 0, lng: 0 }
+          slot.notes = updatedActivity.notes || editingData.value.notes || slot.notes || ''
+          slot.bookingLinks = editingData.value.bookingLinks || slot.bookingLinks || []
+          
+          // 确保 timeSlots 数组引用更新，触发响应式
+          dayData.timeSlots = [...timeSlots]
+          // 同时更新 activities（如果存在），保持数据一致性
+          if (dayData.activities) {
+            dayData.activities = [...timeSlots]
+          }
+          
+          console.log('[useSlotEditing] 活动更新成功，使用后端返回的数据:', {
+            id: slot.id,
+            title: slot.title,
+            time: slot.time,
+            type: slot.type
+          })
         } catch (error: any) {
+          // 如果后端更新失败，仍然更新前端数据（降级处理）
+          slot.time = editingData.value.time
+          slot.title = editingData.value.title
+          slot.activity = editingData.value.activity || editingData.value.title
+          slot.type = editingData.value.type
+          slot.category = editingData.value.category || editingData.value.type
+          slot.duration = editingData.value.duration ?? undefined
+          slot.cost = editingData.value.cost ?? undefined
+          slot.location = editingData.value.location
+          slot.coordinates = editingData.value.coordinates ?? undefined
+          slot.bookingLinks = editingData.value.bookingLinks || []
+          slot.notes = editingData.value.notes || slot.notes || ''
+          
+          // 确保 timeSlots 数组引用更新，触发响应式
+          dayData.timeSlots = [...timeSlots]
+          // 同时更新 activities（如果存在），保持数据一致性
+          if (dayData.activities) {
+            dayData.activities = [...timeSlots]
+          }
+          
           message.warning('活动已在前端更新，但后端保存失败: ' + (error.message || '未知错误'))
+        }
+      } else {
+        // 没有后端ID，只更新前端数据
+        slot.time = editingData.value.time
+        slot.title = editingData.value.title
+        slot.activity = editingData.value.activity || editingData.value.title
+        slot.type = editingData.value.type
+        slot.category = editingData.value.category || editingData.value.type
+        slot.duration = editingData.value.duration ?? undefined
+        slot.cost = editingData.value.cost ?? undefined
+        slot.location = editingData.value.location
+        slot.coordinates = editingData.value.coordinates ?? undefined
+        slot.bookingLinks = editingData.value.bookingLinks || []
+        slot.notes = editingData.value.notes || slot.notes || ''
+        
+        // 确保 timeSlots 数组引用更新，触发响应式
+        dayData.timeSlots = [...timeSlots]
+        // 同时更新 activities（如果存在），保持数据一致性
+        if (dayData.activities) {
+          dayData.activities = [...timeSlots]
         }
       }
     }
@@ -401,32 +485,69 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
     if (editingData.value.accessibility) {
       slot.details.accessibility = editingData.value.accessibility
     }
-    if (editingData.value.scenicIntro) {
-      if (!slot.details.description) {
-        slot.details.description = {}
+    // 确保 description 是对象而不是字符串
+    if (!slot.details.description || typeof slot.details.description !== 'object' || Array.isArray(slot.details.description)) {
+      // 如果 description 是字符串，保存到 notes 字段
+      const existingDescription = typeof slot.details.description === 'string' ? slot.details.description : ''
+      slot.details.description = {} as any
+      if (existingDescription) {
+        // 如果原来的 description 是字符串，保存到 slot.notes 或 details.notes
+        if (!slot.notes) {
+          slot.notes = existingDescription
+        }
+        if (!slot.details.notes) {
+          slot.details.notes = existingDescription
+        }
       }
-      slot.details.description.scenicIntro = editingData.value.scenicIntro
+    }
+    
+    if (editingData.value.scenicIntro) {
+      (slot.details.description as any).scenicIntro = editingData.value.scenicIntro
     }
     if (editingData.value.highlights) {
-      if (!slot.details.description) {
-        slot.details.description = {}
-      }
-      slot.details.description.highlights = editingData.value.highlights.split('\n').filter(Boolean)
+      (slot.details.description as any).highlights = Array.isArray(editingData.value.highlights)
+        ? editingData.value.highlights
+        : editingData.value.highlights.split('\n').filter(Boolean)
     }
     if (editingData.value.notes) {
       slot.notes = editingData.value.notes
       slot.details.notes = editingData.value.notes
     }
 
-    // 通知更新
+    // 通知更新 - 创建新的对象引用，确保响应式更新
     const wasAdding = isAddingNew.value
     if (travel.value && onUpdate) {
+      // 创建新的 days 数组，确保响应式更新
+      const updatedDays = itineraryData.value.days.map((day: any, idx: number) => {
+        if (idx === dayIndex) {
+          // 更新当前天的数据
+          return {
+            ...day,
+            timeSlots: day.timeSlots || [],
+            activities: day.timeSlots || [] // 保持 activities 和 timeSlots 一致
+          }
+        }
+        return day
+      })
+      
+      const updatedItineraryData = {
+        ...itineraryData.value,
+        days: updatedDays
+      }
+      
       onUpdate({
         ...travel.value,
         data: {
           ...travel.value.data,
-          itineraryData: itineraryData.value
+          itineraryData: updatedItineraryData
         }
+      })
+      
+      console.log('[useSlotEditing] 数据已更新，通知父组件:', {
+        dayIndex,
+        day: dayData.day,
+        timeSlotsCount: dayData.timeSlots?.length || 0,
+        wasAdding
       })
     }
 

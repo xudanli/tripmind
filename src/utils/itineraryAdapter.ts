@@ -195,6 +195,14 @@ export function normalizeBackendItinerary(
   backendItinerary: any,
   activitiesMap?: { [dayId: string]: any[] }
 ): UnifiedItineraryData {
+  // 记录输入数据以便调试
+  console.log('[itineraryAdapter] normalizeBackendItinerary 输入:', {
+    backendDaysCount: backendItinerary.days?.length || 0,
+    backendDays: backendItinerary.days?.map((d: any) => ({ id: d.id, day: d.day, activitiesCount: d.activities?.length || 0 })) || [],
+    activitiesMapKeys: activitiesMap ? Object.keys(activitiesMap) : [],
+    activitiesMapTotal: activitiesMap ? Object.values(activitiesMap).reduce((sum, arr) => sum + (arr?.length || 0), 0) : 0
+  })
+  
   // 构建活动映射（用于快速查找）
   const activityMap = new Map<string, any>()
   if (activitiesMap) {
@@ -212,7 +220,49 @@ export function normalizeBackendItinerary(
   // 转换 days
   const days: UnifiedDay[] = (backendItinerary.days || []).map((day: any) => {
     // 优先使用 activitiesMap 中的数据，如果没有则使用 day.activities
-    const dayActivitiesFromMap = activitiesMap?.[day.id] || []
+    // 尝试多种 key 格式匹配（day.id 可能是字符串或数字）
+    let dayActivitiesFromMap: any[] = []
+    if (activitiesMap) {
+      // 1. 优先通过 day.id 匹配
+      if (day.id) {
+        dayActivitiesFromMap = activitiesMap[day.id] || activitiesMap[String(day.id)] || []
+      }
+      
+      // 2. 如果没找到，尝试通过活动的 dayId 字段匹配
+      if (dayActivitiesFromMap.length === 0) {
+        Object.entries(activitiesMap).forEach(([dayIdKey, activities]) => {
+          // 检查这个 dayId 对应的活动是否属于当前 day
+          const matchingActivities = activities.filter((act: any) => {
+            // 如果活动有 dayId 字段，直接匹配
+            if (act.dayId === day.id || act.dayId === String(day.id)) {
+              return true
+            }
+            // 如果活动有 day 字段，匹配 day 编号
+            if (act.day === day.day || act.day === String(day.day)) {
+              return true
+            }
+            return false
+          })
+          
+          if (matchingActivities.length > 0) {
+            dayActivitiesFromMap = matchingActivities
+            console.log(`[itineraryAdapter] 通过活动 dayId/day 字段匹配找到: dayId=${dayIdKey}, day=${day.day}, count=${matchingActivities.length}`)
+          }
+        })
+      }
+      
+      // 3. 如果还是没找到，且 activitiesMap 只有一个 key，直接使用它（可能是后端没有返回 dayId）
+      if (dayActivitiesFromMap.length === 0 && activitiesMap && Object.keys(activitiesMap).length === 1) {
+        const onlyKey = Object.keys(activitiesMap)[0]
+        const allActivities = (activitiesMap && onlyKey) ? (activitiesMap[onlyKey] || []) : []
+        // 如果所有活动都没有 dayId 或 day 字段，可能是后端返回格式问题，按顺序分配
+        if (allActivities.length > 0 && !allActivities.some((act: any) => act.dayId || act.day)) {
+          // 这种情况不应该发生，但为了容错，记录警告
+          console.warn(`[itineraryAdapter] 活动数据缺少 dayId/day 字段，无法匹配到具体 day`)
+        }
+      }
+    }
+    
     const dayActivitiesFromDay = day.activities || []
     
     // 合并两个数据源，优先使用 activitiesMap 中的数据
@@ -236,6 +286,31 @@ export function normalizeBackendItinerary(
         dayActivityMap.set(`${activity.time}-${activity.title}`, activity)
       }
     })
+    
+    // 记录日志以便调试
+    if (dayActivitiesFromMap.length > 0 || dayActivitiesFromDay.length > 0) {
+      console.log(`[itineraryAdapter] Day ${day.day}:`, {
+        dayId: day.id,
+        activitiesFromMap: dayActivitiesFromMap.length,
+        activitiesFromDay: dayActivitiesFromDay.length,
+        uniqueActivities: uniqueActivities.size,
+        finalTimeSlots: dayActivityMap.size
+      })
+    } else if (activitiesMap && Object.keys(activitiesMap).length > 0) {
+      // 如果应该找到活动但没找到，记录警告
+      console.warn(`[itineraryAdapter] Day ${day.day} (id: ${day.id}) 没有找到匹配的活动:`, {
+        activitiesMapKeys: Object.keys(activitiesMap),
+        activitiesMapSample: Object.entries(activitiesMap).slice(0, 2).map(([key, acts]) => ({
+          key,
+          count: (acts as any[]).length,
+          firstActivity: (acts as any[])[0] ? {
+            id: (acts as any[])[0].id,
+            dayId: (acts as any[])[0].dayId,
+            day: (acts as any[])[0].day
+          } : null
+        }))
+      })
+    }
     
     // 如果 dayActivityMap 有数据，使用它；否则使用 day.activities
     return normalizeBackendDay(day, dayActivityMap.size > 0 ? dayActivityMap : undefined)

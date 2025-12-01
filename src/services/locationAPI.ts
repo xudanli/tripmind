@@ -3,6 +3,7 @@
  * 对接后端 /api/location 接口
  * 
  * 功能：
+ * - 准确地理编码（支持自然语言）
  * - 生成单个活动位置信息
  * - 批量生成活动位置信息
  * 
@@ -23,6 +24,152 @@ const buildUrl = (endpoint: string) => {
   if (!endpoint.startsWith('/')) return endpoint
   if (!baseUrl) return endpoint
   return `${baseUrl}${endpoint}`
+}
+
+/**
+ * 准确地理编码请求
+ */
+export interface AccurateGeocodeRequest {
+  /** 地点查询文本（支持自然语言描述，最少2个字符） */
+  query: string
+  /** 是否强制使用 AI 辅助（默认 false，自动判断） */
+  useAI?: boolean
+  /** 位置上下文（可选），例如当前行程的目的地或用户地图当前的中心点，用于提高搜索准确度，避免同名地点冲突 */
+  context?: string
+}
+
+/**
+ * 准确地理编码响应
+ */
+export interface AccurateGeocodeResponse {
+  success: boolean
+  name?: string
+  address?: string
+  location?: {
+    latitude: number
+    longitude: number
+  }
+  countryCode?: string
+  placeType?: string
+  usedAI?: boolean
+}
+
+/**
+ * 准确地理编码
+ * 
+ * 接口路径：POST /api/v1/destinations/geocode/accurate
+ * 认证：不需要（公开接口）
+ * 
+ * 支持自然语言描述的地点查询，结合 AI 意图识别和 Mapbox Geocoding API
+ * 
+ * @param request 请求参数
+ * @returns 地理编码结果
+ * @throws {Error} 请求失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * // 标准地名查询
+ * const result1 = await accurateGeocode({ query: '奈良公园' })
+ * 
+ * // 自然语言查询
+ * const result2 = await accurateGeocode({ query: '那个有很多鹿的日本公园' })
+ * 
+ * // 强制使用 AI
+ * const result3 = await accurateGeocode({ 
+ *   query: '哈佛大学附近的那个有名的红砖美术馆',
+ *   useAI: true 
+ * })
+ * 
+ * // 带位置上下文（提高准确性，避免同名地点冲突）
+ * const result4 = await accurateGeocode({ 
+ *   query: '最好吃的拉面',
+ *   context: '东京' // 指定搜索范围在东京，避免搜索到其他城市的同名地点
+ * })
+ * 
+ * // 使用位置上下文避免同名地点冲突
+ * const result5 = await accurateGeocode({ 
+ *   query: '中央公园',
+ *   context: '东京' // 优先搜索东京的中央公园，而不是纽约的
+ * })
+ * ```
+ */
+export async function accurateGeocode(
+  request: AccurateGeocodeRequest
+): Promise<AccurateGeocodeResponse | null> {
+  const endpoint = '/v1/destinations/geocode/accurate'
+  const url = buildUrl(endpoint)
+
+  console.log('[LocationAPI] 发起准确地理编码请求:', {
+    url,
+    query: request.query,
+    useAI: request.useAI,
+    context: request.context
+  })
+
+  try {
+    // 构建请求体，确保字段顺序和类型正确
+    const requestBody: {
+      query: string
+      useAI?: boolean
+      context?: string
+    } = {
+      query: request.query
+    }
+    
+    // 只有在明确设置为 true 时才添加 useAI 字段（避免传递 false）
+    if (request.useAI === true) {
+      requestBody.useAI = true
+    }
+    
+    // 如果提供了 context，添加到请求体中（去除首尾空格）
+    if (request.context && request.context.trim()) {
+      requestBody.context = request.context.trim()
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      // 尝试解析错误信息
+      try {
+        const errorData = await response.json()
+        throw new Error(errorData.message || `地理编码请求失败: ${response.status}`)
+      } catch {
+        throw new Error(`地理编码请求失败: ${response.status} ${response.statusText}`)
+      }
+    }
+
+    const result: AccurateGeocodeResponse = await response.json()
+
+    if (!result.success) {
+      console.log('[LocationAPI] 地理编码未找到匹配地点:', request.query)
+      return null
+    }
+
+    console.log('[LocationAPI] 地理编码成功:', {
+      query: request.query,
+      name: result.name,
+      address: result.address,
+      location: result.location,
+      countryCode: result.countryCode,
+      placeType: result.placeType,
+      usedAI: result.usedAI
+    })
+
+    return result
+  } catch (error: any) {
+    console.error('[LocationAPI] 地理编码失败:', {
+      error: error.message,
+      query: request.query,
+      url
+    })
+    throw error
+  }
 }
 
 /**

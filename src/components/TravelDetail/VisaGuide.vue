@@ -148,6 +148,8 @@ import { useI18n } from 'vue-i18n'
 import type { VisaInfo } from '@/config/visa'
 import { isValidVisaInfo } from '@/config/visa'
 
+const isDev = import.meta.env.DEV
+
 const { t } = useI18n()
 
 interface Props {

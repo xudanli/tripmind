@@ -48,16 +48,19 @@ const { t } = useI18n()
 const isExpanded = ref(false)
 
 const emit = defineEmits<{
-  expand: [expanded: boolean]
+  expand: [dayNumber: number]
 }>()
 
 // 切换展开/折叠
 const toggleExpand = () => {
   const wasExpanded = isExpanded.value
   isExpanded.value = !isExpanded.value
-  // 当展开时，触发事件
+  // 当展开时，触发事件，传递天数
   if (!wasExpanded && isExpanded.value) {
-    emit('expand', true)
+    const dayNum = props.day?.day
+    if (dayNum) {
+      emit('expand', dayNum)
+    }
   }
 }
 

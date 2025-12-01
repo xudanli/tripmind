@@ -275,7 +275,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import type { EditingData } from './useItineraryModals'
@@ -305,14 +305,25 @@ const activeKeys = ref<string[]>(['basic', 'details', 'booking'])
 // 本地数据副本，用于双向绑定
 const localData = ref<EditingData>({ ...props.formData })
 
+// 防止循环更新的标志
+const isUpdatingFromProps = ref(false)
+
 // 监听 props 变化，同步到本地
 watch(() => props.formData, (newData) => {
-  localData.value = { ...newData }
+  if (!isUpdatingFromProps.value) {
+    isUpdatingFromProps.value = true
+    localData.value = { ...newData }
+    nextTick(() => {
+      isUpdatingFromProps.value = false
+    })
+  }
 }, { deep: true })
 
 // 监听本地数据变化，同步到父组件
 watch(localData, (newData) => {
-  emit('update:formData', { ...newData })
+  if (!isUpdatingFromProps.value) {
+    emit('update:formData', { ...newData })
+  }
 }, { deep: true })
 
 // 货币相关计算

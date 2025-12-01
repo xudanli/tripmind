@@ -80,9 +80,9 @@
       v-model:open="slotEditing.editModalVisible.value"
       v-model:formData="slotEditing.editingData.value"
       :is-new="slotEditing.isAddingNew.value"
-      @ok="slotEditing.save"
-      @add-link="slotEditing.addBookingLink"
-      @remove-link="slotEditing.removeBookingLink"
+      @save="slotEditing.save"
+      @add-booking-link="slotEditing.addBookingLink"
+      @remove-booking-link="slotEditing.removeBookingLink"
     />
 
     <PoiSearchModal

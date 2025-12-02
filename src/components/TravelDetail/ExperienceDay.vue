@@ -40,6 +40,7 @@
                 @toggle="toggleDetailsByKey(getSlotKey(day.day, slotIndex, slot))"
                 @image-error="markImageError(day.day, slotIndex, slot)"
                 @add-nearby-attraction="handleAddNearbyAttraction(day.day, slotIndex, slot, $event)"
+                @fetch-location="handleFetchLocation(day.day, slotIndex, slot)"
               />
 
               <a-button 
@@ -522,6 +523,14 @@ const handleAddNearbyAttraction = (attraction: { name: string; distance: string;
     recommendation: attraction.distance,
     category: 'attraction'
   })
+}
+
+// 处理获取位置信息（由 TimeSlotCard 内部处理，这里只是接收事件以触发更新）
+const handleFetchLocation = (day: number, slotIndex: number, slot: any) => {
+  // TimeSlotCard 已经更新了 slot 对象，这里只需要触发前端数据更新
+  if (travel.value && itineraryData.value) {
+    emit('update', { ...travel.value, data: { ...travel.value.data, itineraryData: itineraryData.value } })
+  }
 }
 
 // 每日概要与安全提示

@@ -483,14 +483,35 @@ const detectItineraryInfo = (content: string): any | null => {
   return null
 }
 
-// 处理添加到行程
+// 处理添加到行程（添加防重复调用机制）
+let isAddingActivity = false
+
 const handleAddToItinerary = async (messageId: string, content: string) => {
+  // 防止重复调用
+  if (isAddingActivity) {
+    console.warn('[handleAddToItinerary] 正在添加活动，跳过重复调用')
+    return
+  }
+  
   if (!itineraryData.value?.days || itineraryData.value.days.length === 0) {
     const { message } = await import('ant-design-vue')
     message.warning(t('travelDetail.discussion.noItinerary'))
     return
   }
   
+  isAddingActivity = true
+  try {
+    await addActivityToItinerary(messageId, content)
+  } finally {
+    // 延迟重置标志，防止快速连续点击
+    setTimeout(() => {
+      isAddingActivity = false
+    }, 1000)
+  }
+}
+
+// 添加活动到行程（内部函数）
+const addActivityToItinerary = async (messageId: string, content: string) => {
   // 解析消息内容，提取活动信息
   const timeStr = parseTime(content)
   const dayMatch = content.match(/第[一二三四五六七八九十\d]+天|第\d+天|day\s*\d+|第一天|第二天|第三天|第四天|第五天/i)
@@ -671,7 +692,8 @@ const handleAddToItinerary = async (messageId: string, content: string) => {
   }
   
   // 创建新活动 - 确保数据格式与左侧行程节点完全一致
-  const timeSlots = targetDay.timeSlots || []
+  // 创建 timeSlots 的副本，避免直接修改原始数组导致的问题
+  const timeSlots = targetDay.timeSlots ? [...targetDay.timeSlots] : []
   
   // 尝试从内容中提取详细信息（穿搭建议、文化提示等）
   const extractDetails = (content: string) => {
@@ -836,16 +858,36 @@ const handleAddToItinerary = async (messageId: string, content: string) => {
   }
   
   // 确保只添加一个活动：检查是否已存在相同时间的活动
+  // 使用更严格的检查：同时检查时间和活动名称
   const existingSlot = timeSlots.find((slot: any) => {
+    const slotTime = parseTime(slot.time || '')
+    const timeMatch = slotTime === targetTime
+    const nameMatch = slot.title === activityName || slot.activity === activityName
+    return timeMatch && nameMatch
+  })
+  
+  if (existingSlot) {
+    console.warn('[addActivityToItinerary] 检测到重复活动，跳过添加:', {
+      activityName,
+      targetTime,
+      existingSlot: existingSlot.title || existingSlot.activity
+    })
+    const { message } = await import('ant-design-vue')
+    message.warning(t('travelDetail.discussion.replaceActivityConfirm') || '该活动已存在，请勿重复添加')
+    return
+  }
+  
+  // 也检查是否只有时间相同（不同活动名称）
+  const timeOnlyMatch = timeSlots.find((slot: any) => {
     const slotTime = parseTime(slot.time || '')
     return slotTime === targetTime
   })
   
-  if (existingSlot) {
+  if (timeOnlyMatch) {
     const { message, Modal } = await import('ant-design-vue')
     Modal.confirm({
       title: t('travelDetail.discussion.replaceActivity'),
-      content: `${t('travelDetail.discussion.replaceActivityConfirm')} (${locale.value.startsWith('zh') ? '第' : 'Day '}${targetDayIndex + 1}${locale.value.startsWith('zh') ? '天' : ''} ${targetTime}: "${existingSlot.title || existingSlot.activity}")`,
+      content: `${t('travelDetail.discussion.replaceActivityConfirm')} (${locale.value.startsWith('zh') ? '第' : 'Day '}${targetDayIndex + 1}${locale.value.startsWith('zh') ? '天' : ''} ${targetTime}: "${timeOnlyMatch.title || timeOnlyMatch.activity}")`,
       onOk: () => {
         // 替换现有活动
         const existingIndex = timeSlots.findIndex((slot: any) => {
@@ -871,19 +913,35 @@ const handleAddToItinerary = async (messageId: string, content: string) => {
     }
   }
   
+  // 再次检查是否已存在（防止在检查和添加之间被其他操作添加）
+  const duplicateCheck = timeSlots.find((slot: any) => {
+    const slotTime = parseTime(slot.time || '')
+    return slotTime === targetTime && (slot.title === activityName || slot.activity === activityName)
+  })
+  
+  if (duplicateCheck) {
+    console.warn('[addActivityToItinerary] 检测到重复活动，跳过添加:', { activityName, targetTime })
+    const { message } = await import('ant-design-vue')
+    message.warning(t('travelDetail.discussion.replaceActivityConfirm') || '该时间段已有活动，请先删除或替换')
+    return
+  }
+  
   // 先添加基础活动（立即显示）
   timeSlots.splice(insertIndex, 0, newSlot)
   
-  // 更新行程数据
-  if (!targetDay.timeSlots) {
-    targetDay.timeSlots = timeSlots
-  }
+  // 更新行程数据（始终更新，确保引用正确）
+  targetDay.timeSlots = timeSlots
+  
+  // 记录添加的活动ID（如果有），用于后续检查是否重复
+  const addedSlotId = newSlot.id || `temp_${Date.now()}_${insertIndex}`
+  newSlot.id = addedSlotId
   
   // 保存更新（先保存基础信息）
   saveItineraryUpdate(targetDayIndex, targetDay, timeSlots, activityName, targetTime)
   
   // 异步调用 AI 生成完整的活动详情
-  enrichActivityWithAI(newSlot, targetDayIndex, insertIndex, targetDay, timeSlots, content).catch((error) => {
+  // 注意：传入 insertIndex 确保更新正确位置的活动
+  enrichActivityWithAI(newSlot, targetDayIndex, insertIndex, targetDay, timeSlots, content, addedSlotId).catch((error) => {
     console.warn('AI 生成活动详情失败，使用基础信息:', error)
   })
 }
@@ -895,7 +953,8 @@ const enrichActivityWithAI = async (
   slotIndex: number,
   targetDay: any,
   timeSlots: any[],
-  originalContent: string
+  originalContent: string,
+  expectedSlotId?: string
 ) => {
   const { message } = await import('ant-design-vue')
   
@@ -1133,22 +1192,91 @@ ${dest ? `目的地：${dest}` : '⚠️ 目的地未指定。请根据活动上
 
     // 合并 AI 生成的数据到现有 slot
     if (enrichedData && typeof enrichedData === 'object') {
+      // 检查 slotIndex 是否有效
+      if (slotIndex < 0 || slotIndex >= timeSlots.length) {
+        console.error('[enrichActivityWithAI] 无效的 slotIndex:', { slotIndex, timeSlotsLength: timeSlots.length })
+        loadingMessage()
+        message.warning(t('travelDetail.discussion.aiEnrichmentFailed') || 'AI 生成详情失败，已使用基础信息')
+        return
+      }
+      
+      // 验证目标 slot 是否正确（通过 ID 或时间匹配）
+      const targetSlot = timeSlots[slotIndex]
+      const isCorrectSlot = expectedSlotId 
+        ? targetSlot.id === expectedSlotId
+        : targetSlot.time === slot.time && (targetSlot.title === slot.title || targetSlot.activity === slot.activity)
+      
+      if (!isCorrectSlot) {
+        console.warn('[enrichActivityWithAI] slotIndex 位置的活动不匹配，尝试查找正确位置:', {
+          expectedId: expectedSlotId,
+          expectedTime: slot.time,
+          actualSlot: targetSlot
+        })
+        
+        // 尝试通过时间查找正确的 slot
+        const correctIndex = timeSlots.findIndex((s: any) => 
+          expectedSlotId ? s.id === expectedSlotId : (s.time === slot.time && (s.title === slot.title || s.activity === slot.activity))
+        )
+        
+        if (correctIndex >= 0) {
+          console.log('[enrichActivityWithAI] 找到正确的 slot 位置:', correctIndex)
+          // 使用找到的正确位置
+          const actualTargetSlot = timeSlots[correctIndex]
+          
+          // 更新基础字段
+          if (enrichedData.title) actualTargetSlot.title = enrichedData.title
+          if (enrichedData.activity) actualTargetSlot.activity = enrichedData.activity
+          if (enrichedData.location) actualTargetSlot.location = enrichedData.location
+          if (enrichedData.notes) actualTargetSlot.notes = enrichedData.notes
+          if (typeof enrichedData.duration === 'number') actualTargetSlot.duration = enrichedData.duration
+          if (typeof enrichedData.cost === 'number') actualTargetSlot.cost = enrichedData.cost
+          
+          // 深度合并 details
+          if (enrichedData.details) {
+            actualTargetSlot.details = {
+              ...actualTargetSlot.details,
+              ...enrichedData.details,
+              recommendations: {
+                ...actualTargetSlot.details?.recommendations,
+                ...enrichedData.details.recommendations
+              }
+            }
+          }
+          
+          if (enrichedData.coordinates) actualTargetSlot.coordinates = enrichedData.coordinates
+          if (enrichedData.internalTrack) actualTargetSlot.internalTrack = enrichedData.internalTrack
+          
+          saveItineraryUpdate(dayIndex, targetDay, timeSlots, actualTargetSlot.title || actualTargetSlot.activity, actualTargetSlot.time)
+          loadingMessage()
+          message.success(t('travelDetail.discussion.detailsGenerated') || '活动详情已生成')
+          return
+        } else {
+          console.error('[enrichActivityWithAI] 无法找到匹配的 slot，跳过更新')
+          loadingMessage()
+          message.warning(t('travelDetail.discussion.aiEnrichmentFailed') || 'AI 生成详情失败，已使用基础信息')
+          return
+        }
+      }
+      
+      // 直接更新数组中的 slot 对象，而不是使用传入的 slot 参数
+      // 这样可以确保更新的是实际数组中的对象，避免引用问题
+      
       // 更新基础字段
-      if (enrichedData.title) slot.title = enrichedData.title
-      if (enrichedData.activity) slot.activity = enrichedData.activity
-      if (enrichedData.location) slot.location = enrichedData.location
-      if (enrichedData.notes) slot.notes = enrichedData.notes
-      if (typeof enrichedData.duration === 'number') slot.duration = enrichedData.duration
-      if (typeof enrichedData.cost === 'number') slot.cost = enrichedData.cost
+      if (enrichedData.title) targetSlot.title = enrichedData.title
+      if (enrichedData.activity) targetSlot.activity = enrichedData.activity
+      if (enrichedData.location) targetSlot.location = enrichedData.location
+      if (enrichedData.notes) targetSlot.notes = enrichedData.notes
+      if (typeof enrichedData.duration === 'number') targetSlot.duration = enrichedData.duration
+      if (typeof enrichedData.cost === 'number') targetSlot.cost = enrichedData.cost
       
       // 深度合并 details
       if (enrichedData.details) {
-        slot.details = {
-          ...slot.details,
+        targetSlot.details = {
+          ...targetSlot.details,
           ...enrichedData.details,
           // 确保 recommendations 被正确合并
           recommendations: {
-            ...slot.details.recommendations,
+            ...targetSlot.details?.recommendations,
             ...enrichedData.details.recommendations
           }
         }
@@ -1156,19 +1284,16 @@ ${dest ? `目的地：${dest}` : '⚠️ 目的地未指定。请根据活动上
       
       // 更新坐标
       if (enrichedData.coordinates) {
-        slot.coordinates = enrichedData.coordinates
+        targetSlot.coordinates = enrichedData.coordinates
       }
       
       // 更新内部轨道
       if (enrichedData.internalTrack) {
-        slot.internalTrack = enrichedData.internalTrack
+        targetSlot.internalTrack = enrichedData.internalTrack
       }
       
-      // 更新数组中的 slot
-      timeSlots[slotIndex] = { ...slot }
-      
-      // 保存更新后的数据
-      saveItineraryUpdate(dayIndex, targetDay, timeSlots, slot.title || slot.activity, slot.time)
+      // 保存更新后的数据（跳过消息提示，因为已经在添加时显示过了）
+      saveItineraryUpdate(dayIndex, targetDay, timeSlots, targetSlot.title || targetSlot.activity, targetSlot.time, true)
       
       loadingMessage()
       message.success(t('travelDetail.discussion.detailsGenerated') || '活动详情已生成')
@@ -1185,39 +1310,87 @@ ${dest ? `目的地：${dest}` : '⚠️ 目的地未指定。请根据活动上
 }
 
 // 保存行程更新的辅助函数（确保数据格式正确）
+// 添加防重复保存机制
+let lastSaveKey: string | null = null
+let saveTimeout: number | null = null
+
 const saveItineraryUpdate = (
   targetDayIndex: number,
   targetDay: any,
   timeSlots: any[],
   activityName: string,
-  targetTime: string
+  targetTime: string,
+  skipMessage: boolean = false
 ) => {
   if (!travel.value || !props.travelId) return
   
-  const updatedData = { ...travel.value.data }
+  // 生成保存键，用于防重复
+  const saveKey = `${props.travelId}_${targetDayIndex}_${targetTime}_${activityName}`
+  
+  // 如果与上次保存相同，且距离上次保存时间很短（500ms内），则跳过
+  if (lastSaveKey === saveKey && saveTimeout) {
+    console.log('[saveItineraryUpdate] 检测到重复保存，跳过:', saveKey)
+    return
+  }
+  
+  lastSaveKey = saveKey
+  
+  // 清除之前的定时器
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
+  }
+  
+  // 设置新的定时器，500ms 后清除保存键
+  saveTimeout = window.setTimeout(() => {
+    lastSaveKey = null
+    saveTimeout = null
+  }, 500)
+  
+  // 深度克隆 data，避免引用问题
+  const updatedData = JSON.parse(JSON.stringify(travel.value.data || {}))
   
   // 更新对应的数据结构
-  if (updatedData.days) {
+  if (updatedData.days && Array.isArray(updatedData.days) && updatedData.days[targetDayIndex]) {
+    // 确保 days 数组是新的引用
     updatedData.days = [...updatedData.days]
+    // 确保 day 对象是新的引用
     updatedData.days[targetDayIndex] = {
+      ...updatedData.days[targetDayIndex],
       ...targetDay,
-      timeSlots: [...timeSlots] // 确保是新的数组引用
+      timeSlots: [...timeSlots] // 确保是新的数组引用，且只包含当前 timeSlots
     }
-  } else if (updatedData.plannerItinerary?.days) {
+  } else if (updatedData.plannerItinerary?.days && Array.isArray(updatedData.plannerItinerary.days) && updatedData.plannerItinerary.days[targetDayIndex]) {
     updatedData.plannerItinerary = {
       ...updatedData.plannerItinerary,
       days: [...updatedData.plannerItinerary.days]
     }
     updatedData.plannerItinerary.days[targetDayIndex] = {
+      ...updatedData.plannerItinerary.days[targetDayIndex],
       ...targetDay,
       timeSlots: [...timeSlots]
     }
-  } else if (updatedData.itineraryData?.days) {
+  } else if (updatedData.itineraryData?.days && Array.isArray(updatedData.itineraryData.days) && updatedData.itineraryData.days[targetDayIndex]) {
     updatedData.itineraryData = {
       ...updatedData.itineraryData,
       days: [...updatedData.itineraryData.days]
     }
     updatedData.itineraryData.days[targetDayIndex] = {
+      ...updatedData.itineraryData.days[targetDayIndex],
+      ...targetDay,
+      timeSlots: [...timeSlots]
+    }
+  } else {
+    // 如果 days 数组不存在或索引无效，初始化它
+    if (!updatedData.days) {
+      updatedData.days = []
+    }
+    // 确保有足够的元素
+    while (updatedData.days.length <= targetDayIndex) {
+      updatedData.days.push({ day: updatedData.days.length + 1, timeSlots: [] })
+    }
+    updatedData.days = [...updatedData.days]
+    updatedData.days[targetDayIndex] = {
+      ...updatedData.days[targetDayIndex],
       ...targetDay,
       timeSlots: [...timeSlots]
     }
@@ -1228,13 +1401,15 @@ const saveItineraryUpdate = (
     data: updatedData
   })
   
-  // 显示成功提示
-  import('ant-design-vue').then(({ message }) => {
-    const successMsg = locale.value.startsWith('zh')
-      ? `已添加活动"${activityName}"到第${targetDayIndex + 1}天 ${targetTime}`
-      : `Added activity "${activityName}" to Day ${targetDayIndex + 1} at ${targetTime}`
-    message.success(successMsg)
-  })
+  // 显示成功提示（只在第一次保存时显示）
+  if (!skipMessage) {
+    import('ant-design-vue').then(({ message }) => {
+      const successMsg = locale.value.startsWith('zh')
+        ? `已添加活动"${activityName}"到第${targetDayIndex + 1}天 ${targetTime}`
+        : `Added activity "${activityName}" to Day ${targetDayIndex + 1} at ${targetTime}`
+      message.success(successMsg)
+    })
+  }
 }
 
 // 加载保存的消息

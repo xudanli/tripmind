@@ -9,6 +9,11 @@ export const API_CONFIG = {
   OPENAI_BASE_URL: import.meta.env.VITE_OPENAI_BASE_URL || 'https://api.openai.com',
   OPENAI_DEFAULT_MODEL: import.meta.env.VITE_OPENAI_MODEL || 'gpt-4o-mini',
   
+  // Gemini API 配置
+  GEMINI_API_KEY: import.meta.env.VITE_GEMINI_API_KEY || '',
+  GEMINI_BASE_URL: import.meta.env.VITE_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com',
+  GEMINI_DEFAULT_MODEL: import.meta.env.VITE_GEMINI_MODEL || 'gemini-pro',
+  
   // Unsplash API 配置
   UNSPLASH_ACCESS_KEY: import.meta.env.VITE_UNSPLASH_ACCESS_KEY || '',
   UNSPLASH_SECRET_KEY: import.meta.env.VITE_UNSPLASH_SECRET_KEY || '',
@@ -30,6 +35,7 @@ export const API_CONFIG = {
   ENDPOINTS: {
     DEEPSEEK_CHAT: '/v1/chat/completions',
     OPENAI_CHAT: '/v1/chat/completions',
+    GEMINI_CHAT: '/v1beta/models',
     DETECT_EMOTION: '/emotional-travel/detect-emotion',
     EMOTIONAL_STATES: '/emotional-travel/emotional-states',
     GENERATE_NARRATIVE: '/emotional-travel/generate-narrative',

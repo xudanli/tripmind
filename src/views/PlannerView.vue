@@ -1,172 +1,152 @@
 <template>
-  <div class="container">
-    <!-- 头部导航 -->
-    <div class="header">
+  <div class="page-container">
+    <div class="header-nav">
       <a-button 
+        type="text"
         @click="router.back()"
         class="back-button"
       >
-        <template #icon>
-          <arrow-left-outlined />
-        </template>
+        <template #icon><arrow-left-outlined /></template>
         {{ t('common.back') }}
       </a-button>
-      <div class="header-title">
-        <rocket-outlined class="header-icon" />
-        <h2 class="title">{{ t('planner.title') }}</h2>
-      </div>
     </div>
-
-    <!-- 主要内容 -->
-    <div class="main-content">
-      <!-- 单页表单 -->
-      <div class="plan-form-container">
-        <!-- 横幅标题区域 -->
-        <div class="hero-banner">
+    <div class="planner-card">
+      <div class="hero-section">
+        <div class="hero-pattern"></div>
           <div class="hero-content">
-            <span class="hero-icon">✨</span>
-            <h1 class="hero-title">{{ t('planner.heroTitle') || 'Plan Your Dream Trip' }}</h1>
-            <p class="hero-subtitle">{{ t('planner.heroSubtitle') || 'Tell us what you love, and we\'ll handle the rest.' }}</p>
+          <div class="hero-badge">
+            <rocket-outlined /> AI Travel Planner
+          </div>
+          <h1 class="hero-title">{{ t('planner.heroTitle') || '定制您的完美旅程' }}</h1>
+          <p class="hero-subtitle">{{ t('planner.heroSubtitle') || '告诉我们您的喜好，AI 将为您生成专属行程规划。' }}</p>
+        </div>
       </div>
-    </div>
-
-        <!-- 表单内容 -->
+      <div class="form-section-wrapper">
         <div class="form-content">
-          <!-- 目的地输入 -->
-          <div class="form-section">
-            <label class="form-label">
-              <environment-outlined class="label-icon" />
-              {{ t('planner.step1.label') || 'Where to?' }}
+          
+          <div class="form-group">
+            <label class="group-label">
+              <span class="icon-box"><environment-outlined /></span>
+              {{ t('planner.step1.label') || '想去哪里？' }}
             </label>
-            <div class="destination-input-wrapper">
               <a-input
                 :value="formData.destination"
-                @update:value="(value) => travelStore.setPlannerData({ destination: value })"
+              @update:value="(val) => updatePlannerData({ destination: val })"
                 size="large"
-                :placeholder="t('planner.step1.placeholder') || 'e.g., Kyoto, Paris, Cape Town'"
-                class="destination-input"
-              />
-            </div>
+              :placeholder="t('planner.step1.placeholder') || '例如：京都、巴黎、三亚...'"
+              class="custom-input"
+              allow-clear
+            >
+              <template #prefix>
+                <search-outlined style="color: #bfbfbf" />
+              </template>
+            </a-input>
           </div>
 
-          <!-- 天数滑块 -->
-          <div class="form-section">
-            <label class="form-label">
-              <calendar-outlined class="label-icon" />
-              {{ t('planner.step2.label') || 'Duration (Days)' }}
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label class="group-label">
+                <span class="icon-box"><calendar-outlined /></span>
+                {{ t('planner.step2.label') || '游玩天数' }}
             </label>
-            <div class="duration-slider-wrapper">
+              <div class="slider-container">
               <a-slider
                 :value="formData.days || 3"
-                @update:value="(value) => travelStore.setPlannerData({ days: value })"
+                  @update:value="(val) => updatePlannerData({ days: val })"
                 :min="1"
-                :max="30"
-                :marks="{ 1: '1', 7: '7', 14: '14', 30: '30' }"
-                class="duration-slider"
-              />
-              <div class="duration-value">{{ formData.days || 3 }}</div>
+                  :max="15"
+                  :tooltip-visible="false"
+                  class="custom-slider"
+                />
+                <span class="slider-value">{{ formData.days || 3 }} {{ t('planner.day') || '天' }}</span>
             </div>
           </div>
 
-          <!-- 旅行者数量 -->
-          <div class="form-section">
-            <label class="form-label">
-              <team-outlined class="label-icon" />
-              {{ t('planner.step3.label') || 'Travelers' }}
+            <div class="form-group flex-1">
+              <label class="group-label">
+                <span class="icon-box"><team-outlined /></span>
+                {{ t('planner.step3.label') || '出行人数' }}
             </label>
-            <div class="travelers-input-wrapper">
-              <a-button 
-                class="number-btn" 
+              <div class="counter-input">
+                <button 
+                  class="counter-btn" 
                 @click="decreaseTravelers"
                 :disabled="(formData.participants || 1) <= 1"
             >
                 <minus-outlined />
-              </a-button>
-              <a-input-number
-                :value="formData.participants || 1"
-                @update:value="(value) => travelStore.setPlannerData({ participants: value || 1 })"
-                :min="1"
-                :max="20"
-                class="travelers-input"
-              />
-              <a-button 
-                class="number-btn" 
+                </button>
+                <span class="counter-display">{{ formData.participants || 1 }} {{ t('planner.people') || '人' }}</span>
+                <button 
+                  class="counter-btn" 
                 @click="increaseTravelers"
                 :disabled="(formData.participants || 1) >= 20"
               >
                 <plus-outlined />
-              </a-button>
+                </button>
+              </div>
                   </div>
           </div>
 
-          <!-- 预算等级 -->
-          <div class="form-section">
-            <label class="form-label">
-              <dollar-outlined class="label-icon" />
-              {{ t('planner.step4.label') || 'Budget Level' }}
+          <div class="form-group">
+            <label class="group-label">
+              <span class="icon-box"><dollar-outlined /></span>
+              {{ t('planner.step4.label') || '预算范围' }}
             </label>
-            <div class="budget-buttons">
-              <a-button
+            <div class="budget-grid">
+              <div
                 v-for="option in budgetButtonOptions"
                 :key="option.value"
-                :type="formData.preferences?.budget === option.value ? 'primary' : 'default'"
-                :class="['budget-btn', { active: formData.preferences?.budget === option.value }]"
-                @click="() => travelStore.setPlannerData({ 
-                  preferences: { 
-                    ...formData.preferences, 
-                    budget: option.value 
-                  } 
-                })"
+                class="budget-card"
+                :class="{ active: formData.preferences?.budget === option.value }"
+                @click="updatePlannerData({ preferences: { ...formData.preferences, budget: option.value } })"
               >
-                {{ option.label }}
-              </a-button>
+                <div class="budget-icon">{{ option.icon }}</div>
+                <div class="budget-info">
+                  <span class="budget-label">{{ option.label }}</span>
+                  <span class="budget-desc">{{ option.desc }}</span>
+                </div>
+                <div class="check-mark" v-if="formData.preferences?.budget === option.value">
+                  <check-circle-filled />
+                </div>
+              </div>
             </div>
           </div>
 
-          <!-- 兴趣选择 -->
-          <div class="form-section">
-            <label class="form-label">
-              <heart-outlined class="label-icon" />
-              {{ t('planner.step5.label') || 'Interests' }}
+          <div class="form-group">
+            <label class="group-label">
+              <span class="icon-box"><heart-outlined /></span>
+              {{ t('planner.step5.label') || '旅行偏好' }}
+              <span class="label-hint">{{ t('planner.multipleSelect') || '（可多选）' }}</span>
             </label>
-            <div class="interests-grid">
-              <a-button
+            <div class="interests-container">
+              <button
                   v-for="option in preferenceOptions" 
                   :key="option.value" 
-                :type="(formData.preferences?.interests || []).includes(option.value) ? 'primary' : 'default'"
-                :class="['interest-btn', { active: (formData.preferences?.interests || []).includes(option.value) }]"
+                class="interest-chip"
+                :class="{ active: (formData.preferences?.interests || []).includes(option.value) }"
                 @click="toggleInterest(option.value)"
               >
-                {{ option.icon }} {{ option.label }}
-              </a-button>
+                <span class="chip-icon">{{ option.icon }}</span>
+                {{ option.label }}
+              </button>
                   </div>
           </div>
 
-          <!-- 开始日期（自动设置为今天，隐藏显示） -->
-          <div class="form-section" style="display: none;">
-            <a-date-picker
-              :value="formData.startDate ? dayjs(formData.startDate) : dayjs()"
-              @update:value="(value) => travelStore.setPlannerData({ startDate: value ? value.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })"
-                size="large"
-              style="width: 100%"
-            />
-        </div>
-
-          <!-- 生成按钮 -->
-          <div class="submit-section">
+          <div class="submit-area">
           <a-button 
             type="primary" 
             size="large" 
             :loading="loading"
             @click="handleSubmit"
-              class="generate-button"
+              class="generate-btn"
               :disabled="!canSubmit"
           >
-              <template #icon>
-                <environment-outlined />
+              <template #icon v-if="!loading">
+                <thunderbolt-filled />
               </template>
-              {{ loading ? t('common.loading') : (t('planner.submit') || 'Generate Itinerary') }}
+              {{ loading ? (t('planner.generating') || t('common.loading') || 'AI 正在规划中...') : t('planner.submit') || '生成专属行程' }}
           </a-button>
+            <p class="submit-hint" v-if="!canSubmit">{{ t('planner.submitHint') || '请至少填写目的地或选择一项兴趣' }}</p>
         </div>
         </div>
       </div>
@@ -175,18 +155,13 @@
 </template>
 
 <script setup lang="ts">
-// @ts-nocheck
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
-import { createItinerary, convertFrontendDataToCreateRequest, updateJourneyFromFrontendData } from '@/services/itineraryAPI'
-
-const { t } = useI18n()
-import PlannerDemo from '@/components/TravelDetail/PlannerDemo.vue'
 import { 
   ArrowLeftOutlined, 
   RocketOutlined,
@@ -194,64 +169,78 @@ import {
   CalendarOutlined,
   DollarOutlined,
   HeartOutlined,
-  CheckCircleOutlined,
   TeamOutlined,
   MinusOutlined,
-  PlusOutlined
+  PlusOutlined,
+  SearchOutlined,
+  CheckCircleFilled,
+  ThunderboltFilled
 } from '@ant-design/icons-vue'
 
+// --- 类型定义 ---
+interface PlannerPreferences {
+  interests?: string[]
+  budget?: string
+  travelStyle?: string
+}
+
+interface PlannerData {
+  destination?: string
+  days?: number
+  startDate?: string
+  participants?: number
+  preferences?: PlannerPreferences
+}
+
+const { t } = useI18n()
 const router = useRouter()
 const travelStore = useTravelStore()
 const travelListStore = useTravelListStore()
 
-const formData = computed(() => travelStore.plannerData)
+const formData = computed<PlannerData>(() => travelStore.plannerData)
 const loading = computed(() => travelStore.loading)
-const error = computed(() => travelStore.error)
+
+// 辅助函数：简化 store 更新调用
+const updatePlannerData = (data: Partial<PlannerData>) => {
+  travelStore.setPlannerData(data)
+}
 
 // 初始化默认值
 onMounted(() => {
-  if (!formData.value.startDate) {
-    travelStore.setPlannerData({ startDate: dayjs().format('YYYY-MM-DD') })
-  }
-  if (!formData.value.days) {
-    travelStore.setPlannerData({ days: 3 })
-  }
-  if (!formData.value.participants) {
-    travelStore.setPlannerData({ participants: 1 })
-  }
+  if (!formData.value.startDate) updatePlannerData({ startDate: dayjs().format('YYYY-MM-DD') })
+  if (!formData.value.days) updatePlannerData({ days: 3 })
+  if (!formData.value.participants) updatePlannerData({ participants: 1 })
+  if (!formData.value.preferences) updatePlannerData({ preferences: { interests: [], budget: 'medium' } })
 })
 
-// 预算按钮选项
+// --- 选项配置 ---
 const budgetButtonOptions = computed(() => [
-  { value: 'low', label: t('planner.budgetRanges.economy') || 'Budget' },
-  { value: 'medium', label: t('planner.budgetRanges.comfort') || 'Moderate' },
-  { value: 'high', label: t('planner.budgetRanges.luxury') || 'Luxury' }
+  { value: 'low', label: t('planner.budget.economy') || '经济实惠', icon: '💰', desc: t('planner.budgetDesc.low') || '注重性价比' },
+  { value: 'medium', label: t('planner.budget.comfort') || '舒适标准', icon: '💎', desc: t('planner.budgetDesc.medium') || '平衡体验与价格' },
+  { value: 'high', label: t('planner.budget.luxury') || '豪华奢享', icon: '👑', desc: t('planner.budgetDesc.high') || '顶级体验' }
 ])
 
-const preferenceOptions = computed(() => {
-  const baseOptions = [
-    { value: 'culture', label: t('planner.preferences.culture') || 'History & Culture', icon: '🏛️' },
-    { value: 'nature', label: t('planner.preferences.nature') || 'Nature & Outdoors', icon: '🌲' },
-    { value: 'food', label: t('planner.preferences.food') || 'Food & Dining', icon: '🍜' },
-    { value: 'adventure', label: t('planner.preferences.adventure') || 'Adventure & Sports', icon: '🏔️' },
-    { value: 'art', label: t('planner.preferences.art') || 'Art & Museums', icon: '🎨' },
-    { value: 'shopping', label: t('planner.preferences.shopping') || 'Shopping', icon: '🛍️' },
-    { value: 'relaxation', label: t('planner.preferences.leisure') || 'Relaxation & Spa', icon: '🏖️' },
-    { value: 'nightlife', label: t('planner.preferences.nightlife') || 'Nightlife', icon: '🌃' },
-    { value: 'photography', label: t('planner.preferences.photography') || 'Photography', icon: '📸' },
-    { value: 'family', label: t('planner.preferences.family') || 'Family Friendly', icon: '👨‍👩‍👧‍👦' }
-  ]
-  return baseOptions
-})
+const preferenceOptions = computed(() => [
+  { value: 'culture', label: t('planner.preferences.culture') || '历史文化', icon: '🏛️' },
+  { value: 'nature', label: t('planner.preferences.nature') || '自然风光', icon: '🌲' },
+  { value: 'food', label: t('planner.preferences.food') || '地道美食', icon: '🍜' },
+  { value: 'adventure', label: t('planner.preferences.adventure') || '户外探险', icon: '🧗' },
+  { value: 'art', label: t('planner.preferences.art') || '艺术展览', icon: '🎨' },
+  { value: 'shopping', label: t('planner.preferences.shopping') || '购物血拼', icon: '🛍️' },
+  { value: 'relaxation', label: t('planner.preferences.leisure') || '休闲度假', icon: '🏖️' },
+  { value: 'nightlife', label: t('planner.preferences.nightlife') || '夜生活', icon: '🍸' },
+  { value: 'photography', label: t('planner.preferences.photography') || '摄影打卡', icon: '📸' },
+  { value: 'family', label: t('planner.preferences.family') || '亲子游', icon: '🧸' }
+])
 
-// 切换兴趣选择
+// --- 交互逻辑 ---
 const toggleInterest = (value: string) => {
   const currentInterests = formData.value.preferences?.interests || []
   const newInterests = currentInterests.includes(value)
     ? currentInterests.filter(i => i !== value)
     : [...currentInterests, value]
   
-  travelStore.setPlannerData({
+  updatePlannerData({
     preferences: {
       ...formData.value.preferences,
       interests: newInterests
@@ -259,108 +248,40 @@ const toggleInterest = (value: string) => {
 })
 }
 
-// 增加/减少旅行者数量
 const increaseTravelers = () => {
   const current = formData.value.participants || 1
-  if (current < 20) {
-    travelStore.setPlannerData({ participants: current + 1 })
-  }
+  if (current < 20) updatePlannerData({ participants: current + 1 })
 }
 
 const decreaseTravelers = () => {
   const current = formData.value.participants || 1
-  if (current > 1) {
-    travelStore.setPlannerData({ participants: current - 1 })
-  }
+  if (current > 1) updatePlannerData({ participants: current - 1 })
 }
 
-
-// 验证是否可以提交
-// 注意：根据新文档，destination 是可选的，系统会自动推荐
 const canSubmit = computed(() => {
-  return formData.value.days &&
-         formData.value.days >= 1 && 
-         formData.value.days <= 30 &&
-         formData.value.startDate &&
-         // 至少需要提供目的地、意图信息或偏好兴趣之一
-         (formData.value.destination?.trim() || 
-          formData.value.preferences?.interests?.length > 0 ||
-          formData.value.preferences?.budget)
+  const hasDest = !!formData.value.destination?.trim()
+  const hasInterest = (formData.value.preferences?.interests?.length || 0) > 0
+  // 只需要其中一项即可，AI 可以根据兴趣推荐地点，或根据地点推荐行程
+  return hasDest || hasInterest
 })
 
-// 移除旧的步骤相关代码，直接使用 handleSubmit
+// --- 提交逻辑 (保持原有核心业务逻辑，增加健壮性) ---
 const handleSubmit = async () => {
-  if (!canSubmit.value) {
-    message.warning('请完成必填项后再提交')
-    return
-  }
+  if (!canSubmit.value) return
 
-  console.log('📋 [Planner] 提交规划请求:', formData.value)
-  
   try {
-    console.log('🚀 [Planner] 步骤 1/3: 开始生成行程...')
-    // 生成行程
+    // 1. 调用 Store 生成行程
     await travelStore.generateItinerary('planner')
-    console.log('✅ [Planner] 步骤 1/3: 行程生成完成')
-    
-    // 从 travelStore 获取生成的行程数据
-    console.log('📊 [Planner] 步骤 2/3: 获取生成的行程数据...')
     const itineraryData = travelStore.itineraryData
-    if (!itineraryData) {
-      console.error('❌ [Planner] 步骤 2/3: 未获取到行程数据')
-      throw new Error('行程生成失败')
-    }
-    console.log('✅ [Planner] 步骤 2/3: 行程数据获取成功', {
-      title: itineraryData.title,
-      destination: itineraryData.destination,
-      days: itineraryData.days?.length || 0,
-      totalCost: itineraryData.totalCost
-    })
+    if (!itineraryData) throw new Error('Generation returned empty data')
+
+    // 2. 准备后端所需数据
+    const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
     
-    // 步骤 3/4: 保存行程到后端数据库
-    console.log('💾 [Planner] 步骤 3/4: 保存行程到后端数据库...')
-    let backendItineraryId: string | undefined
-    let backendItinerary: any = undefined
-    try {
-      // 确保 days 数组不为空
-      const days = (itineraryData as any).days && (itineraryData as any).days.length > 0
+    // 构造请求体
+    const days = (itineraryData as any).days?.length > 0 
         ? (itineraryData as any).days
-        : [{
-            day: 1,
-            date: formData.value.startDate || dayjs().format('YYYY-MM-DD'),
-            timeSlots: []
-          }]
-      
-      // 使用前端数据格式直接创建完整行程（使用 from-frontend-data 接口）
-      const { createJourneyFromFrontendData } = await import('@/services/itineraryAPI')
-      const createRequest = {
-        itineraryData: {
-          destination: formData.value.destination,
-          duration: days.length,
-          days: days.map((day: any) => ({
-            day: day.day || 1,
-            date: day.date || formData.value.startDate || dayjs().format('YYYY-MM-DD'),
-            timeSlots: day.timeSlots || []
-          })),
-          totalCost: (itineraryData as any).totalCost || 0,
-          summary: (itineraryData as any).summary || '',
-          title: `${formData.value.destination}之旅`,
-          preferences: formData.value.preferences,
-          practicalInfo: (itineraryData as any).practicalInfo
-        },
-        startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
-      }
-      
-      console.log('📤 [Planner] 创建行程请求数据:', {
-        destination: createRequest.itineraryData.destination,
-        daysCount: createRequest.itineraryData.days.length,
-        startDate: createRequest.startDate
-      })
-      
-      // 直接创建完整行程（使用 from-frontend-data 接口）
-      const baseJourney = await createJourneyFromFrontendData(createRequest)
-      backendItineraryId = baseJourney.id
-      console.log('✅ [Planner] 行程已创建，journeyId:', backendItineraryId)
+      : [{ day: 1, date: formData.value.startDate, timeSlots: [] }]
       
       // 处理 preferences：优先使用 itineraryData 中的 preferences，否则使用 formData 中的
       let preferences: string[] | { interests?: string[]; budget?: string; travelStyle?: string } | undefined
@@ -378,464 +299,387 @@ const handleSubmit = async () => {
         }
       }
       
-      const updateRequest = {
+    const createRequest = {
         itineraryData: {
           destination: itineraryData.destination,
-          duration: itineraryData.days?.length || formData.value.days,
+        duration: itineraryData.days?.length || formData.value.days || days.length,
+        days: days.map((day: any) => ({
+          day: day.day || 1,
+          date: day.date || formData.value.startDate || dayjs().format('YYYY-MM-DD'),
+          timeSlots: day.timeSlots || []
+        })),
+        totalCost: (itineraryData as any).totalCost || 0,
+        summary: (itineraryData as any).summary || '',
+        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
           budget: (itineraryData as any).budget || formData.value.preferences?.budget,
           preferences: preferences,
           travelStyle: (itineraryData as any).travelStyle || formData.value.preferences?.travelStyle,
-          itinerary: [],
+        itinerary: [], // 兼容字段
           recommendations: (itineraryData as any).recommendations || {},
-          days: (itineraryData as any).days || [],
-          totalCost: (itineraryData as any).totalCost || 0,
-          summary: (itineraryData as any).summary || '',
-          title: (itineraryData as any).title || `${formData.value.destination}之旅`
+        practicalInfo: (itineraryData as any).practicalInfo
         },
         startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
       }
       
-      console.log('📤 [Planner] 从前端数据格式更新行程请求数据:', {
-        journeyId: backendItineraryId,
-        destination: updateRequest.itineraryData.destination,
-        daysCount: updateRequest.itineraryData.days.length
-      })
-      
-      // 调用新接口更新行程
-      backendItinerary = await updateJourneyFromFrontendData(backendItineraryId, updateRequest)
-      console.log('✅ [Planner] 步骤 3/4: 行程已保存到后端', {
-        id: backendItinerary.id,
-        destination: backendItinerary.destination,
-        daysCount: backendItinerary.daysCount
-      })
-      message.success('行程已保存到数据库')
-    } catch (err: any) {
-      console.error('❌ [Planner] 步骤 3/4: 保存到后端失败', {
-        error: err.message,
-        stack: err.stack
-      })
-      message.warning('保存到数据库失败，将使用临时数据。错误：' + (err.message || '未知错误'))
-    }
-    
-    // 步骤 4/4: 创建 Travel 对象用于立即显示（最终数据从后端获取）
-    console.log('💾 [Planner] 步骤 4/4: 创建 Travel 对象用于显示...')
-    
-    let newTravel: any = null
+    // 3. 后端保存 (合并创建)
+    let backendItineraryId: string | undefined
     try {
-    // 构建存储数据，确保兼容 ExperienceDay 组件的两种数据读取方式
-    // 方式1: data.days (直接存储)
-    // 方式2: data.itineraryData.days (嵌套存储)
-    const travelData: any = {
-      // 保存后端行程ID（如果创建成功）
-      backendItineraryId: backendItineraryId,
-      // 直接存储 days，这样 ExperienceDay 可以直接从 data.days 读取
-      days: (itineraryData as any).days || [],
-      destination: itineraryData.destination,
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      totalCost: (itineraryData as any).totalCost || 0,
-      summary: (itineraryData as any).summary || '',
-      // 同时存储为 itineraryData 格式，以兼容其他组件
-      itineraryData: {
-        days: (itineraryData as any).days || [],
-        destination: itineraryData.destination,
-        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-        totalCost: (itineraryData as any).totalCost || 0,
-        summary: (itineraryData as any).summary || '',
-        duration: itineraryData.duration,
-        budget: itineraryData.budget,
-        preferences: itineraryData.preferences,
-        travelStyle: itineraryData.travelStyle
-      }
+      const backendItinerary = await createJourneyFromFrontendData(createRequest)
+      backendItineraryId = backendItinerary.id
+      message.success('行程生成成功！')
+    } catch (e: any) {
+      console.warn('Backend sync failed, using local fallback', e)
+      // 不阻断流程，继续在本地显示
     }
-    
-    // 使用后端返回的 mode（如果存在），否则使用默认值
-    const travelMode = backendItinerary?.mode || 'planner'
-    
-      newTravel = travelListStore.createTravel({
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      location: formData.value.destination,
-      description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
-      mode: travelMode as 'planner' | 'seeker' | 'inspiration',
+
+    // 4. 前端列表 Store 同步 (用于本地快速显示)
+    const newTravel = travelListStore.createTravel({
+      title: (itineraryData as any).title || `${formData.value.destination} 之旅`,
+      location: formData.value.destination || '未知目的地',
+      description: (itineraryData as any).summary,
+      mode: 'planner',
       status: 'active',
       duration: formData.value.days,
-      participants: formData.value.participants || 1,
+      participants: formData.value.participants,
       budget: (itineraryData as any).totalCost || 0,
-      data: travelData // 保存详细的行程数据
-    })
-    console.log('✅ [Planner] 步骤 4/4: Travel 创建成功', {
-      id: newTravel.id,
-      title: newTravel.title,
-      mode: newTravel.mode,
-      backendItineraryId: backendItineraryId
-    })
-    } catch (travelError: any) {
-      console.error('❌ [Planner] 步骤 4/4: 创建 Travel 失败', {
-        error: travelError.message,
-        stack: travelError.stack
-      })
-      message.warning('创建本地行程失败，但会尝试跳转')
-    }
-    
-    // 确保跳转到详情页
-    const targetId = backendItineraryId || (newTravel?.id)
-    if (targetId) {
-      console.log('🎉 [Planner] 所有步骤完成，准备跳转到详情页', {
-        travelId: newTravel?.id,
-        backendItineraryId: backendItineraryId,
-        targetId: targetId,
-        travelTitle: newTravel?.title
-      })
-      message.success('行程生成成功！')
-      
-      try {
-        if (backendItineraryId) {
-          await router.push(`/travel/${backendItineraryId}`)
-        } else if (newTravel?.id) {
-          await router.push(`/travel/${newTravel.id}`)
-        } else {
-          throw new Error('无法获取行程 ID')
-        }
-        console.log('✅ [Planner] 跳转成功')
-      } catch (routerError: any) {
-        console.error('❌ [Planner] 跳转失败', {
-          error: routerError.message,
-          travelId: newTravel?.id,
-          backendItineraryId: backendItineraryId
-        })
-        message.error('跳转失败，请手动导航到行程详情页')
+      data: {
+        backendItineraryId,
+        days: (itineraryData as any).days || [],
+        itineraryData: createRequest.itineraryData // 保存完整副本
       }
-    } else {
-      console.error('❌ [Planner] 无法跳转：Travel 对象创建失败或没有 ID')
-      message.error('行程创建失败，无法跳转到详情页')
-    }
+    })
+
+    // 5. 跳转
+    const targetId = backendItineraryId || newTravel.id
+    await router.push(`/travel/${targetId}`)
   } catch (err) {
-    console.error('❌ [Planner] 生成行程失败:', err)
-    message.error('生成行程失败，请重试')
+    console.error('Planner Error:', err)
+    message.error(t('common.error') || '生成失败，请重试')
   }
-}
-
-const getPreferenceLabel = (value: string) => {
-  return preferenceOptions.value.find(p => p.value === value)?.label || value || ''
-}
-
-const getPreferenceIcon = (value: string) => {
-  return preferenceOptions.value.find(p => p.value === value)?.icon || '📍'
 }
 </script>
 
 <style scoped>
-/* 单页表单样式 */
-.plan-form-container {
-  max-width: 800px;
-  margin: 0 auto;
-  background: #ffffff;
-  border-radius: 24px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  overflow: hidden;
-}
-
-/* 横幅标题区域 */
-.hero-banner {
-  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
-  padding: 48px 32px;
-  text-align: center;
-  color: white;
-}
-
-.hero-content {
+/* 全局容器：浅灰色背景，居中布局 */
+.page-container {
+  min-height: 100vh;
+  background-color: #f8fafc;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  padding: 20px;
 }
 
-.hero-icon {
-  font-size: 32px;
-  margin-bottom: 8px;
+.header-nav {
+  width: 100%;
+  max-width: 1000px;
+  margin-bottom: 16px;
+}
+
+.back-button {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.back-button:hover {
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.05);
+}
+
+/* 主卡片：包含左右/上下两部分 */
+.planner-card {
+  width: 100%;
+  max-width: 1000px;
+  background: #ffffff;
+  border-radius: 24px;
+  box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 顶部 Hero 区域 */
+.hero-section {
+  position: relative;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  padding: 48px 32px;
+  overflow: hidden;
+}
+
+.hero-pattern {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  opacity: 0.1;
+  background-image: radial-gradient(#ffffff 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  backdrop-filter: blur(4px);
 }
 
 .hero-title {
-  font-size: 36px;
-  font-weight: 700;
-  margin: 0;
-  color: white;
+  font-size: 32px;
+  font-weight: 800;
+  margin: 0 0 12px;
   line-height: 1.2;
 }
 
 .hero-subtitle {
   font-size: 16px;
+  opacity: 0.9;
   margin: 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 400;
+  max-width: 600px;
+  margin-inline: auto;
 }
 
-/* 表单内容 */
-.form-content {
+/* 表单区域 */
+.form-section-wrapper {
   padding: 40px 32px;
+}
+
+.form-content {
+  max-width: 700px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 32px;
 }
 
-.form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.form-label {
+/* 表单组通用样式 */
+.group-label {
   display: flex;
   align-items: center;
-  gap: 8px;
   font-size: 16px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 8px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 12px;
 }
 
-.label-icon {
-  font-size: 18px;
-  color: #1890ff;
-}
-
-/* 目的地输入 */
-.destination-input-wrapper {
-  display: flex;
+.icon-box {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 8px;
+  margin-right: 10px;
+  font-size: 14px;
 }
 
-.destination-input {
-  flex: 1;
+.label-hint {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 400;
+  margin-left: 8px;
 }
 
+/* 输入框定制 */
+.custom-input :deep(.ant-input) {
+  font-size: 16px;
+}
 
-/* 天数滑块 */
-.duration-slider-wrapper {
+.custom-input :deep(.ant-input-prefix) {
+  margin-right: 10px;
+}
+
+/* Flex 布局行 */
+.form-row {
+  display: flex;
+  gap: 24px;
+}
+
+.flex-1 { flex: 1; }
+
+/* 滑块容器 */
+.slider-container {
   display: flex;
   align-items: center;
   gap: 16px;
+  background: #f8fafc;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
 }
 
-.duration-slider {
-  flex: 1;
+.custom-slider { flex: 1; margin: 0 6px; }
+
+.slider-value {
+  font-weight: 700;
+  color: #2563eb;
+  min-width: 48px;
+  text-align: right;
 }
 
-.duration-value {
-  min-width: 40px;
-  text-align: center;
-  font-size: 20px;
-  font-weight: 600;
-  color: #1890ff;
-}
-
-/* 旅行者数量 */
-.travelers-input-wrapper {
+/* 计数器 */
+.counter-input {
   display: flex;
   align-items: center;
-  gap: 12px;
-  justify-content: center;
+  justify-content: space-between;
+  background: #f8fafc;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
 }
 
-.number-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #d9d9d9;
-  background: #ffffff;
-}
-
-.number-btn:hover:not(:disabled) {
-  border-color: #1890ff;
-  color: #1890ff;
-}
-
-.travelers-input {
-  width: 80px;
-  text-align: center;
-}
-
-.travelers-input :deep(.ant-input-number-input) {
-  text-align: center;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-/* 预算按钮组 */
-.budget-buttons {
-  gap: 12px;
-}
-
-.budget-btn {
-  flex: 1;
-  height: 48px;
+.counter-btn {
+  width: 36px;
+  height: 36px;
   border-radius: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  border: 2px solid #e5e7eb;
-  background: #ffffff;
-  transition: all 0.3s ease;
-  padding: 0 12px;
-}
-
-.budget-btn.active {
-  border-color: #1890ff;
-  background: #1890ff;
-  color: white;
-}
-
-.budget-btn:hover:not(.active) {
-  border-color: #1890ff;
-  color: #1890ff;
-}
-
-/* 兴趣网格 */
-.interests-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.interest-btn {
-  height: 48px;
-  border-radius: 20px;
-  font-size: 15px;
-  font-weight: 500;
-  border: 2px solid #e5e7eb;
-  background: #ffffff;
-  transition: all 0.3s ease;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #475569;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-right: 8px;
-  margin-bottom: 8px;
-
+  transition: all 0.2s;
 }
 
-.interest-btn.active {
-  border-color: #1890ff;
-  background: #1890ff;
+.counter-btn:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.counter-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.counter-display {
+  font-weight: 600;
+  font-size: 16px;
+  color: #1e293b;
+}
+
+/* 预算网格 */
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.budget-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 16px 12px;
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.budget-card:hover { border-color: #93c5fd; }
+
+.budget-card.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.budget-icon { font-size: 24px; margin-bottom: 8px; }
+
+.budget-label { font-weight: 600; font-size: 14px; color: #1e293b; display: block; }
+
+.budget-desc { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+.check-mark {
+  position: absolute;
+  top: 8px; right: 8px;
+  color: #2563eb;
+  font-size: 16px;
+}
+
+/* 兴趣标签容器 */
+.interests-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.interest-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chip-icon { margin-right: 6px; font-size: 16px; }
+
+.interest-chip:hover { border-color: #93c5fd; color: #2563eb; }
+
+.interest-chip.active {
+  background: #2563eb;
+  border-color: #2563eb;
   color: white;
+  font-weight: 500;
+  box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
 }
 
-.interest-btn:hover:not(.active) {
-  border-color: #1890ff;
-  color: #1890ff;
-}
-
-/* 提交按钮区域 */
-.submit-section {
+/* 提交区域 */
+.submit-area {
   margin-top: 16px;
-  padding-top: 24px;
-  border-top: 1px solid #f0f0f0;
 }
 
-.generate-button {
+.generate-btn {
   width: 100%;
   height: 56px;
-  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
-  border: none;
-  border-radius: 12px;
+  border-radius: 16px;
   font-size: 18px;
   font-weight: 600;
-  color: white;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
-  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border: none;
+  box-shadow: 0 8px 20px -4px rgba(37, 99, 235, 0.4);
+  transition: transform 0.2s;
 }
 
-.generate-button:hover:not(:disabled) {
+.generate-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+  box-shadow: 0 12px 24px -4px rgba(37, 99, 235, 0.5);
 }
 
-.generate-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
+.submit-hint {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  margin-top: 12px;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .hero-banner {
-    padding: 32px 24px;
-  }
-  
-  .hero-title {
-    font-size: 28px;
-  }
-
-  .hero-subtitle {
-    font-size: 14px;
-  }
-  
-  .form-content {
-    padding: 24px 20px;
-    gap: 24px;
-  }
-
-  .interests-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .budget-buttons {
-    flex-direction: column;
-  }
-}
-
-/* 容器样式 */
-.container {
-  min-height: 100vh;
-  background: #f5f5f5;
-  padding: 2rem;
-  }
-  
-/* 头部导航 */
-.header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 2rem;
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
-  }
-  
-.back-button {
-  background: rgba(255, 255, 255, 0.9) !important;
-  border: 1px solid #e0e0e0 !important;
-  color: #333 !important;
-  margin-right: 1rem;
-  }
-  
-.back-button:hover {
-  background: rgba(255, 255, 255, 1) !important;
-  border-color: #1890ff !important;
-  color: #1890ff !important;
-  }
-
-.header-title {
-  display: flex;
-  align-items: center;
-  flex: 1;
-}
-
-.header-icon {
-  font-size: 2rem;
-  color: #1890ff;
-  margin-right: 1rem;
-  }
-  
-.title {
-  color: #333 !important;
-  margin: 0 !important;
-  }
-  
-/* 主要内容 */
-.main-content {
-  max-width: 1200px;
-  margin: 0 auto;
+/* 响应式 */
+@media (max-width: 640px) {
+  .hero-section { padding: 32px 24px; }
+  .form-section-wrapper { padding: 24px 20px; }
+  .form-row { flex-direction: column; gap: 24px; }
+  .interests-container { grid-template-columns: repeat(2, 1fr); }
+  .hero-title { font-size: 26px; }
+  .budget-grid { grid-template-columns: 1fr; }
 }
 </style>

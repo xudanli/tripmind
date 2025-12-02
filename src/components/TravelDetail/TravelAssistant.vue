@@ -109,6 +109,7 @@ import { useI18n } from 'vue-i18n'
 import { Modal, message } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { useTravelListStore } from '@/stores/travelList'
+import { useI18nStore } from '@/stores/i18n'
 import { 
   chatWithAssistant, 
   updateSlot, 
@@ -140,6 +141,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const userStore = useUserStore()
 const travelListStore = useTravelListStore()
+const i18nStore = useI18nStore()
 
 const isOpen = ref(false)
 const messages = ref<Message[]>([])
@@ -450,7 +452,7 @@ const fetchWelcomeMessage = async () => {
     // 调用后端接口获取欢迎消息（发送空消息或特殊初始化消息）
     const aiResponse = await chatWithAssistant(journeyId, {
       message: '', // 空消息表示获取欢迎消息
-      language: 'zh-CN',
+      language: i18nStore.currentLocale,
       conversationId: conversationId.value || undefined // 如果有存储的conversationId，使用它
     })
 
@@ -521,7 +523,7 @@ const handleSend = async () => {
     const aiResponse = await chatWithAssistant(journeyId, {
       message: currentInput,
       conversationId: conversationId.value || undefined,
-      language: 'zh-CN'
+      language: i18nStore.currentLocale
     })
 
     // 保存conversationId用于多轮对话

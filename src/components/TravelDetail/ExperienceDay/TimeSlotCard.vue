@@ -49,19 +49,25 @@
     <SlotDetails
       :slot="slot"
       :currency="currency"
+      :loading-location="loadingLocation"
       @book="$emit('book')"
       @add-nearby-attraction="handleAddNearbyAttraction"
+      @fetch-location="handleFetchLocation"
     />
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { message } from 'ant-design-vue'
 import type { CurrencyInfo } from '@/utils/currency'
 import type { TimeSlot, ItineraryDay, TimeSlotCardProps } from './types'
 import { useSlotFormatting } from '@/composables/useSlotFormatting'
 import { useSlotActions } from '@/composables/useSlotActions'
+import { generateLocation } from '@/services/locationAPI'
+import { convertLocationInfoToDetails } from '@/services/locationAPI'
+import { useTravelStore } from '@/stores/travel'
 import SlotHero from './SlotHero.vue'
 import SlotInfoBar from './SlotInfoBar.vue'
 import SlotDetails from './SlotDetails.vue'
@@ -96,6 +102,7 @@ const emit = defineEmits<{
     currentSlot: TimeSlot
     day: ItineraryDay
   }]
+  'fetch-location': []
 }>()
 
 const { t } = useI18n()
@@ -126,6 +133,85 @@ const handleAddNearbyAttraction = (attraction: { name: string; distance?: string
     currentSlot: props.slot,
     day: props.day
   })
+}
+
+// 获取位置信息
+const loadingLocation = ref(false)
+const travelStore = useTravelStore()
+
+const handleFetchLocation = async () => {
+  if (loadingLocation.value) return
+  
+  const slot = props.slot
+  const day = props.day
+  
+  // 检查必要信息
+  if (!slot.title || !slot.coordinates) {
+    message.warning(t('travelDetail.experienceDay.locationFetchRequiresInfo') || '活动需要名称和坐标信息才能获取位置详情')
+    return
+  }
+  
+  // 获取目的地和行程ID
+  const itineraryData = travelStore.itineraryData
+  if (!itineraryData) {
+    message.warning(t('travelDetail.experienceDay.noItineraryData') || '无法获取行程数据')
+    return
+  }
+  
+  const destination = itineraryData.destination || ''
+  if (!destination) {
+    message.warning(t('travelDetail.experienceDay.noDestination') || '无法获取目的地信息')
+    return
+  }
+  
+  loadingLocation.value = true
+  
+  try {
+    // 调用位置信息生成API
+    const locationInfo = await generateLocation({
+      activityName: slot.title,
+      destination: destination,
+      activityType: (slot.type || 'attraction') as any,
+      coordinates: slot.coordinates
+    })
+    
+    // 转换为 details 格式
+    const locationDetails = convertLocationInfoToDetails(locationInfo)
+    
+    // 更新 slot 的 details（深度合并）
+    if (!slot.details) {
+      slot.details = {}
+    }
+    slot.details = {
+      ...slot.details,
+      ...locationDetails,
+      // 确保 recommendations 被正确合并
+      recommendations: {
+        ...slot.details.recommendations,
+        ...locationDetails.recommendations
+      }
+    }
+    
+    // 如果有地址信息，更新 slot 的 location
+    if (locationInfo.address) {
+      slot.location = locationInfo.address
+    }
+    
+    // 如果有坐标信息，更新 slot 的 coordinates
+    if (locationInfo.coordinates) {
+      slot.coordinates = locationInfo.coordinates
+    }
+    
+    // 触发父组件更新（通过 emit）
+    emit('fetch-location')
+    
+    message.success(t('travelDetail.experienceDay.locationFetched') || '位置信息获取成功')
+  } catch (error: any) {
+    console.error('[TimeSlotCard] 获取位置信息失败:', error)
+    message.error(t('travelDetail.experienceDay.locationFetchFailed') || `获取位置信息失败: ${error.message || '未知错误'}`)
+  } finally {
+    loadingLocation.value = false
+  }
 }
 
 // 这些函数已经移到 composables 和子组件中，不再需要

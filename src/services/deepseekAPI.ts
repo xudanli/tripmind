@@ -1,6 +1,7 @@
 import { API_CONFIG } from '@/config/api'
 import { extractJSONObject, cleanMarkdownCodeBlocks, safeParseJSON } from '@/utils/jsonParser'
 import { chatWithOpenAI } from './openaiAPI'
+import { chatWithGemini } from './geminiAPI'
 import { getUserPreferredLLMProvider, getUserPreferredLLMModel } from '@/config/userProfile'
 
 interface ChatMessage {
@@ -119,6 +120,24 @@ export async function chatWithLLM(
     }
     console.warn('[LLM] OpenAI 响应为空或调用失败，回退使用 DeepSeek。')
   }
+  
+  if (provider === 'gemini') {
+    let modelFromProfile = ''
+    try {
+      modelFromProfile = getUserPreferredLLMModel()
+    } catch (error) {
+      console.warn('[LLM] 获取 Gemini 模型配置失败，使用默认值。', error)
+    }
+    const response = await chatWithGemini(messages, {
+      ...options,
+      model: options.model || modelFromProfile || API_CONFIG.GEMINI_DEFAULT_MODEL
+    })
+    if (response) {
+      return response
+    }
+    console.warn('[LLM] Gemini 响应为空或调用失败，回退使用 DeepSeek。')
+  }
+  
   return callDeepSeek(messages, options)
 }
 

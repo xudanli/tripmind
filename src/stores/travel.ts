@@ -501,11 +501,30 @@ export const useTravelStore = defineStore('travel', () => {
 
         const modeLabel = mode === 'inspiration' ? '灵感' : '规划'
         pushGenerationLog(`📡 正在调用行程生成 API (${modeLabel}模式)...`)
+        // 获取当前语言设置
+        const getCurrentLanguage = (): 'zh-CN' | 'en-US' | 'en' => {
+          // 1. 优先从 localStorage 读取用户设置
+          const saved = localStorage.getItem('preferred-locale')
+          if (saved) {
+            if (saved === 'en-US' || saved === 'en') return 'en-US'
+            if (saved === 'zh-CN') return 'zh-CN'
+          }
+          // 2. 从浏览器语言检测
+          if (typeof navigator !== 'undefined') {
+            const browserLang = navigator.language || (navigator as any).languages?.[0] || 'zh-CN'
+            if (browserLang.startsWith('en')) return 'en-US'
+            if (browserLang.startsWith('zh')) return 'zh-CN'
+          }
+          // 3. 默认返回中文
+          return 'zh-CN'
+        }
+
         const apiResponse = await generateItineraryAPI(
           {
             destination: formData.destination,
             days: formData.days,
             startDate: formData.startDate,
+            language: getCurrentLanguage(), // 🆕 添加语言字段
             preferences: formData.preferences,
             // 将意图信息作为额外上下文传递（如果后端支持）
             ...(intentData ? {
@@ -782,10 +801,29 @@ export const useTravelStore = defineStore('travel', () => {
       const days = formData?.days || 5
       const startDate = formData?.startDate || new Date().toISOString().split('T')[0]
       
+      // 获取当前语言设置
+      const getCurrentLanguage = (): 'zh-CN' | 'en-US' | 'en' => {
+        // 1. 优先从 localStorage 读取用户设置
+        const saved = localStorage.getItem('preferred-locale')
+        if (saved) {
+          if (saved === 'en-US' || saved === 'en') return 'en-US'
+          if (saved === 'zh-CN') return 'zh-CN'
+        }
+        // 2. 从浏览器语言检测
+        if (typeof navigator !== 'undefined') {
+          const browserLang = navigator.language || (navigator as any).languages?.[0] || 'zh-CN'
+          if (browserLang.startsWith('en')) return 'en-US'
+          if (browserLang.startsWith('zh')) return 'zh-CN'
+        }
+        // 3. 默认返回中文
+        return 'zh-CN'
+      }
+      
       // 构建请求（不传 destination，让后端自动推荐）
       const generateRequest: any = {
         days: days,
         startDate: startDate,
+        language: getCurrentLanguage(), // 🆕 添加语言字段
         preferences: formData?.preferences,
         mode: 'inspiration'
       }

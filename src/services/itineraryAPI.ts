@@ -7,6 +7,38 @@ import { API_CONFIG } from '@/config/api'
 import { authenticatedFetch, handleApiError } from './authAPI'
 
 /**
+ * 获取当前语言设置
+ * 优先级：1. 用户设置 2. 浏览器语言 3. 默认值
+ * @returns 当前语言代码 ('zh-CN' | 'en-US' | 'en')
+ */
+function getCurrentLanguage(): 'zh-CN' | 'en-US' | 'en' {
+  // 1. 优先从 localStorage 读取用户设置
+  const saved = localStorage.getItem('preferred-locale')
+  if (saved) {
+    if (saved === 'en-US' || saved === 'en') {
+      return 'en-US'
+    }
+    if (saved === 'zh-CN') {
+      return 'zh-CN'
+    }
+  }
+  
+  // 2. 从浏览器语言检测
+  if (typeof navigator !== 'undefined') {
+    const browserLang = navigator.language || (navigator as any).languages?.[0] || 'zh-CN'
+    if (browserLang.startsWith('en')) {
+      return 'en-US'
+    }
+    if (browserLang.startsWith('zh')) {
+      return 'zh-CN'
+    }
+  }
+  
+  // 3. 默认返回中文
+  return 'zh-CN'
+}
+
+/**
  * AI助手聊天请求
  */
 export interface AssistantChatRequest {
@@ -110,7 +142,7 @@ export async function chatWithAssistant(
       body: JSON.stringify({
         message: request.message,
         conversationId: request.conversationId,
-        language: request.language || 'zh-CN'
+        language: request.language || getCurrentLanguage()
       })
     })
 
@@ -220,6 +252,7 @@ export interface GenerateItineraryRequest {
   destination?: string // 可选：如果不提供，系统会根据其他信息自动推荐目的地
   days: number
   startDate: string // YYYY-MM-DD
+  language?: 'zh-CN' | 'en-US' | 'en' // 🆕 语言代码（可选，默认 'zh-CN'）
   preferences?: {
     interests?: string[]
     budget?: 'low' | 'medium' | 'high'
@@ -245,7 +278,7 @@ export interface GenerateItineraryResponse {
 }
 
 export interface ItineraryDay {
-  id?: string // 天数ID（创建时可选，但后端返回时必须存在）
+  id: string // 天数ID（后端必须返回，用于批量获取活动详情）
   day: number
   date: string // YYYY-MM-DD
   activities?: Activity[] // 旧格式（兼容）
@@ -469,7 +502,8 @@ export async function generateItinerary(
     const cleanedRequest: any = {
       destination: finalDestination,
       days: request.days,
-      startDate: request.startDate
+      startDate: request.startDate,
+      language: request.language || getCurrentLanguage() // 🆕 添加语言字段，如果没有提供则使用当前语言
     }
 
     // 如果存在意图信息，添加到请求中（后端可能支持也可能不支持，但不影响主流程）
@@ -502,6 +536,9 @@ export async function generateItinerary(
         cleanedRequest.preferences = cleanedPreferences
       }
     }
+
+    // 添加语言字段
+    cleanedRequest.language = getCurrentLanguage()
 
     // 尝试使用 Cookie 认证（credentials: 'include'）
     // 如果后端需要 JWT Token，可能需要从某个地方获取 token
@@ -725,7 +762,19 @@ async function enrichWithLocationInfoAsync(
       // 任务失败
       if (jobStatus.status === 'failed') {
         const error = jobStatus.error || '任务执行失败'
-        throw new Error(`异步任务失败: ${error}`)
+        // 对后端错误信息进行友好化处理
+        let friendlyError = error
+        if (typeof error === 'string') {
+          // 处理常见的后端错误信息
+          if (error.includes('updateProgress')) {
+            friendlyError = '后端任务处理异常，请稍后重试或联系技术支持'
+          } else if (error.includes('timeout') || error.includes('超时')) {
+            friendlyError = '任务执行超时，请稍后重试'
+          } else if (error.includes('not found') || error.includes('不存在')) {
+            friendlyError = '任务不存在，可能已过期'
+          }
+        }
+        throw new Error(`异步任务失败: ${friendlyError}`)
       }
 
       // 任务不存在
@@ -772,17 +821,13 @@ export async function enrichItineraryWithLocationInfo(
   const processedKeys = new Set<string>()
 
   // 收集所有需要获取位置信息的活动（只收集缺少位置信息的活动）
+  const { hasCompleteLocationInfo } = await import('@/utils/locationCheck')
+  
   itineraryData.days.forEach((day, dayIndex) => {
     day.timeSlots.forEach((slot, slotIndex) => {
       if (slot.coordinates && slot.title && slot.type) {
-        const details = slot.details || {}
         // 检查是否已有完整的位置信息
-        const hasLocationInfo = (
-          (details.tripAdvisorId && details.location) || 
-          (details.location && details.address) ||
-          (details.coordinates && details.name) ||
-          (details.pricing && details.pricing.detail && details.address)
-        )
+        const hasLocationInfo = hasCompleteLocationInfo(slot.details)
         
         // 只对缺少位置信息的活动进行生成
         if (!hasLocationInfo) {
@@ -971,7 +1016,24 @@ export async function enrichItineraryWithLocationInfo(
     }
   } catch (error: any) {
     console.error('[ItineraryAPI] 获取位置信息失败:', error)
-    log('获取位置信息失败，使用基础行程数据')
+    
+    // 提取更友好的错误信息
+    let errorMessage = '获取位置信息失败'
+    if (error?.message) {
+      // 如果是异步任务失败，提取具体错误原因
+      if (error.message.includes('异步任务失败:')) {
+        const match = error.message.match(/异步任务失败: (.+)/)
+        if (match && match[1]) {
+          errorMessage = match[1]
+        } else {
+          errorMessage = error.message
+        }
+      } else {
+        errorMessage = error.message
+      }
+    }
+    
+    log(`获取位置信息失败: ${errorMessage}，使用基础行程数据`)
     // 即使位置信息获取失败，也返回基础行程数据
     return itineraryData
   }
@@ -3062,14 +3124,13 @@ export async function triggerLocationInfoEnrichmentAsync(
         coordinates: { lat: number; lng: number }
       }> = []
 
+      const { hasCompleteLocationInfo } = await import('@/utils/locationCheck')
+      
       detail.days.forEach((day) => {
         day.activities?.forEach((activity) => {
           if (activity.title && activity.type && activity.location) {
-            const hasLocationInfo = !!(
-              activity.details?.tripAdvisorId ||
-              activity.details?.address ||
-              (activity.details?.name && activity.details?.address)
-            )
+            // 检查是否已有完整的位置信息
+            const hasLocationInfo = hasCompleteLocationInfo(activity.details)
             
             if (!hasLocationInfo && activity.location.lat && activity.location.lng) {
               activities.push({
@@ -4159,7 +4220,7 @@ export async function generateSafetyNotice(
   const url = buildUrl(endpoint)
 
   const requestBody: GenerateSafetyNoticeRequest = {
-    lang: request.lang || 'zh-CN',
+    lang: request.lang || getCurrentLanguage(),
     forceRefresh: request.forceRefresh || false
   }
   
@@ -4236,11 +4297,13 @@ export interface GetCulturalGuideResponse {
  */
 export async function getCulturalGuide(journeyId: string): Promise<GetCulturalGuideResponse> {
   const endpoint = `/v1/journeys/${journeyId}/cultural-guide`
-  const url = buildUrl(endpoint)
+  const language = getCurrentLanguage()
+  const url = buildUrl(`${endpoint}?language=${language}`)
 
   console.log('[ItineraryAPI] 获取文化红黑榜:', {
     url,
-    journeyId
+    journeyId,
+    language
   })
 
   try {
@@ -4309,11 +4372,13 @@ export interface GetLocalEssentialsResponse {
  */
 export async function getLocalEssentials(journeyId: string): Promise<GetLocalEssentialsResponse> {
   const endpoint = `/v1/journeys/${journeyId}/local-essentials`
-  const url = buildUrl(endpoint)
+  const language = getCurrentLanguage()
+  const url = buildUrl(`${endpoint}?language=${language}`)
 
   console.log('[ItineraryAPI] 获取目的地实用信息:', {
     url,
-    journeyId
+    journeyId,
+    language
   })
 
   try {
@@ -4398,7 +4463,9 @@ export async function generateDailySummaries(
   const endpoint = `/v1/journeys/${journeyId}/daily-summaries`
   const url = buildUrl(endpoint)
 
-  const requestBody: GenerateDailySummariesRequest = {}
+  const requestBody: GenerateDailySummariesRequest = {
+    language: getCurrentLanguage()
+  }
   if (request.day !== undefined) {
     requestBody.day = request.day
   }

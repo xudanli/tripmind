@@ -87,6 +87,7 @@
   "budget": { "currency": "CNY", "total": 8000 },
   "days": [
     {
+      "id": "day-id-1",
       "day": 1,
       "date": "可选",
       "theme": "主题",

@@ -24,6 +24,20 @@ const buildUrl = (endpoint: string) => {
 }
 
 /**
+ * 获取当前语言设置
+ * @returns 当前语言代码 ('zh-CN' | 'en-US')
+ */
+function getCurrentLanguage(): 'zh-CN' | 'en-US' {
+  // 优先从 localStorage 读取
+  const saved = localStorage.getItem('preferred-locale')
+  if (saved && ['zh-CN', 'en-US'].includes(saved)) {
+    return saved as 'zh-CN' | 'en-US'
+  }
+  // 默认返回中文
+  return 'zh-CN'
+}
+
+/**
  * 活动信息
  */
 export interface Activity {
@@ -64,6 +78,8 @@ export interface GenerateTravelSummaryRequest {
     /** 已有摘要（可选） */
     summary?: string
   }
+  /** 语言代码 */
+  language?: string
 }
 
 /**
@@ -127,12 +143,18 @@ export async function generateTravelSummary(
   })
 
   try {
+    // 添加语言字段
+    const requestWithLanguage = {
+      ...request,
+      language: request.language || getCurrentLanguage()
+    }
+
     const response = await authenticatedFetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(requestWithLanguage)
     })
 
     if (!response.ok) {
@@ -253,7 +275,8 @@ export function convertItineraryToSummaryRequest(
     itinerary: {
       days,
       totalCost: totalCost || itineraryData.totalCost
-    }
+    },
+    language: getCurrentLanguage()
   }
 }
 

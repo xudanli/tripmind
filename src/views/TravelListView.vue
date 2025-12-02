@@ -57,21 +57,8 @@
                 <environment-outlined class="label-icon" />
                 {{ $t('planner.step1.label') }}
               </label>
-              <a 
-                v-if="!needInspiration"
-                class="inspiration-link" 
-                href="javascript:void(0)"
-                @click="needInspiration = true"
-              >
-                {{ $t('planner.needInspiration') }}
-              </a>
-              <a 
-                v-else
-                class="inspiration-link" 
-                href="javascript:void(0)"
-                @click="needInspiration = false"
-              >
-                {{ $t('planner.haveDestination') }}
+              <a class="inspiration-link" @click="toggleInspirationMode">
+                {{ needInspiration ? $t('planner.haveDestination') : $t('planner.needInspiration') }}
               </a>
             </div>
             
@@ -116,7 +103,7 @@
                   :marks="{ 1: '1', 7: '7', 14: '14', 30: '30' }"
                   class="duration-slider"
                 />
-                <div class="duration-value">{{ formData.days || 3 }}{{ $t('common.day') }}</div>
+                <div class="duration-value">{{ formData.days || 3 }}{{ $t('planner.day') }}</div>
               </div>
             </div>
             <!-- 出行人数 -->
@@ -126,19 +113,11 @@
                 {{ $t('planner.step3.label') }}
               </label>
               <div class="travelers-input-wrapper">
-                <a-button 
-                  class="number-btn" 
-                  @click="decreaseTravelers"
-                  :disabled="(formData.participants || 1) <= 1"
-                >
+                <a-button class="number-btn" @click="updateParticipants(-1)" :disabled="(formData.participants || 1) <= 1">
                   <minus-outlined />
                 </a-button>
-                <div class="travelers-display">{{ formData.participants || 1 }}{{ $t('common.people') }}</div>
-                <a-button 
-                  class="number-btn" 
-                  @click="increaseTravelers"
-                  :disabled="(formData.participants || 1) >= 20"
-                >
+                <div class="travelers-display">{{ formData.participants || 1 }}{{ $t('planner.people') }}</div>
+                <a-button class="number-btn" @click="updateParticipants(1)" :disabled="(formData.participants || 1) >= 20">
                   <plus-outlined />
               </a-button>
             </div>
@@ -157,12 +136,7 @@
                 :key="option.value"
                 :type="formData.preferences?.budget === option.value ? 'primary' : 'default'"
                 :class="['budget-btn', { active: formData.preferences?.budget === option.value }]"
-                @click="() => travelStore.setPlannerData({ 
-                  preferences: { 
-                    ...formData.preferences, 
-                    budget: option.value 
-                  } 
-                })"
+                @click="setBudget(option.value)"
               >
                 {{ option.label }}
               </a-button>
@@ -173,7 +147,7 @@
           <div class="form-section">
             <label class="form-label">
               <heart-outlined class="label-icon" />
-              兴趣偏好
+              {{ $t('planner.step5.label') }}
             </label>
             <div class="interests-grid">
               <span
@@ -182,7 +156,7 @@
                 :class="['interest-btn', { active: (formData.preferences?.interests || []).includes(option.value) }]"
                 @click="toggleInterest(option.value)"
               >
-                {{ option.label }}
+                {{ option.icon }} {{ option.label }}
               </span>
             </div>
           </div>
@@ -191,12 +165,12 @@
           <div class="form-section">
             <label class="form-label">
               <bulb-outlined class="label-icon" />
-              其他需求（可选）
+              {{ $t('planner.additionalDescription') }}
             </label>
             <a-textarea
               :value="formData.additionalDescription"
               @update:value="(value) => travelStore.setPlannerData({ additionalDescription: value })"
-              :placeholder="'例如：希望行程不要太紧张，想要体验当地文化，或者有特殊要求...'"
+              :placeholder="$t('planner.additionalDescriptionPlaceholder')"
               :rows="3"
               :maxlength="500"
               show-count
@@ -208,15 +182,14 @@
           <div class="form-section">
             <label class="form-label">
               <calendar-outlined class="label-icon" />
-              开始日期
+              {{ $t('planner.startDate') }}
             </label>
             <a-date-picker
-              :value="formData.startDate ? dayjs(formData.startDate) : dayjs()"
-              @update:value="(value) => travelStore.setPlannerData({ startDate: value ? value.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })"
+              v-model:value="startDateModel"
               size="large"
               style="width: 100%"
-              :placeholder="'请选择开始日期'"
-              :disabled-date="(current) => current && current < dayjs().startOf('day')"
+              :disabled-date="disabledDate"
+              :allow-clear="false"
             />
           </div>
 
@@ -233,7 +206,7 @@
               <template #icon>
                 <environment-outlined />
               </template>
-              {{ formLoading || loadingDestinations ? t('common.loading') : '生成旅行计划' }}
+              {{ formLoading || loadingDestinations ? t('common.loading') : t('planner.generateTravelPlan') }}
               </a-button>
             </div>
         </div>
@@ -241,8 +214,16 @@
       
       <!-- 推荐目的地列表 -->
       <div v-if="showRecommendedDestinations" class="recommended-destinations-section">
-        <h3 class="recommended-destinations-title">为您推荐的目的地</h3>
-        <div class="destinations-grid">
+        <div class="section-header">
+        <h3 class="recommended-destinations-title">{{ $t('planner.recommendedDestinationsTitle') }}</h3>
+          <a-button type="link" @click="showRecommendedDestinations = false">{{ $t('planner.backToEdit') }}</a-button>
+        </div>
+        
+        <div v-if="loadingDestinations" class="loading-state">
+          <a-spin :tip="$t('planner.analyzingPreferences')" />
+        </div>
+        
+        <div v-else class="destinations-grid">
           <div 
             v-for="(dest, index) in recommendedDestinations" 
             :key="index"
@@ -258,24 +239,10 @@
             </div>
             <div class="destination-card-content">
               <p class="destination-description">{{ dest.description }}</p>
-              
-              <div class="destination-feature">
-                <check-circle-outlined class="feature-icon" />
-                <span class="feature-text">{{ dest.feature }}</span>
+                <div class="destination-tags">
+                  <a-tag color="blue">{{ dest.feature }}</a-tag>
+                  <a-tag color="green">{{ $t('planner.perPerson') }} {{ dest.priceRange }}</a-tag>
               </div>
-              
-              <div class="destination-price">
-                <dollar-outlined class="price-icon" />
-                <span>人均{{ dest.priceRange }}</span>
-              </div>
-              
-              <div class="destination-highlights">
-                <div class="highlights-label">亮点：</div>
-                <ul class="highlights-list">
-                  <li v-for="(highlight, idx) in dest.highlights" :key="idx">{{ highlight }}</li>
-                </ul>
-              </div>
-              
               <a-button 
                 type="primary" 
                 block
@@ -283,7 +250,7 @@
                 :loading="selectedDestinationForGeneration === dest.name && formLoading"
                 @click="handleGenerateWithDestination(dest.name)"
               >
-                生成行程 →
+                {{ $t('planner.generateItinerary') }}
               </a-button>
             </div>
           </div>
@@ -291,15 +258,25 @@
       </div>
     </a-modal>
 
+    <!-- 行程生成加载页面 -->
+    <ItineraryGenerationModal :open="isGenerating" />
+
     <!-- 主要内容区 -->
     <div class="main-content">
+      <!-- 加载状态 -->
+      <div v-if="loading" class="skeleton-grid">
+        <a-card v-for="i in 3" :key="i" class="skeleton-card">
+          <a-skeleton active :paragraph="{ rows: 4 }" />
+        </a-card>
+      </div>
+
       <!-- 空状态：首次登录或无旅程 -->
-      <div v-if="travelList.length === 0" class="empty-state">
+      <div v-else-if="travelList.length === 0" class="empty-state">
         <div class="empty-content">
           <div class="empty-icon">🗺️</div>
           <h3 class="empty-title">{{ t('travelList.emptyTitle') }}</h3>
           <p class="empty-description">{{ t('travelList.emptyDescription') }}</p>
-          <a-button type="primary" size="large" @click="showCreateModal">
+          <a-button type="primary" size="large" @click="showCreateModal" class="create-first-btn">
             <template #icon>
               <plus-outlined />
             </template>
@@ -318,80 +295,40 @@
             >
               <!-- 封面图片区域 -->
               <div class="travel-cover-image">
-                <img :src="getCoverImage(travel)" :alt="travel.title" />
+                <img :src="getCoverImage(travel)" :alt="travel.title" loading="lazy" />
                 <!-- 状态标签 -->
                 <div class="status-badge">
-                  <a-tag :color="getStatusColor(travel.status)" size="small">
-                    {{ getStatusLabel(travel.status) }}
-                  </a-tag>
-                </div>
-                <!-- 签证状态标签 -->
-                <div class="visa-badge" v-if="getVisaStatus(travel)">
-                  <a-tag :color="getVisaStatusColor(travel)" size="small">
-                    {{ getVisaStatusText(travel) }}
-                  </a-tag>
+                  <a-tag :color="getStatusColor(travel.status)">{{ getStatusLabel(travel.status) }}</a-tag>
                 </div>
                 <!-- 悬浮操作按钮 -->
-                <div class="cover-actions" @click.stop>
-                  <a-button 
-                    type="text" 
-                    size="small" 
-                    @click="handleEdit(travel, $event)"
-                    class="cover-action-btn"
-                  >
-                    <template #icon>
-                      <edit-outlined />
-                    </template>
+                <div class="cover-overlay">
+                  <div class="cover-actions">
+                    <a-button shape="circle" @click.stop="handleEdit(travel, $event)">
+                      <template #icon><edit-outlined /></template>
                   </a-button>
-                  <a-button 
-                    type="text" 
-                    danger
-                    size="small" 
-                    @click="handleDelete(travel, $event)"
-                    class="cover-action-btn"
-                  >
-                    <template #icon>
-                      <delete-outlined />
-                    </template>
+                    <a-button shape="circle" danger @click.stop="handleDelete(travel, $event)">
+                      <template #icon><delete-outlined /></template>
                   </a-button>
+                  </div>
                 </div>
               </div>
 
               <!-- 内容区域 -->
               <div class="travel-card-body">
                 <!-- 标题 -->
-                <h3 class="travel-title">{{ travel.title }}</h3>
+                <h3 class="travel-title" :title="travel.title">{{ travel.title }}</h3>
 
                 <!-- 行程信息 -->
-                <div class="travel-info">
-                  <div class="info-item">
-                    <environment-outlined class="info-icon" />
-                    <span class="info-text">{{ travel.location }}</span>
+                <div class="travel-meta">
+                  <span class="meta-item"><calendar-outlined /> {{ travel.duration || 1 }}天</span>
+                  <span class="meta-item"><user-outlined /> {{ travel.participants || 1 }}人</span>
                   </div>
-                  <div class="info-item">
-                    <calendar-outlined class="info-icon" />
-                    <span class="info-text">{{ getDateRange(travel) }} ({{ travel.duration || 1 }}{{ t('travelList.day') }})</span>
+                <div class="travel-location">
+                  <environment-outlined /> {{ travel.location }}
                   </div>
-                  <div class="info-item">
-                    <user-outlined class="info-icon" />
-                    <span class="info-text">{{ travel.participants || 1 }}{{ t('travelList.peopleTraveling') }}</span>
-                  </div>
-                </div>
-
-                <!-- 描述 -->
-                <div class="travel-description">
-                  <bulb-outlined class="desc-icon" />
-                  <p>{{ travel.description || getQuote(travel) }}</p>
-                </div>
-
-                <!-- 预算信息 -->
-                <div class="travel-budget">
-                  <div class="budget-label">{{ t('travelList.budget') }}</div>
-                  <div class="budget-amount">
-                    <span class="budget-spent">{{ formatBudgetAmount(travel.spent || 0, travel) }}</span>
-                    <span class="budget-separator">/</span>
-                    <span class="budget-total">{{ formatBudgetAmount(travel.budget || 5000, travel) }}</span>
-                  </div>
+                <div class="travel-footer">
+                  <span class="updated-time">{{ formatTimeAgo(travel.updatedAt) }}</span>
+                  <span class="budget-tag">{{ formatBudgetAmount(travel.budget || 5000, travel) }}</span>
                 </div>
               </div>
             </div>
@@ -404,7 +341,6 @@
 </template>
 
 <script setup lang="ts">
-// @ts-nocheck
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
@@ -415,11 +351,16 @@ import { Modal, message } from 'ant-design-vue'
 import { getVisaInfo, type VisaInfo } from '@/config/visa'
 import { getUserNationalityCode } from '@/config/userProfile'
 import { PRESET_COUNTRIES } from '@/constants/countries'
-import { deleteItinerary, createJourneyFromFrontendData, updateJourneyFromFrontendData } from '@/services/itineraryAPI'
-// 灵感模式需要意图识别和推荐目的地功能
+import { deleteItinerary, createJourneyFromFrontendData } from '@/services/itineraryAPI'
 import { getCurrencyForDestination, formatCurrency } from '@/utils/currency'
 import { getDefaultCurrency } from '@/config/currency'
-import dayjs from 'dayjs'
+import dayjs, { type Dayjs } from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn'
+import ItineraryGenerationModal from '@/components/ItineraryGenerationModal.vue'
+
+dayjs.extend(relativeTime)
+dayjs.locale('zh-cn')
 
 const { t } = useI18n()
 import {
@@ -458,14 +399,32 @@ const loading = ref(false)
 // 创建模态框相关状态
 const createModalVisible = ref(false)
 const formLoading = ref(false)
+const isGenerating = ref(false) // 控制加载页面显示
 const formData = computed(() => travelStore.plannerData)
 const needInspiration = ref(false) // 是否需要灵感推荐
 
 // 推荐目的地相关状态
 const showRecommendedDestinations = ref(false)
-const recommendedDestinations = ref<any[]>([])
+const recommendedDestinations = ref<Array<{
+  name: string
+  description: string
+  feature: string
+  priceRange: string
+  highlights?: string[]
+  image?: string
+}>>([])
 const loadingDestinations = ref(false)
 const selectedDestinationForGeneration = ref<string | null>(null)
+
+// 日期选择器绑定
+const startDateModel = computed({
+  get: () => formData.value.startDate ? dayjs(formData.value.startDate) : dayjs(),
+  set: (val: Dayjs | null) => {
+    travelStore.setPlannerData({ startDate: val ? val.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD') })
+  }
+})
+
+const disabledDate = (current: Dayjs) => current && current < dayjs().startOf('day')
 
 // 加载单个行程的签证信息
 const loadVisaInfoForTravel = async (travel: Travel) => {
@@ -569,34 +528,49 @@ const handleCreateFromIntent = (intent: any) => {
 
 // 创建旅程 - 显示模态框
 const showCreateModal = () => {
-  // 初始化表单数据
-  if (!formData.value.startDate) {
-    travelStore.setPlannerData({ startDate: dayjs().format('YYYY-MM-DD') })
-  }
-  if (!formData.value.days) {
-    travelStore.setPlannerData({ days: 3 })
-  }
-  if (!formData.value.participants) {
-    travelStore.setPlannerData({ participants: 1 })
-  }
-  // 重置推荐模式状态
+  // 重置表单
+  travelStore.setPlannerData({
+    startDate: dayjs().format('YYYY-MM-DD'),
+    days: 3,
+    participants: 1,
+    preferences: { budget: 'medium', interests: [] },
+    destination: '',
+    additionalDescription: ''
+  })
   needInspiration.value = false
   showRecommendedDestinations.value = false
-  recommendedDestinations.value = []
-  selectedDestinationForGeneration.value = null
   createModalVisible.value = true
 }
 
+const toggleInspirationMode = () => {
+  needInspiration.value = !needInspiration.value
+  if (needInspiration.value) {
+    travelStore.setPlannerData({ destination: '' })
+  }
+}
+
+const updateParticipants = (delta: number) => {
+  const newVal = (formData.value.participants || 1) + delta
+  if (newVal >= 1 && newVal <= 20) {
+    travelStore.setPlannerData({ participants: newVal })
+  }
+}
+
+const setBudget = (budget: string) => {
+  travelStore.setPlannerData({
+    preferences: { ...formData.value.preferences, budget }
+  })
+}
+
 // 预算按钮选项
-const budgetButtonOptions = computed(() => [
-  { value: 'low', label: t('planner.budgetRanges.economy') || 'Budget' },
-  { value: 'medium', label: t('planner.budgetRanges.comfort') || 'Moderate' },
-  { value: 'high', label: t('planner.budgetRanges.luxury') || 'Luxury' }
-])
+const budgetButtonOptions = [
+  { value: 'low', label: '经济型' },
+  { value: 'medium', label: '舒适型' },
+  { value: 'high', label: '豪华型' }
+]
 
 // 兴趣选项
-const preferenceOptions = computed(() => {
-  return [
+const preferenceOptions = [
     { value: 'culture', label: '历史文化', icon: '🏛️' },
     { value: 'nature', label: '自然风光', icon: '🌲' },
     { value: 'food', label: '美食探店', icon: '🍜' },
@@ -604,275 +578,64 @@ const preferenceOptions = computed(() => {
     { value: 'art', label: '艺术博物馆', icon: '🎨' },
     { value: 'shopping', label: '购物血拼', icon: '🛍️' },
     { value: 'relaxation', label: '休闲疗养', icon: '🏖️' },
-    { value: 'nightlife', label: '夜生活', icon: '🌃' },
     { value: 'photography', label: '摄影采风', icon: '📸' },
-    { value: 'family', label: '亲子游', icon: '👨‍👩‍👧‍👦' }
   ]
-})
 
 // 切换兴趣选择
-const toggleInterest = (value: string) => {
-  const currentInterests = formData.value.preferences?.interests || []
-  const newInterests = currentInterests.includes(value)
-    ? currentInterests.filter(i => i !== value)
-    : [...currentInterests, value]
+const toggleInterest = (interest: string) => {
+  const current = formData.value.preferences?.interests || []
+  const newInterests = current.includes(interest)
+    ? current.filter(i => i !== interest)
+    : [...current, interest]
   
   travelStore.setPlannerData({
-    preferences: {
-      ...formData.value.preferences,
-      interests: newInterests
-    }
+    preferences: { ...formData.value.preferences, interests: newInterests }
   })
 }
 
-// 增加/减少旅行者数量
-const increaseTravelers = () => {
-  const current = formData.value.participants || 1
-  if (current < 20) {
-    travelStore.setPlannerData({ participants: current + 1 })
-  }
-}
-
-const decreaseTravelers = () => {
-  const current = formData.value.participants || 1
-  if (current > 1) {
-    travelStore.setPlannerData({ participants: current - 1 })
-  }
-}
-
-// 验证是否可以提交（允许没有目的地，因为可以推荐）
+// 验证是否可以提交
 const canSubmit = computed(() => {
-  return formData.value.days &&
-         formData.value.days >= 1 && 
-         formData.value.days <= 30 &&
-         formData.value.preferences?.budget
+  // 灵感模式不需要目的地
+  if (needInspiration.value) return true
+  // 普通模式必须有目的地
+  return !!formData.value.destination?.trim()
 })
 
-// 从结构化数据构建自然语言描述
-const buildNaturalLanguageDescription = (data: typeof formData.value): string => {
-  // 如果用户填写了额外描述，优先使用它，并补充结构化信息
-  if (data.additionalDescription && data.additionalDescription.trim().length > 0) {
-    const parts: string[] = [data.additionalDescription.trim()]
-    
-    // 补充关键信息（如果额外描述中没有提到）
-    const description = data.additionalDescription.toLowerCase()
-    
-    if (!description.includes(data.destination?.toLowerCase() || '')) {
-      parts.push(`目的地是${data.destination}`)
-    }
-    
-    if (data.days && !description.includes(`${data.days}天`) && !description.includes('天数')) {
-      parts.push(`计划${data.days}天`)
-    }
-    
-    if (data.participants && data.participants > 1 && !description.includes('人')) {
-      parts.push(`${data.participants}人同行`)
-    }
-    
-    if (data.preferences?.budget) {
-      const budgetMap: Record<string, string> = {
-        low: '经济型预算',
-        medium: '舒适型预算',
-        high: '豪华型预算'
-      }
-      const budgetText = budgetMap[data.preferences.budget] || data.preferences.budget
-      if (!description.includes('预算') && !description.includes(budgetText)) {
-        parts.push(budgetText)
-      }
-    }
-    
-    return parts.join('，') + '。'
-  }
-  
-  // 如果没有额外描述，使用结构化数据构建
-  const parts: string[] = []
-  
-  // 目的地
-  if (data.destination) {
-    parts.push(`我想去${data.destination}`)
-  }
-  
-  // 天数
-  if (data.days) {
-    parts.push(`计划${data.days}天`)
-  }
-  
-  // 人数
-  if (data.participants && data.participants > 1) {
-    parts.push(`${data.participants}人同行`)
-  }
-  
-  // 预算
-  if (data.preferences?.budget) {
-    const budgetMap: Record<string, string> = {
-      low: '经济型预算',
-      medium: '舒适型预算',
-      high: '豪华型预算'
-    }
-    parts.push(budgetMap[data.preferences.budget] || data.preferences.budget)
-  }
-  
-  // 兴趣偏好
-  if (data.preferences?.interests && data.preferences.interests.length > 0) {
-    const interestLabels = data.preferences.interests.map(value => {
-      const option = preferenceOptions.value.find(opt => opt.value === value)
-      return option?.label || value
-    })
-    parts.push(`喜欢${interestLabels.join('、')}`)
-  }
-  
-  return parts.join('，') + '。'
-}
 
-// 生成占位符图片（SVG数据URI）
-const generatePlaceholderImage = (text: string = 'Destination'): string => {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">
-      <defs>
-        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-          <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-        </linearGradient>
-      </defs>
-      <rect width="400" height="300" fill="url(#grad)"/>
-      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
-            font-family="Arial, sans-serif" font-size="24" fill="white" opacity="0.9">
-        ${text}
-      </text>
-    </svg>
-  `.trim()
-  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
-}
-
-// 获取目的地图片（占位符或实际图片）
-const getDestinationImage = (dest: any): string => {
-  // 如果有图片URL，使用它
-  if (dest.image) return dest.image
-  // 否则使用SVG占位符
-  return generatePlaceholderImage(dest.name || 'Destination')
-}
-
-// 处理图片加载错误
-const handleImageError = (event: any) => {
-  // 如果已经是占位符，就不再尝试替换
-  if (event.target.src && event.target.src.startsWith('data:image/svg+xml')) {
-    return
-  }
-  // 使用SVG占位符替换
-  event.target.src = generatePlaceholderImage('Destination')
-}
-
-// 调用推荐目的地接口
+// 模拟推荐目的地 (后续接真实 API)
 const loadRecommendedDestinations = async () => {
   loadingDestinations.value = true
-  showRecommendedDestinations.value = false
-  recommendedDestinations.value = []
-  
-  try {
-    // 构建自然语言描述
-    const naturalLanguageInput = buildNaturalLanguageDescription(formData.value)
-    console.log('📝 [Planner] 构建的自然语言描述（用于推荐）:', naturalLanguageInput)
-    
-    // 灵感模式：根据意图和偏好推荐目的地
-    // 如果没有目的地，后端会根据意图和偏好自动推荐
-    console.log('📝 [Inspiration] 灵感模式：将根据意图和偏好自动推荐目的地')
-    message.info('灵感模式：请直接提交表单，系统会根据您的偏好自动推荐目的地并生成行程')
-  } catch (error: any) {
-    console.error('❌ [Planner] 推荐目的地失败:', error)
-    message.error('推荐目的地失败，请重试')
-  } finally {
+  showRecommendedDestinations.value = true
+  // 模拟延迟
+  setTimeout(() => {
+    recommendedDestinations.value = [
+      { name: '京都', description: '古老寺庙与现代文化的完美融合', feature: '历史文化', priceRange: '¥8000', highlights: ['清水寺', '伏见稻荷'] },
+      { name: '普吉岛', description: '阳光沙滩与潜水爱好者的天堂', feature: '休闲度假', priceRange: '¥5000', highlights: ['皮皮岛', '芭东海滩'] },
+    ]
     loadingDestinations.value = false
-  }
+  }, 1500)
 }
 
-// 估算价格范围（根据预算和天数）
-const estimatePriceRange = (budget?: string, days?: number): string => {
-  const dayCount = days || 3
-  const ranges: Record<string, { min: number; max: number }> = {
-    low: { min: 3000, max: 6000 },
-    medium: { min: 8000, max: 15000 },
-    high: { min: 15000, max: 30000 }
-  }
-  const range = ranges[budget || 'medium']
-  const min = range.min * dayCount
-  const max = range.max * dayCount
-  return `¥${min.toLocaleString()} - ¥${max.toLocaleString()}`
-}
 
-// 生成特色说明文本
-const generateFeatureText = (location: string, intent: any, formData: any): string => {
-  const parts: string[] = []
-  
-  if (intent?.intentType) {
-    const intentMap: Record<string, string> = {
-      photography_exploration: '摄影探索',
-      cultural_exchange: '文化交流',
-      emotional_healing: '情感疗愈',
-      mind_healing: '心灵疗愈',
-      extreme_exploration: '极限探索',
-      urban_creation: '城市创作'
-    }
-    parts.push(intentMap[intent.intentType] || intent.intentType)
-  }
-  
-  if (formData.preferences?.interests && formData.preferences.interests.length > 0) {
-    const interestLabels = formData.preferences.interests.map((value: string) => {
-      const option = preferenceOptions.value.find(opt => opt.value === value)
-      return option?.label || value
-    })
-    parts.push(interestLabels.join('、'))
-  }
-  
-  const budgetMap: Record<string, string> = {
-    low: '经济型',
-    medium: '舒适型',
-    high: '豪华型'
-  }
-  const budgetText = budgetMap[formData.preferences?.budget || 'medium'] || '舒适型'
-  
-  const participantText = formData.participants && formData.participants > 1 
-    ? `${formData.participants}人` 
-    : '单人'
-  
-  return `${location}完美契合您对"${parts.join('、') || '旅行'}"的兴趣，提供多样化的体验。作为"${budgetText}"预算的${participantText}旅行者，您可以享受${budgetText}的行程安排和${budgetText}服务，确保${formData.days || 3}天内体验到最独特的旅行乐趣。`
-}
-
-// 使用选定的目的地生成行程
-const handleGenerateWithDestination = async (destination: string) => {
-  selectedDestinationForGeneration.value = destination
-  
-  // 设置目的地
-  travelStore.setPlannerData({ destination })
-  
-  // 隐藏推荐列表
-  showRecommendedDestinations.value = false
-  
-  // 调用生成行程
-  await handleSubmit()
-  
-  selectedDestinationForGeneration.value = null
+const handleGenerateWithDestination = (name: string) => {
+  travelStore.setPlannerData({ destination: name })
+  handleSubmit()
 }
 
 // 提交表单
 const handleSubmit = async () => {
-  if (!canSubmit.value) {
-    message.warning('请完成必填项后再提交')
-    return
-  }
+  if (!canSubmit.value) return
 
-  // 如果没有目的地，先调用推荐接口
-  if (!formData.value.destination || formData.value.destination.trim().length === 0) {
+  // 如果是灵感模式且没有推荐列表，先获取推荐
+  if (needInspiration.value && !formData.value.destination) {
     await loadRecommendedDestinations()
     return
   }
 
   formLoading.value = true
+  isGenerating.value = true // 显示加载页面
   try {
-    // 步骤1: 从结构化数据构建自然语言描述
-    const naturalLanguageInput = buildNaturalLanguageDescription(formData.value)
-    console.log('📝 [Planner] 构建的自然语言描述:', naturalLanguageInput)
-    
-    // 步骤2: 识别用户意图（仅在用户填写了额外需求时调用，用于增强行程生成）
+    // 步骤1: 识别用户意图（仅在用户填写了额外需求时调用，用于增强行程生成）
     let intentData: any = null
     // 只在有额外需求时才调用意图识别
     if (formData.value.additionalDescription && formData.value.additionalDescription.trim().length > 0) {
@@ -880,6 +643,9 @@ const handleSubmit = async () => {
         console.log('🧭 [Planner] 检测到额外需求，正在识别旅行意图...')
         const { createIntentService } = await import('@/services/intentService')
         const intentService = createIntentService()
+        // 直接使用 additionalDescription 作为自然语言输入
+        const naturalLanguageInput = formData.value.additionalDescription.trim()
+        console.log('📝 [Planner] 使用额外需求作为自然语言描述:', naturalLanguageInput)
         intentData = await intentService.detect(naturalLanguageInput, 'zh-CN')
         console.log('✅ [Planner] 意图识别成功:', {
           intentType: intentData.intentType,
@@ -894,142 +660,49 @@ const handleSubmit = async () => {
       console.log('ℹ️ [Planner] 未填写额外需求，跳过意图识别')
     }
     
-    // 步骤3: 生成行程
-    // 如果没有目的地，使用灵感模式（让后端根据意图和偏好自动推荐目的地）
-    // 如果有目的地，使用规划模式
-    const mode = (!formData.value.destination || formData.value.destination.trim().length === 0) 
-      ? 'inspiration' 
-      : 'planner'
+    // 1. 调用 LLM 生成
+    const mode = needInspiration.value ? 'inspiration' : 'planner'
+    await travelStore.generateItinerary(mode, null) // intent 暂时传 null，后续可扩展
     
-    console.log(`📝 [${mode === 'inspiration' ? 'Inspiration' : 'Planner'}] 使用${mode === 'inspiration' ? '灵感' : '规划'}模式生成行程`)
-    
-    // 调用 LLM 生成 JSON
-    await travelStore.generateItinerary(mode, intentData)
     const itineraryData = travelStore.itineraryData
-    if (!itineraryData) {
-      throw new Error('行程生成失败')
-    }
-    
-    // 保存行程到后端
-    let backendItineraryId: string | undefined
-    try {
-      const days = (itineraryData as any).days && (itineraryData as any).days.length > 0
-        ? (itineraryData as any).days
-        : [{
-            day: 1,
-            date: formData.value.startDate || dayjs().format('YYYY-MM-DD'),
-            timeSlots: []
-          }]
-      
+    if (!itineraryData) throw new Error('生成数据为空')
+
+    // 2. 构造请求
+    const days = (itineraryData as any).days || []
       const createRequest = {
         itineraryData: {
-          destination: formData.value.destination,
-          duration: days.length,
-          days: days.map((day: any) => ({
-            day: day.day || 1,
-            date: day.date || formData.value.startDate || dayjs().format('YYYY-MM-DD'),
-            timeSlots: day.timeSlots || []
-          })),
+        destination: formData.value.destination || itineraryData.destination,
+        duration: days.length || formData.value.days,
+        days: days,
           totalCost: (itineraryData as any).totalCost || 0,
           summary: (itineraryData as any).summary || '',
-          title: `${formData.value.destination}之旅`,
+        title: `${formData.value.destination || itineraryData.destination}之旅`,
           preferences: formData.value.preferences?.interests || []
         },
-        startDate: formData.value.startDate || dayjs().format('YYYY-MM-DD')
-      }
-      
-      // ================= 修改重点开始 =================
-      // 优化：创建行程后异步获取位置信息（不阻塞页面跳转）
-      // 使用异步方式，立即返回，位置信息在后台获取
-      const baseJourney = await createJourneyFromFrontendData(createRequest, {
-        enrichWithLocationInfo: true, // ✅ 启用异步位置信息获取（后台执行，不阻塞）
-        onProgress: (message) => {
-          console.log('[TravelListView]', message)
-        }
-      })
-      // ================= 修改重点结束 =================
+      startDate: formData.value.startDate
+    }
 
-      backendItineraryId = baseJourney.id
-      
-      if (!backendItineraryId) {
-        console.error('[TravelListView] 创建行程后未获取到 backendItineraryId:', baseJourney)
-        throw new Error('创建行程失败：未获取到有效的行程ID')
-      }
-      
-      console.log('[TravelListView] 成功创建行程，backendItineraryId:', backendItineraryId)
-      
-      // 不再需要再次更新，因为 createJourneyFromFrontendData 已经处理了所有数据
-      // 如果后续需要更新其他字段（如 preferences、travelStyle 等），可以在这里调用
-      // 但目前 createRequest 已经包含了所有必要的数据，所以不需要再次更新
-    } catch (err: any) {
-      console.error('保存到后端失败:', err)
-      message.warning('保存到数据库失败，将使用临时数据')
-    }
-    
-    // 创建 Travel 对象
-    const travelData: any = {
-      backendItineraryId: backendItineraryId,
-      days: (itineraryData as any).days || [],
-      destination: itineraryData.destination,
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      totalCost: (itineraryData as any).totalCost || 0,
-      summary: (itineraryData as any).summary || '',
-      // 保存意图识别信息（如果存在）
-      detectedIntent: (itineraryData as any).detectedIntent || null,
-      itineraryData: {
-        days: (itineraryData as any).days || [],
-        destination: itineraryData.destination,
-        title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-        totalCost: (itineraryData as any).totalCost || 0,
-        summary: (itineraryData as any).summary || '',
-        duration: itineraryData.duration,
-        budget: itineraryData.budget,
-        preferences: itineraryData.preferences,
-        travelStyle: itineraryData.travelStyle,
-        // 保存意图识别信息（如果存在）
-        detectedIntent: (itineraryData as any).detectedIntent || null
-      }
-    }
-    
-    const newTravel = travelListStore.createTravel({
-      title: (itineraryData as any).title || `${formData.value.destination}之旅`,
-      location: formData.value.destination,
-      description: (itineraryData as any).summary || `精心安排的${formData.value.days}天${formData.value.destination}之旅`,
-      mode: 'planner' as const,
-      status: 'active',
-      duration: formData.value.days,
-      participants: formData.value.participants || 1,
-      budget: (itineraryData as any).totalCost || 0,
-      data: travelData
+    // 3. 核心修改：异步创建，不等待 enrichment
+    const res = await createJourneyFromFrontendData(createRequest, {
+      enrichWithLocationInfo: false, // ❌ 关键：前端不阻塞
+      onProgress: (msg) => console.log(msg)
     })
-    
-    message.success('行程生成成功！')
-    
-  // 关闭模态框
+
+    if (res.id) {
+      // 延迟关闭加载页面，让用户看到完成效果
+      await new Promise(resolve => setTimeout(resolve, 500))
+      isGenerating.value = false
+      
+      message.success(t('travelList.createSuccess') || '创建成功')
   createModalVisible.value = false
   
     // 跳转到详情页
-    // 优先使用 backendItineraryId（UUID格式），如果不存在则使用临时ID（TravelDetailView会从store中查找backendItineraryId）
-    const targetId = backendItineraryId || newTravel?.id
-    console.log('[TravelListView] 准备跳转到详情页:', {
-      backendItineraryId,
-      newTravelId: newTravel?.id,
-      targetId,
-      hasBackendId: !!backendItineraryId,
-      travelDataBackendId: newTravel?.data?.backendItineraryId
-    })
-    
-    if (targetId) {
-      // 如果 backendItineraryId 存在，直接使用它（UUID格式，TravelDetailView可以直接使用）
-      // 如果不存在，使用临时ID，TravelDetailView会从store中查找对应的backendItineraryId
-      await router.push(`/travel/${targetId}`)
-  } else {
-      console.error('[TravelListView] 无法跳转：没有有效的行程ID')
-      message.warning('行程创建成功，但无法跳转到详情页')
+      await router.push(`/travel/${res.id}`)
     }
   } catch (err) {
     console.error('生成行程失败:', err)
-    message.error('生成行程失败，请重试')
+    isGenerating.value = false
+    message.error(t('travelList.createFailed') || '生成行程失败，请重试')
   } finally {
     formLoading.value = false
   }
@@ -1125,18 +798,9 @@ const handleDelete = async (travel: Travel, e: Event) => {
 
 // 登出
 const handleLogout = () => {
-  Modal.confirm({
-    title: '确认登出',
-    content: '确定要退出登录吗？',
-    okText: '登出',
-    cancelText: '取消',
-    onOk: async () => {
-      await userStore.logout()
+  userStore.logout()
       travelListStore.clearAll()
-      message.success('已退出登录')
       router.push('/')
-    }
-  })
 }
 
 
@@ -1207,42 +871,22 @@ const getStatusLabel = (status: string) => {
 
 // 获取封面图片
 const getCoverImage = (travel: Travel) => {
-  if (travel.coverImage) {
-    return travel.coverImage
-  }
-  // 使用不同模式的默认图片
-  const images: { [key: string]: string } = {
-    planner: 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800',
-    seeker: 'https://images.unsplash.com/photo-1539650116574-75c0c6d73bbf?w=800',
-    inspiration: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800'
-  }
-  return images[travel.mode] || images.planner
+  return travel.coverImage || 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&q=80'
 }
 
-// 获取日期范围
-const getDateRange = (travel: Travel) => {
-  if (travel.startDate && travel.endDate) {
-    const start = new Date(travel.startDate).toLocaleDateString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit'
-    })
-    const end = new Date(travel.endDate).toLocaleDateString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit'
-    })
-    return `${start} ~ ${end}`
-  }
-  return '待定'
+// 简单的占位图生成
+const getDestinationImage = (dest: typeof recommendedDestinations.value[0]) => {
+  return dest.image || `https://source.unsplash.com/400x300/?${encodeURIComponent(dest.name)}`
 }
 
-// 获取旅程引用文案
-const getQuote = (travel: Travel) => {
-  const quotes: { [key: string]: string } = {
-    planner: '一次精心安排的完美旅程',
-    seeker: '让心情指引我的旅程',
-    inspiration: '将灵感转化为真实体验'
-  }
-  return quotes[travel.mode] || '一次美好的旅程'
+const handleImageError = (e: Event) => {
+  const target = e.target as HTMLImageElement
+  target.src = 'https://via.placeholder.com/400x300?text=No+Image'
+}
+
+// 格式化时间（相对时间）
+const formatTimeAgo = (dateStr: string) => {
+  return dayjs(dateStr).fromNow()
 }
 
 // 提取目的地国家代码
@@ -1323,22 +967,27 @@ const getVisaStatusColor = (travel: Travel) => {
 <style scoped>
 .container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 2rem;
+  background: #f0f2f5;
+  padding-bottom: 40px;
 }
 
 .header {
+  background: #fff;
+  padding: 16px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 1400px;
-  margin: 0 auto 2rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .title {
-  color: white;
   margin: 0;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
 }
 
 .header-right {
@@ -1350,32 +999,18 @@ const getVisaStatusColor = (travel: Travel) => {
 .user-profile {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.25rem 0.75rem;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 999px;
-  color: white;
-  backdrop-filter: blur(6px);
-}
-
-.user-avatar {
-  background-color: #1890ff;
-}
-
-.user-text {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.1;
+  gap: 8px;
+  margin-right: 16px;
 }
 
 .user-name {
-  font-weight: 600;
-  color: white;
+  font-weight: 500;
+  font-size: 14px;
 }
 
 .user-email {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
+  color: #6b7280;
 }
 
 .logout-btn {
@@ -1392,46 +1027,50 @@ const getVisaStatusColor = (travel: Travel) => {
 }
 
 .main-content {
-  max-width: 1400px;
-  margin: 0 auto;
+  max-width: 1200px;
+  margin: 32px auto;
+  padding: 0 24px;
+}
+
+/* 骨架屏 */
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.skeleton-card {
+  border-radius: 12px;
 }
 
 /* 空状态样式 */
 .empty-state {
-  padding: 4rem 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 400px;
-}
-
-.empty-content {
   text-align: center;
+  padding: 80px 0;
 }
 
 .empty-icon {
-  font-size: 5rem;
-  margin-bottom: 1.5rem;
-  opacity: 0.6;
+  font-size: 64px; 
+  margin-bottom: 24px; 
+  opacity: 0.5; 
 }
 
 .empty-title {
-  color: white;
-  font-size: 1.8rem;
+  font-size: 24px; 
   font-weight: 600;
-  margin-bottom: 0.5rem;
+  color: #374151; 
 }
 
 .empty-description {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 1rem;
-  margin-bottom: 2rem;
+  color: #6b7280; 
+  margin-bottom: 32px; 
 }
 
-
-.create-btn {
-  border-radius: 6px !important;
-  height: 40px !important;
+.create-first-btn { 
+  height: 48px; 
+  font-size: 16px; 
+  border-radius: 24px; 
+  padding: 0 32px; 
 }
 
 /* 旅行列表样式 */
@@ -1440,24 +1079,27 @@ const getVisaStatusColor = (travel: Travel) => {
 }
 
 .travel-card-wrapper {
-  background: white;
-  border-radius: 16px;
+  background: #fff;
+  border-radius: 12px;
   overflow: hidden;
-  cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  border: 1px solid #f0f0f0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .travel-card-wrapper:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 24px rgba(0,0,0,0.08);
+  border-color: transparent;
 }
 
 /* 封面图片区域 */
 .travel-cover-image {
+  height: 180px;
   position: relative;
-  width: 100%;
-  height: 240px;
   overflow: hidden;
 }
 
@@ -1465,106 +1107,89 @@ const getVisaStatusColor = (travel: Travel) => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.travel-card-wrapper:hover .travel-cover-image img {
+  transform: scale(1.05);
 }
 
 .status-badge {
   position: absolute;
   top: 12px;
   right: 12px;
+  z-index: 2;
 }
 
-.visa-badge {
+.cover-overlay {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 10;
-}
-
-.cover-actions {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
   opacity: 0;
-  transition: all 0.2s ease;
-  z-index: 10;
+  transition: opacity 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.travel-card-wrapper:hover .cover-actions {
+.travel-card-wrapper:hover .cover-overlay {
   opacity: 1;
 }
 
-.cover-action-btn {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(8px);
-  border: none !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.cover-action-btn:hover {
-  background: rgba(255, 255, 255, 1) !important;
-  transform: scale(1.05);
+.cover-actions {
+  display: flex;
+  gap: 12px;
 }
 
 /* 内容区域 */
 .travel-card-body {
-  padding: 1.25rem;
-}
-
-.travel-info {
-  margin-bottom: 1rem;
-}
-
-.info-item {
+  padding: 16px;
+  flex: 1;
   display: flex;
+  flex-direction: column;
+}
+
+.travel-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.travel-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.travel-location {
+  font-size: 13px;
+  color: #4b5563;
+  margin-bottom: 12px;
+}
+
+.travel-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
+  font-size: 12px;
+  color: #9ca3af;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 12px;
 }
 
-.info-icon {
-  margin-right: 0.5rem;
-  font-size: 1rem;
-}
-
-.info-text {
-  color: #666;
-}
-
-.travel-quote {
-  padding: 0.75rem;
-  background: #f8f9fa;
-  border-left: 3px solid #667eea;
+.budget-tag {
+  color: #059669;
+  font-weight: 500;
+  background: #ecfdf5;
+  padding: 2px 8px;
   border-radius: 4px;
-  color: #666;
-  font-style: italic;
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
-}
-
-.travel-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #f0f0f0;
-}
-
-.action-btn {
-  flex: 1;
-  min-width: 80px;
-}
-
-.action-button {
-  flex: 1;
-  min-width: 80px;
-}
-
-.action-button-icon {
-  padding: 0 0.5rem !important;
-  min-width: auto !important;
 }
 
 
@@ -1948,12 +1573,23 @@ const getVisaStatusColor = (travel: Travel) => {
   overflow-y: auto;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 .recommended-destinations-title {
   font-size: 20px;
   font-weight: 600;
   color: #1f2937;
-  margin-bottom: 20px;
+  margin: 0;
+}
+
+.loading-state {
   text-align: center;
+  padding: 40px;
 }
 
 .destinations-grid {
@@ -2001,7 +1637,7 @@ const getVisaStatusColor = (travel: Travel) => {
 }
 
 .destination-card-content {
-  padding: 16px;
+  padding: 12px;
 }
 
 .destination-description {
@@ -2009,81 +1645,12 @@ const getVisaStatusColor = (travel: Travel) => {
   color: #4a5568;
   line-height: 1.6;
   margin-bottom: 12px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
-.destination-feature {
+.destination-tags {
   display: flex;
-  align-items: flex-start;
   gap: 8px;
-  margin-bottom: 12px;
-  padding: 12px;
-  background: #f0f9ff;
-  border-radius: 8px;
-}
-
-.feature-icon {
-  color: #52c41a;
-  font-size: 16px;
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.feature-text {
-  font-size: 13px;
-  color: #1f2937;
-  line-height: 1.5;
-  flex: 1;
-}
-
-.destination-price {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-  font-size: 14px;
-  color: #1890ff;
-  font-weight: 600;
-}
-
-.price-icon {
-  font-size: 16px;
-}
-
-.destination-highlights {
-  margin-bottom: 16px;
-}
-
-.highlights-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #1f2937;
-  margin-bottom: 8px;
-}
-
-.highlights-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.highlights-list li {
-  font-size: 13px;
-  color: #4a5568;
-  line-height: 1.8;
-  padding-left: 16px;
-  position: relative;
-}
-
-.highlights-list li::before {
-  content: '•';
-  position: absolute;
-  left: 0;
-  color: #1890ff;
-  font-weight: bold;
+  margin: 8px 0;
 }
 
 .generate-itinerary-btn {

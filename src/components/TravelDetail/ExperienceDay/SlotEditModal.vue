@@ -21,7 +21,7 @@
         <div class="edit-form-item">
           <label class="edit-form-label">
             <span>💬 {{ t('travelDetail.experienceDay.naturalLanguageInput') || '自然语言输入' }}</span>
-            <span class="form-label-hint">（支持自然语言描述，如"那个有很多鹿的日本公园"）</span>
+            <span class="form-label-hint">{{ t('travelDetail.experienceDay.naturalLanguageHint') || '（支持自然语言描述，如"那个有很多鹿的日本公园"）' }}</span>
           </label>
           <a-input-search
             v-model:value="naturalLanguageQuery"
@@ -66,7 +66,7 @@
             <label class="edit-form-label">{{ t('travelDetail.experienceDay.chineseName') || '中文名称' }}</label>
             <a-input
               v-model:value="localData.nameChinese"
-              placeholder="中文名称"
+              :placeholder="t('travelDetail.experienceDay.chineseNamePlaceholder') || '中文名称'"
             />
           </div>
 
@@ -97,7 +97,7 @@
             <label class="edit-form-label">{{ t('travelDetail.experienceDay.category') || '类别' }}</label>
             <a-input
               v-model:value="localData.category"
-              placeholder="类别"
+              :placeholder="t('travelDetail.experienceDay.categoryPlaceholder') || '类别'"
             />
           </div>
 
@@ -143,7 +143,7 @@
               :max="5"
               :step="0.1"
               :precision="1"
-              placeholder="评分 (0-5)"
+              :placeholder="t('travelDetail.experienceDay.ratingPlaceholder') || '评分 (0-5)'"
               style="width: 100%"
             />
           </div>

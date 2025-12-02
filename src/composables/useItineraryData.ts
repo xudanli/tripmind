@@ -57,6 +57,10 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
           if (progressMatch && progressMatch[1]) {
             enrichingProgress.value = parseInt(progressMatch[1], 10)
           }
+          // 如果是错误消息，记录但不中断流程
+          if (msg.includes('失败') || msg.includes('失败:')) {
+            console.warn(`[BackgroundEnrich] ${msg}`)
+          }
         }
       )
       
@@ -98,9 +102,15 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
         startDate: itinerary.value?.startDate || new Date().toISOString().split('T')[0]
       })
       console.log('[useItineraryData] ✅ 富化数据回写完成')
-
-    } catch (err: any) {
-      console.warn('[useItineraryData] ⚠️ 后台富化任务非致命错误:', err)
+    } catch (error: any) {
+      // 后台富化失败不影响主流程，只记录日志
+      const errorMessage = error?.message || String(error) || '未知错误'
+      console.warn('[useItineraryData] ⚠️ 后台富化失败，使用基础行程数据:', errorMessage)
+      // 如果是后端任务错误，提供更友好的提示
+      if (errorMessage.includes('updateProgress') || errorMessage.includes('异步任务失败')) {
+        console.warn('[useItineraryData] 后端任务处理异常，这是后端问题，不影响前端使用')
+      }
+      // 不抛出错误，避免影响主流程
     } finally {
       isEnriching.value = false
       enrichingProgress.value = 0

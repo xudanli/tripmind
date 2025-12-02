@@ -21,61 +21,6 @@ export default {
       retry: '重试',
       login: '登录'
   },
-
-  // 首页
-  home: {
-    title: '你好，我是你的AI旅行伙伴',
-    subtitle: '旅行从这里开始 —— 你想怎么出发？',
-    plannerMode: {
-      title: '✈️ 我已有计划',
-      subtitle: '（Planner模式）',
-      description: '我已经知道去哪，只想让你帮我安排好一切。',
-      quote: '帮我高效规划一次旅行',
-      features: [
-        '🎯 高效、可执行的行程设计',
-        '📊 专业清晰的旅行策划师',
-        '⚡ 动态调整与优化建议'
-      ]
-    },
-    seekerMode: {
-      title: '🌿 我想随心走走',
-      subtitle: '（Seeker模式）',
-      description: '我不知道去哪，只想去一个让我舒服的地方。',
-      quote: '我只是想放松一下',
-      features: [
-        '💭 从心出发，找到"刚刚好的地方"',
-        '🤗 温柔理解的旅行心伴',
-        '🌸 情感化的推荐与陪伴'
-      ]
-    },
-    inspirationMode: {
-      title: '✨ 我有灵感',
-      subtitle: '（Inspiration模式）',
-      description: '我脑海里有个想法，帮我把它变成旅程。',
-      quote: '想体验海洋生物摄影',
-      features: [
-        '🧠 自然语言理解你的意图',
-        '🎨 将灵感转化为主题旅程',
-        '🔮 AI智能推荐匹配体验'
-      ]
-    },
-    inspiration: {
-      recommendedLocations: '推荐地点（请选择一个）',
-      recommendedLocation: '推荐地点',
-      recommendedDuration: '推荐时长',
-      budgetRange: '预算范围',
-      experienceHighlights: '体验亮点：',
-      aiTravelPartnerSays: 'AI 旅行伙伴说：',
-      createJourney: '创建旅程',
-      viewMoreInspiration: '查看更多灵感',
-      selectLocationFirst: '请先选择一个推荐地点',
-      generateDetailedItinerary: '生成详细行程',
-      chooseDestinationHint: '请选择一个心动的目的地后点击“生成详细行程”，我会补上所有细节。',
-      detailedJourneyRequired: '请先为选中的目的地生成详细行程',
-      candidatesReady: '候选目的地已生成，请选择想去的地点并继续生成详细行程。'
-    }
-  },
-
   // 旅行列表
   travelList: {
     title: '🗺️ 我的旅程',
@@ -108,6 +53,8 @@ export default {
     confirmLogout: '确认登出',
     aiChat: '继续旅程对话',
     editFeatureDeveloping: '编辑功能开发中...',
+    createSuccess: '创建成功',
+    createFailed: '生成行程失败，请重试',
     coverEditDeveloping: '封面编辑功能开发中...',
     journeyCreated: '已为你创建新旅程！',
     continueConversation: '继续旅程对话'
@@ -677,6 +624,12 @@ export default {
       noContactInfo: '暂无联系方式',
       accessibility: '无障碍设施',
       nearbyAttractions: '附近景点',
+      fetchLocationInfo: '立即获取位置信息',
+      locationFetchRequiresInfo: '活动需要名称和坐标信息才能获取位置详情',
+      noItineraryData: '无法获取行程数据',
+      noDestination: '无法获取目的地信息',
+      locationFetched: '位置信息获取成功',
+      locationFetchFailed: '获取位置信息失败',
       viewMap: '查看地图',
       expand: '展开',
       navOverview: '概览',
@@ -794,12 +747,43 @@ export default {
       activityDetailLabel: '活动亮点',
       delete: '删除',
       addActivity: '添加活动',
+      editActivity: '编辑活动',
       confirmDelete: '确认删除',
       confirmDeleteContent: '确定要删除此活动吗？',
       confirm: '确定',
       deleteSuccess: '活动已删除',
       addSuccess: '活动已添加',
       newActivity: '新活动',
+      naturalLanguageInput: '自然语言输入',
+      naturalLanguagePlaceholder: '输入地点描述，如：奈良公园、那个有很多鹿的日本公园',
+      naturalLanguageHint: '（支持自然语言描述，如"那个有很多鹿的日本公园"）',
+      search: '搜索',
+      details: '详细信息',
+      durationPlaceholder: '时长（分钟）',
+      costPlaceholder: '费用',
+      locationPlaceholder: '位置',
+      ratingPlaceholder: '评分 (0-5)',
+      categoryPlaceholder: '类别',
+      chineseNamePlaceholder: '中文名称',
+      bookingLinks: '预订链接',
+      addLink: '添加链接',
+      noBookingLinks: '暂无预订链接',
+      linkName: '链接名称（如：Booking.com、官网预订等）',
+      openingTime: '开放时间：',
+      bookingRequirement: '预约要求：',
+      bookingLink: '预订链接',
+      insiderTip: '行家建议',
+      visitTipsTitle: '游览贴士',
+      bestTimeLabel: '最佳时间：',
+      suggestedDurationLabel: '建议时长：',
+      queryTooShort: '请输入至少2个字符',
+      locationNotFound: '未找到匹配的地点，请尝试使用更标准的地名',
+      aiRecognized: 'AI 识别出地点',
+      foundLocation: '找到地点',
+      formFilled: '表单已自动填充，您可以继续编辑或直接保存',
+      searchFailed: '搜索失败，请稍后重试',
+      currencyHint: '使用',
+      record: '记录',
       // 人格画像与旅程设计
       personaJourney: '人格画像与旅程设计',
       personaProfile: '人格画像',
@@ -849,29 +833,6 @@ export default {
     }
   },
 
-  // 模式选择
-  createModal: {
-    title: '✨ 创建新旅程',
-    description: '选择一个方式开始你的旅程',
-    modes: {
-      planner: {
-        title: '有计划',
-        description: '我已经知道去哪，只想让你帮我排好每一步。',
-        button: '开始规划'
-      },
-      seeker: {
-        title: '随心走走',
-        description: '我不确定去哪，但想找个让我舒服的地方。',
-        button: '帮我找个地方'
-      },
-      inspiration: {
-        title: '有灵感',
-        description: '我脑海里有个想法，帮我把它变成旅程。',
-        button: '生成灵感旅程'
-      }
-    }
-  },
-
   // 登录相关
   login: {
     title: '💫 让我们一起开始旅行',
@@ -902,14 +863,14 @@ export default {
     step1: {
       title: '✈️ 你要去哪？',
       description: '告诉我你的目的地，我会为你量身定制行程',
-      label: '目的地',
-      placeholder: '输入你想去的城市或国家',
+      label: '想去哪里？',
+      placeholder: '例如：京都、巴黎、三亚...',
       rules: '请输入目的地'
     },
     step2: {
       title: '📅 预计几天？',
       description: '旅行时长会影响行程安排的深度和广度',
-      label: '时间',
+      label: '游玩天数',
       returnDate: '返回日期',
       placeholder: '请选择日期',
       selectPlaceholder: '选择旅行天数'
@@ -917,7 +878,7 @@ export default {
     step3: {
       title: '同行人数',
       description: '一起旅行的人数会影响行程安排',
-      label: '人数',
+      label: '出行人数',
       placeholder: '选择人数'
     },
     step4: {
@@ -935,15 +896,48 @@ export default {
       luxury: '豪华型',
       luxuryDesc: '追求高品质体验'
     },
-    submit: '生成行程规划',
+    submit: '生成专属行程',
     destination: '目的地',
     days: '天',
+    day: '天',
+    people: '人',
+    multipleSelect: '（可多选）',
+    submitHint: '请至少填写目的地或选择一项兴趣',
+    generating: 'AI 正在规划中...',
+    budget: {
+      economy: '经济实惠',
+      comfort: '舒适标准',
+      luxury: '豪华奢享'
+    },
+    budgetDesc: {
+      low: '注重性价比',
+      medium: '平衡体验与价格',
+      high: '顶级体验'
+    },
     step5: {
       title: '❤️ 偏好类型？',
-      label: '兴趣',
+      label: '旅行偏好',
       description: '选择你感兴趣的旅行类型，我会重点安排相关活动',
       placeholder: '选择你的兴趣偏好'
     },
+    startDate: '开始日期',
+    additionalDescription: '其他需求（可选）',
+    additionalDescriptionPlaceholder: '例如：希望行程不要太紧张，想要体验当地文化，或者有特殊要求...',
+    generateTravelPlan: '生成旅行计划',
+    recommendedDestinationsTitle: '为您推荐的目的地',
+    backToEdit: '返回修改',
+    analyzingPreferences: '正在分析您的偏好...',
+    perPerson: '人均',
+    generateItinerary: '生成行程 →',
+  },
+  itineraryGeneration: {
+    title: '正在精心策划您的体验',
+    status1: '正在解析您的出行偏好...',
+    status2: '正在为您寻找最佳景点...',
+    status3: '正在规划每日路线...',
+    status4: '正在匹配当地特色美食...',
+    status5: '正在生成交通建议...',
+    status6: '即将完成...',
     step6: {
       title: '🎯 旅行节奏',
       description: '选择一个节奏来安排你的行程',
@@ -951,16 +945,16 @@ export default {
       rules: '请选择旅行节奏'
     },
     preferences: {
-      culture: '文化古迹',
-      food: '美食体验',
+      culture: '历史文化',
+      food: '地道美食',
       nature: '自然风光',
-      shopping: '购物娱乐',
-      adventure: '冒险体验',
+      shopping: '购物血拼',
+      adventure: '户外探险',
       leisure: '休闲度假',
-      art: '艺术与博物馆',
-      photography: '摄影',
+      art: '艺术展览',
+      photography: '摄影打卡',
       nightlife: '夜生活',
-      family: '家庭友好'
+      family: '亲子游'
     },
     travelRythm: {
       fast: '快节奏',
@@ -975,99 +969,6 @@ export default {
     readyDescription: '所有信息已收集完毕,点击下方按钮生成你的专属行程',
     summaryTitle: '你的需求摘要',
     itineraryGenerated: '生成行程'
-  },
-
-  // Seeker 模式
-  seeker: {
-    title: '💗 我想随心走走',
-    subtitle: '让心情指引你的旅程',
-    description: '如果你还没有想好去哪里，回答几个问题，让我为你找到最合适的旅行地',
-    step1: {
-      title: '😌 你最近的感受如何？',
-      description: '选择一个最能描述你当前心情的状态',
-      placeholder: '选择你的心情'
-    },
-    step2: {
-      title: '🌟 你想体验什么？',
-      description: '选择你这次旅行最想获得的体验',
-      placeholder: '选择你想体验的'
-    },
-    step3: {
-      title: '💰 你的预算范围',
-      description: '选择合适的预算范围',
-      placeholder: '选择预算范围'
-    },
-    nextStep: '下一步',
-    prevStep: '上一步',
-    submit: '为我推荐',
-    moods: {
-      calm: '平静放松',
-      calmDesc: '远离喧嚣，寻找内心的平静',
-      active: '活力充沛',
-      activeDesc: '充满能量，想要探索世界',
-      romantic: '浪漫温馨',
-      romanticDesc: '寻找浪漫，体验甜蜜',
-      adventurous: '冒险刺激',
-      adventurousDesc: '追求刺激，挑战自我',
-      cultural: '文化探索',
-      culturalDesc: '深入了解不同文化'
-    },
-    experiences: {
-      sightseeing: '观光游览',
-      sightseeingDesc: '参观名胜古迹，感受历史',
-      nature: '自然风光',
-      natureDesc: '亲近自然，享受美景',
-      food: '美食探索',
-      foodDesc: '品尝地道美食，体验文化',
-      shopping: '购物血拼',
-      shoppingDesc: '购买纪念品和特产',
-      nightlife: '夜生活',
-      nightlifeDesc: '体验当地夜生活',
-      adventure: '冒险活动',
-      adventureDesc: '尝试刺激的户外活动'
-    },
-    budgetRanges: {
-      economy: '经济型',
-      economyDesc: '预算有限，追求性价比',
-      comfort: '舒适型',
-      comfortDesc: '平衡价格与体验',
-      luxury: '豪华型',
-      luxuryDesc: '追求高品质体验'
-    },
-    step4: {
-      title: '你希望旅行多长时间？',
-      description: '选择合适的时间长度，让旅行更从容',
-      duration: '时长'
-    },
-    durations: {
-      weekend: '周末',
-      weekendDesc: '2-3天的短途旅行',
-      week: '一周',
-      weekDesc: '5-7天的深度体验',
-      extended: '更长',
-      extendedDesc: '10天以上的慢旅行'
-    }
-  },
-
-  // Inspiration 模式
-  inspiration: {
-    title: '✨ 我有灵感',
-    subtitle: '将灵感转化为真实体验',
-    description: '描述你的灵感，让我帮你把它转化为完整的旅行计划',
-    prompt: '💡 灵感描述',
-    placeholder: '描述你的旅行灵感，比如："我想在巴厘岛的日出时分，躺在沙滩上听海浪声..."',
-    generate: '生成灵感旅程',
-    tips: {
-      title: '💡 灵感提示',
-      examples: [
-        '在普罗旺斯的薰衣草田里拍一组婚纱照',
-        '去冰岛看极光，顺便泡温泉',
-        '在京都的樱花季，体验传统的茶道文化'
-      ]
-    },
-    hint: {
-      title: 'AI 灵感助手'
-    }
   },
 
   // AI旅行助手
@@ -1088,5 +989,104 @@ export default {
     modificationSuccess: '成功完成 {count} 项修改',
     modificationPartialSuccess: '完成 {success} 项修改，{fail} 项失败',
     modificationError: '处理修改建议失败'
+  },
+
+  // 个人偏好设置
+  userProfile: {
+    title: '个人偏好',
+    save: '保存',
+    cancel: '取消',
+    saveSuccess: '设置已保存',
+    saveLocalOnly: '设置已在本地保存，但同步服务器失败，请稍后重试。',
+    defaultTooltip: '个人偏好',
+    languageAndDisplay: {
+      title: '语言与显示设置',
+      interfaceLanguage: '界面语言',
+      interfaceLanguagePlaceholder: '请选择界面显示语言',
+      interfaceLanguageHint: '选择应用界面显示的语言',
+      chinese: '中文',
+      english: 'English'
+    },
+    identity: {
+      title: '身份信息',
+      nationality: '我的国籍',
+      nationalitySubtitle: '（用于判断签证需求）',
+      nationalityPlaceholder: '请选择您的护照国籍（可选）',
+      nationalityHint: '💡 您的护照国籍，用于判断前往目的地是否需要签证',
+      nationalityExample: '例如：选择中国国籍后，系统会判断前往各目的地是否需要签证，并在旅行详情页提供签证指引'
+    },
+    location: {
+      title: '地理信息',
+      currentLocation: '我所在国家',
+      currentLocationSubtitle: '（用于推荐目的地）',
+      currentLocationPlaceholder: '请选择您所在的国家/地区（可选）',
+      currentLocationHint: '💡 您当前所在的国家/地区，用于在未指定目的地时优先推荐该国家或附近地区的目的地',
+      currentLocationExample: '例如：选择美国后，系统会优先推荐美国国内或周边地区的目的地'
+    },
+    permanentResidency: {
+      title: '永久居民身份',
+      label: '永久居民身份',
+      subtitle: '（如绿卡、永久居留权等）',
+      placeholder: '请选择您的永久居民身份国家（可选）',
+      hint: '💡 如果您持有永久居民身份（如美国绿卡、加拿大永久居留权等），选择后系统会在推荐目的地和签证建议时考虑此因素',
+      example: '例如：持有美国绿卡后，前往某些国家可能享受签证便利或豁免'
+    },
+    heldVisas: {
+      title: '已持有的签证',
+      label: '已持有的有效签证',
+      subtitle: '（可多选）',
+      placeholder: '请选择您已持有的有效签证国家（可选）',
+      hint: '💡 如果您已持有某些国家的有效签证，选择后系统会在推荐目的地时给予最高优先级',
+      example: '例如：已持有申根签证后，前往申根区国家时系统会优先推荐，因为无需再申请签证'
+    },
+    languages: {
+      title: '精通语言',
+      label: '我精通的语言',
+      subtitle: '（可多选）',
+      placeholder: '请选择您精通的语言（至少选择一种）',
+      hint: '💡 您精通的语言，系统会根据您的语言偏好调整显示格式和内容',
+      example: '例如：精通日语后，系统在显示日本目的地信息时会优先使用日语名称'
+    },
+    currency: {
+      title: '货币偏好',
+      label: '偏好货币',
+      subtitle: '（用于显示费用和价格）',
+      placeholder: '请选择您的偏好货币',
+      hint: '💡 系统会根据您的货币偏好显示费用和价格信息',
+      example: '例如：选择美元后，行程中的费用信息会以美元显示'
+    },
+    transportation: {
+      title: '交通方式偏好',
+      label: '默认交通方式',
+      subtitle: '（用于生成行程时推荐交通方式）',
+      publicTransit: {
+        label: '🚌 公共交通 + 短距离步行',
+        description: '优先使用地铁、公交、轻轨等公共交通工具，配合短距离步行'
+      },
+      driving: {
+        label: '🚗 驾车 + 短距离步行',
+        description: '优先使用自驾或租车，配合短距离步行到达目的地'
+      },
+      hint: '💡 系统会根据您的偏好，在生成行程时推荐相应的交通方式',
+      example: '例如：选择"公共交通+步行"后，生成的行程会优先推荐地铁、公交等公共交通工具'
+    },
+    infoFooter: {
+      title: '💡 这些信息将用于：',
+      items: {
+        0: '判断签证需求并提供签证指引',
+        1: '在未指定目的地时，优先推荐您所在国家或附近地区的目的地',
+        2: '考虑永久居民身份和已持有签证，提供更精准的推荐',
+        3: '根据您的语言偏好调整内容显示格式',
+        4: '根据货币偏好显示费用和价格信息',
+        5: '根据交通方式偏好生成个性化的行程'
+      }
+    },
+    languageSwitch: {
+      chinese: '中文',
+      english: 'English',
+      switchTo: '点击切换到',
+      switchedToChinese: '已切换到中文',
+      switchedToEnglish: 'Switched to English'
+    }
   }
 }

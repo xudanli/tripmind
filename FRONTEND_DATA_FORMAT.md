@@ -38,6 +38,7 @@
       [key: string]: any
     }
     days: Array<{                    // 天数数组（必填，至少包含一天）
+      id: string                     // 天数ID（后端必须返回，用于批量获取活动详情）
       day: number                    // 天数编号（从1开始）
       date: string                   // 日期（YYYY-MM-DD）
       timeSlots: Array<{             // 时间段数组（前端格式）
@@ -142,6 +143,7 @@ curl -X POST "http://localhost:3000/api/v1/journeys/from-frontend-data" \
       "travelStyle": "moderate",
       "days": [
         {
+          "id": "day-id-1",
           "day": 1,
           "date": "2025-11-24",
           "timeSlots": [

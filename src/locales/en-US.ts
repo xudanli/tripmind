@@ -22,59 +22,6 @@ export default {
       login: 'Login'
   },
 
-  // Home Page
-  home: {
-    title: 'Hello, I\'m your AI travel companion',
-    subtitle: 'Your journey starts here —— How would you like to begin?',
-    plannerMode: {
-      title: '✈️ I Have a Plan',
-      subtitle: '(Planner Mode)',
-      description: 'I already know where to go, just need you to arrange everything for me.',
-      quote: 'Help me plan a trip efficiently',
-      features: [
-        '🎯 Efficient and actionable itinerary design',
-        '📊 Professional and clear travel planner',
-        '⚡ Dynamic adjustments and optimization suggestions'
-      ]
-    },
-    seekerMode: {
-      title: '🌿 I Want to Wander Freely',
-      subtitle: '(Seeker Mode)',
-      description: 'I don\'t know where to go, I just want to find a place that makes me comfortable.',
-      quote: 'I just want to relax',
-      features: [
-        '💭 Follow your heart to find the "just right" place',
-        '🤗 Gentle and understanding travel companion',
-        '🌸 Emotional recommendations and companionship'
-      ]
-    },
-    inspirationMode: {
-      title: '✨ I Have an Inspiration',
-      subtitle: '(Inspiration Mode)',
-      description: 'I have an idea in my mind, help me turn it into a journey.',
-      quote: 'Want to experience marine life photography',
-      features: [
-        '🧠 Natural language understanding of your intent',
-        '🎨 Transform inspiration into themed journeys',
-        '🔮 AI intelligent recommendations for matching experiences'
-      ]
-    },
-    inspiration: {
-      recommendedLocations: 'Recommended Locations (Please select one)',
-      recommendedLocation: 'Recommended Location',
-      recommendedDuration: 'Recommended Duration',
-      budgetRange: 'Budget Range',
-      experienceHighlights: 'Experience Highlights:',
-      aiTravelPartnerSays: 'AI Travel Partner Says:',
-      createJourney: 'Create Journey',
-      viewMoreInspiration: 'View More Inspiration',
-      selectLocationFirst: 'Please select a recommended location first',
-      generateDetailedItinerary: 'Generate Detailed Itinerary',
-      chooseDestinationHint: 'Pick a destination and click "Generate Detailed Itinerary" to fill in the details.',
-      detailedJourneyRequired: 'Please generate the detailed itinerary before creating the journey',
-      candidatesReady: 'Candidate destinations ready. Choose one you love and generate the detailed itinerary.'
-    }
-  },
 
   // Travel List
   travelList: {
@@ -108,6 +55,8 @@ export default {
     confirmLogout: 'Confirm Logout',
     aiChat: 'Continue Journey Conversation',
     editFeatureDeveloping: 'Edit feature under development...',
+    createSuccess: 'Created successfully',
+    createFailed: 'Failed to generate itinerary, please try again',
     coverEditDeveloping: 'Cover edit feature under development...',
     journeyCreated: 'New journey created for you!',
     continueConversation: 'Continue Journey Conversation'
@@ -309,57 +258,6 @@ export default {
       aiOptimizePath: 'AI Optimize Route',
       exportPdf: 'Export PDF'
     },
-    seekerHero: {
-      aiMessage: 'The sunlight is gentle today, shall I leave you a blank afternoon?',
-      currentMood: 'Current Mood',
-      moods: {
-        relaxed: 'Relaxed',
-        happy: 'Happy',
-        calm: 'Calm'
-      },
-      recordMood: 'Record Mood',
-      pausePlan: 'Pause Plan'
-    },
-    inspirationHero: {
-      aiMessage: 'You mentioned "light under the sea", I found some diving spot photos, would you like me to create an inspiration board for you?',
-      creationProgress: 'Inspiration Conversion Progress',
-      generateBoard: 'Generate Inspiration Board',
-      addMaterial: 'Add Material'
-    },
-    plannerTimeline: {
-      title: '📅 Detailed Itinerary',
-      listView: 'List View',
-      mapView: 'Map View',
-      exportItinerary: 'Export Itinerary',
-      mapPlaceholder: 'Map View - Display all itinerary locations',
-      optimizeRoute: 'Optimize Route',
-      edit: 'Edit',
-      duplicate: 'Duplicate',
-      delete: 'Delete',
-      confirmDelete: 'Confirm Delete',
-      confirmDeleteContent: 'Are you sure you want to delete this day?',
-      deleteSuccess: 'Deleted',
-      duplicateSuccess: 'Duplicated',
-      addTimeSlot: 'Add Time Slot',
-      addNewDay: 'Add New Day',
-      editDayModal: 'Edit Day',
-      estimatedDuration: 'Estimated Duration',
-      estimatedCost: 'Estimated Cost',
-      viewMap: 'View Map',
-      hours: 'hours',
-      dayStatus: {
-        planned: 'Planned',
-        inProgress: 'In Progress',
-        completed: 'Completed'
-      },
-      category: {
-        transport: 'Transport',
-        dining: 'Dining',
-        sightseeing: 'Sightseeing',
-        accommodation: 'Accommodation',
-        shopping: 'Shopping'
-      }
-    },
     plannerSidebar: {
       tasks: '📋 Task Management',
       budget: '💰 Budget Optimization',
@@ -371,80 +269,6 @@ export default {
       uploadFile: 'Upload File',
       team: '👥 Team Collaboration',
       inviteMember: 'Invite Member'
-    },
-    seekerMoodNotes: {
-      recordMood: 'Record Current Mood',
-      periods: {
-        morning: 'Morning',
-        afternoon: 'Afternoon',
-        evening: 'Evening'
-      },
-      moods: {
-        relaxed: 'Relaxed',
-        happy: 'Happy',
-        calm: 'Calm'
-      },
-      feelings: {
-        peaceful: 'Peaceful',
-        relaxed: 'Relaxed',
-        curious: 'Curious',
-        pleasant: 'Pleasant',
-        touched: 'Touched',
-        serene: 'Serene',
-        comfortable: 'Comfortable'
-      }
-    },
-    seekerSidebar: {
-      aiCompanion: '💬 AI Travel Companion',
-      chatPlaceholder: 'Chat with AI about your mood...',
-      moodRecord: '🌙 Mood Record',
-      moodChart: {
-        relaxed: '😌 Relaxed',
-        happy: '🥰 Happy',
-        calm: '😊 Calm'
-      },
-      recommendations: '🌟 Today\'s Recommendations',
-      recWalking: 'Beach Walk',
-      recWalkingDesc: 'Walk slowly for 30 minutes to relax',
-      recCoffee: 'Coffee Break',
-      recCoffeeDesc: 'Enjoy local specialty coffee'
-    },
-    inspirationIdeas: {
-      addIdea: 'Add New Inspiration',
-      status: {
-        ready: 'Implemented',
-        draft: 'Ideation'
-      },
-      inspiredBy: 'Inspired by',
-      category: {
-        ocean: 'Ocean',
-        photography: 'Photography',
-        light: 'Light',
-        creative: 'Creative',
-        other: 'Other'
-      }
-    },
-    inspirationSidebar: {
-      creationArea: '✨ Inspiration Creation',
-      placeholder: 'Write down your new idea...',
-      generateCard: 'Generate Inspiration Card',
-      materialCollection: '🖼️ Material Collection',
-      addMaterial: 'Add Material',
-      aiCreation: '🎨 AI Creation in Progress',
-      progressConcept: 'Concept Design',
-      progressVisual: 'Visual Generation',
-      progressRefine: 'Inspiration Refinement',
-      sources: '💡 Inspiration Sources',
-      aiDialog: '🤖 AI Co-creation Dialog',
-      dialogPlaceholder: 'Talk with AI about your inspiration...',
-      extendJourney: 'Extend Journey',
-      generatePhoto: 'Generate Photo Prompt',
-      textSketch: 'Text Sketch',
-      moodboard: '🎨 Visual Moodboard',
-      materials: '📚 Material Collection',
-      maturity: 'Maturity',
-      export: '📤 Export Journey',
-      continueCreate: '🔄 Continue Co-creation'
     },
     ideaFlow: {
       origin: 'Origin',
@@ -592,6 +416,12 @@ export default {
       noContactInfo: 'No contact information available',
       accessibility: 'Accessibility',
       nearbyAttractions: 'Nearby Attractions',
+      fetchLocationInfo: 'Fetch Location Info Now',
+      locationFetchRequiresInfo: 'Activity needs name and coordinates to fetch location details',
+      noItineraryData: 'Unable to get itinerary data',
+      noDestination: 'Unable to get destination information',
+      locationFetched: 'Location information fetched successfully',
+      locationFetchFailed: 'Failed to fetch location information',
       viewMap: 'View Map',
       expand: 'Expand',
       navOverview: 'Overview',
@@ -710,12 +540,43 @@ export default {
       activityDetailLabel: 'Activity Highlights',
       delete: 'Delete',
       addActivity: 'Add Activity',
+      editActivity: 'Edit Activity',
       confirmDelete: 'Confirm Delete',
       confirmDeleteContent: 'Are you sure you want to delete this activity?',
       confirm: 'Confirm',
       deleteSuccess: 'Activity deleted',
       addSuccess: 'Activity added',
       newActivity: 'New Activity',
+      naturalLanguageInput: 'Natural Language Input',
+      naturalLanguagePlaceholder: 'Enter location description, e.g.: Nara Park, that Japanese park with many deer',
+      naturalLanguageHint: '(Supports natural language descriptions, e.g. "that Japanese park with many deer")',
+      search: 'Search',
+      details: 'Details',
+      durationPlaceholder: 'Duration (minutes)',
+      costPlaceholder: 'Cost',
+      locationPlaceholder: 'Location',
+      ratingPlaceholder: 'Rating (0-5)',
+      categoryPlaceholder: 'Category',
+      chineseNamePlaceholder: 'Chinese Name',
+      bookingLinks: 'Booking Links',
+      addLink: 'Add Link',
+      noBookingLinks: 'No booking links yet',
+      linkName: 'Link name (e.g.: Booking.com, Official website, etc.)',
+      openingTime: 'Opening Hours:',
+      bookingRequirement: 'Booking Requirement:',
+      bookingLink: 'Booking Link',
+      insiderTip: 'Insider Tip',
+      visitTipsTitle: 'Visit Tips',
+      bestTimeLabel: 'Best Time:',
+      suggestedDurationLabel: 'Suggested Duration:',
+      queryTooShort: 'Please enter at least 2 characters',
+      locationNotFound: 'Location not found, please try using a more standard place name',
+      aiRecognized: 'AI recognized location',
+      foundLocation: 'Found location',
+      formFilled: 'Form auto-filled, you can continue editing or save directly',
+      searchFailed: 'Search failed, please try again later',
+      currencyHint: 'Use',
+      record: 'to record',
       // Persona Profile & Journey Design
       personaJourney: 'Persona Profile & Journey Design',
       personaProfile: 'Persona Profile',
@@ -822,14 +683,14 @@ export default {
     step1: {
       title: '✈️ Where do you want to go?',
       description: 'Tell me your destination, and I\'ll customize the itinerary for you',
-      label: 'Destination',
-      placeholder: 'Enter the city or country you want to visit',
+      label: 'Where do you want to go?',
+      placeholder: 'e.g.: Kyoto, Paris, Sanya...',
       rules: 'Please enter destination'
     },
     step2: {
       title: '📅 How many days?',
       description: 'Trip duration affects the depth and breadth of itinerary planning',
-      label: 'Dates',
+      label: 'Travel Days',
       returnDate: 'Return Date',
       placeholder: 'Please select date',
       selectPlaceholder: 'Select travel days'
@@ -837,7 +698,7 @@ export default {
     step3: {
       title: 'Number of Travelers',
       description: 'The number of travelers affects itinerary planning',
-      label: 'People',
+      label: 'Number of Travelers',
       placeholder: 'Select number of people'
     },
     step4: {
@@ -855,15 +716,48 @@ export default {
       luxury: 'Luxury',
       luxuryDesc: 'Pursue high-quality experience'
     },
-    submit: 'Generate Itinerary',
+    submit: 'Generate Exclusive Itinerary',
     destination: 'Destination',
     days: 'day(s)',
+    day: 'day',
+    people: 'people',
+    multipleSelect: '(multiple selection)',
+    submitHint: 'Please enter at least a destination or select one interest',
+    generating: 'AI is planning...',
+    budget: {
+      economy: 'Economy',
+      comfort: 'Comfort',
+      luxury: 'Luxury'
+    },
+    budgetDesc: {
+      low: 'Focus on value for money',
+      medium: 'Balance experience and price',
+      high: 'Premium experience'
+    },
     step5: {
       title: '❤️ Preference Type?',
-      label: 'Interests',
+      label: 'Travel Preferences',
       description: 'Choose the type of travel you are interested in, and I will focus on arranging relevant activities',
       placeholder: 'Select your interests/preferences'
     },
+    startDate: 'Start Date',
+    additionalDescription: 'Other Requirements (Optional)',
+    additionalDescriptionPlaceholder: 'e.g., hope the itinerary is not too tight, want to experience local culture, or have special requirements...',
+    generateTravelPlan: 'Generate Travel Plan',
+    recommendedDestinationsTitle: 'Recommended Destinations for You',
+    backToEdit: 'Back to Edit',
+    analyzingPreferences: 'Analyzing your preferences...',
+    perPerson: 'Per Person',
+    generateItinerary: 'Generate Itinerary →',
+  },
+  itineraryGeneration: {
+    title: 'Crafting Your Perfect Experience',
+    status1: 'Analyzing your travel preferences...',
+    status2: 'Finding the best attractions for you...',
+    status3: 'Planning daily routes...',
+    status4: 'Matching local specialties...',
+    status5: 'Generating transportation suggestions...',
+    status6: 'Almost done...',
     step6: {
       title: '🎯 Travel Rhythm',
       description: 'Choose a rhythm to arrange your itinerary',
@@ -871,16 +765,16 @@ export default {
       rules: 'Please select travel rhythm'
     },
     preferences: {
-      culture: 'Cultural Heritage',
-      food: 'Gourmet Experience',
+      culture: 'History & Culture',
+      food: 'Local Cuisine',
       nature: 'Natural Scenery',
-      shopping: 'Shopping & Entertainment',
-      adventure: 'Adventure Experience',
+      shopping: 'Shopping',
+      adventure: 'Outdoor Adventure',
       leisure: 'Leisure Vacation',
-      art: 'Art & Museums',
+      art: 'Art Exhibitions',
       photography: 'Photography',
       nightlife: 'Nightlife',
-      family: 'Family Friendly'
+      family: 'Family Travel'
     },
     travelRythm: {
       fast: 'Fast Pace',
@@ -1008,5 +902,104 @@ export default {
     modificationSuccess: 'Successfully completed {count} modification(s)',
     modificationPartialSuccess: 'Completed {success} modification(s), {fail} failed',
     modificationError: 'Failed to process modification suggestions'
+  },
+
+  // User Profile Settings
+  userProfile: {
+    title: 'User Preferences',
+    save: 'Save',
+    cancel: 'Cancel',
+    saveSuccess: 'Settings saved',
+    saveLocalOnly: 'Settings saved locally, but failed to sync with server. Please try again later.',
+    defaultTooltip: 'User Preferences',
+    languageAndDisplay: {
+      title: 'Language & Display Settings',
+      interfaceLanguage: 'Interface Language',
+      interfaceLanguagePlaceholder: 'Please select interface display language',
+      interfaceLanguageHint: 'Select the language for the application interface',
+      chinese: 'Chinese',
+      english: 'English'
+    },
+    identity: {
+      title: 'Identity Information',
+      nationality: 'My Nationality',
+      nationalitySubtitle: '(for visa requirement assessment)',
+      nationalityPlaceholder: 'Please select your passport nationality (optional)',
+      nationalityHint: '💡 Your passport nationality, used to determine visa requirements for destinations',
+      nationalityExample: 'For example: After selecting Chinese nationality, the system will determine visa requirements for various destinations and provide visa guidance on the travel details page'
+    },
+    location: {
+      title: 'Location Information',
+      currentLocation: 'My Current Country',
+      currentLocationSubtitle: '(for destination recommendations)',
+      currentLocationPlaceholder: 'Please select your current country/region (optional)',
+      currentLocationHint: '💡 Your current country/region, used to prioritize recommendations for this country or nearby areas when no destination is specified',
+      currentLocationExample: 'For example: After selecting the United States, the system will prioritize recommending destinations within the US or nearby regions'
+    },
+    permanentResidency: {
+      title: 'Permanent Residency Status',
+      label: 'Permanent Residency Status',
+      subtitle: '(e.g., Green Card, Permanent Residence, etc.)',
+      placeholder: 'Please select your permanent residency country (optional)',
+      hint: '💡 If you hold permanent residency status (e.g., US Green Card, Canadian Permanent Residence), selecting it will help the system consider this factor in destination recommendations and visa advice',
+      example: 'For example: After holding a US Green Card, you may enjoy visa convenience or exemptions when traveling to certain countries'
+    },
+    heldVisas: {
+      title: 'Held Visas',
+      label: 'Valid Visas Held',
+      subtitle: '(multiple selection)',
+      placeholder: 'Please select countries for which you hold valid visas (optional)',
+      hint: '💡 If you already hold valid visas for certain countries, selecting them will give highest priority to these destinations in recommendations',
+      example: 'For example: After holding a Schengen visa, the system will prioritize recommending Schengen area countries since no additional visa application is needed'
+    },
+    languages: {
+      title: 'Proficient Languages',
+      label: 'Languages I Speak',
+      subtitle: '(multiple selection)',
+      placeholder: 'Please select languages you are proficient in (at least one)',
+      hint: '💡 Languages you are proficient in. The system will adjust display formats and content based on your language preferences',
+      example: 'For example: After being proficient in Japanese, the system will prioritize using Japanese names when displaying Japanese destination information'
+    },
+    currency: {
+      title: 'Currency Preference',
+      label: 'Preferred Currency',
+      subtitle: '(for displaying costs and prices)',
+      placeholder: 'Please select your preferred currency',
+      hint: '💡 The system will display cost and price information according to your currency preference',
+      example: 'For example: After selecting US Dollar, cost information in the itinerary will be displayed in USD'
+    },
+    transportation: {
+      title: 'Transportation Preference',
+      label: 'Default Transportation Mode',
+      subtitle: '(for recommending transportation when generating itineraries)',
+      publicTransit: {
+        label: '🚌 Public Transit + Short Walking',
+        description: 'Prioritize using subway, bus, light rail and other public transportation, combined with short-distance walking'
+      },
+      driving: {
+        label: '🚗 Driving + Short Walking',
+        description: 'Prioritize using self-driving or car rental, combined with short-distance walking to reach destinations'
+      },
+      hint: '💡 The system will recommend corresponding transportation modes when generating itineraries based on your preference',
+      example: 'For example: After selecting "Public Transit + Walking", generated itineraries will prioritize recommending subway, bus and other public transportation'
+    },
+    infoFooter: {
+      title: '💡 This information will be used for:',
+      items: {
+        0: 'Assessing visa requirements and providing visa guidance',
+        1: 'Prioritizing recommendations for your current country or nearby regions when no destination is specified',
+        2: 'Considering permanent residency status and held visas to provide more accurate recommendations',
+        3: 'Adjusting content display formats based on your language preferences',
+        4: 'Displaying cost and price information based on currency preferences',
+        5: 'Generating personalized itineraries based on transportation preferences'
+      }
+    },
+    languageSwitch: {
+      chinese: 'Chinese',
+      english: 'English',
+      switchTo: 'Click to switch to',
+      switchedToChinese: 'Switched to Chinese',
+      switchedToEnglish: 'Switched to English'
+    }
   }
 }

@@ -5,7 +5,7 @@
 
 // 交通方式偏好类型
 export type TransportationPreference = 'public_transit_and_walking' | 'driving_and_walking'
-export type LLMProvider = 'deepseek' | 'openai'
+export type LLMProvider = 'deepseek' | 'openai' | 'gemini'
 
 export interface UserProfileConfig {
   // 用户国籍
@@ -156,7 +156,7 @@ export function validateUserProfile(config: any): config is UserProfileConfig {
     return false
   }
 
-  if (config.preferredLLMProvider && !['deepseek', 'openai'].includes(config.preferredLLMProvider)) {
+  if (config.preferredLLMProvider && !['deepseek', 'openai', 'gemini'].includes(config.preferredLLMProvider)) {
     return false
   }
 

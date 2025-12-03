@@ -4,36 +4,37 @@
       <ItinerarySkeleton v-if="isLoading" key="loading" />
 
       <div v-else-if="error" class="state-container error" key="error">
-        <a-result
-          status="error"
-          title="加载失败"
-          :sub-title="error.message || '加载行程详情失败，请刷新页面重试'"
-        >
-          <template #extra>
+      <a-result
+        status="error"
+        title="加载失败"
+        :sub-title="error.message || '加载行程详情失败，请刷新页面重试'"
+      >
+        <template #extra>
             <a-button type="primary" @click="handleTravelRefresh">重新加载</a-button>
             <a-button @click="router.back()">返回列表</a-button>
-          </template>
-        </a-result>
-      </div>
-
+        </template>
+      </a-result>
+    </div>
+    
       <div v-else-if="!travel" class="state-container empty" key="empty">
         <a-result status="404" title="行程不存在" sub-title="该行程可能已被删除或您没有权限访问">
           <template #extra>
             <a-button type="primary" @click="router.push('/travel-list')">返回行程列表</a-button>
           </template>
         </a-result>
-      </div>
-
+    </div>
+    
       <div v-else class="content-wrapper" key="content">
-        <TravelDetailHeader
+    <TravelDetailHeader
           :destination="travel.destination || travel.location || ''"
           :destination-name="destinationName || travel.destination || travel.location"
-          :subtitle="headerSubtitle"
-          :background-image="headerBackgroundImage"
-          :practical-info="practicalInfoData"
-          :currency-info="currencyInfoText"
-          @back="router.back()"
-        />
+      :subtitle="headerSubtitle"
+          :summary="travelSummary"
+      :background-image="headerBackgroundImage"
+      :practical-info="practicalInfoData"
+      :currency-info="currencyInfoText"
+      @back="router.back()"
+    />
 
         <div class="main-layout" :class="{ 'has-sidebar': shouldShowSidebar }">
           
@@ -48,39 +49,39 @@
           <aside v-if="shouldShowSidebar" class="sidebar-column">
             <div class="sidebar-sticky-wrapper">
               
-              <TravelSidebar 
+          <TravelSidebar 
                 v-if="travel.id"
                 class="widget-card"
-                :travel-id="travel.id"
-                :mode="travel.mode || 'default'"
-                :initial-spent="travel.spent || 0"
-                :initial-total="travel.budget || 0"
-              />
+            :travel-id="travel.id"
+            :mode="travel.mode || 'default'"
+            :initial-spent="travel.spent || 0"
+            :initial-total="travel.budget || 0"
+          />
 
-              <VisaGuide 
-                v-if="visaInfo && destinationCountry"
+          <VisaGuide 
+            v-if="visaInfo && destinationCountry"
                 class="widget-card"
-                :visa-info="visaInfo"
-                :destination-country="destinationCountry"
-                :destination-name="destinationName"
-              />
+            :visa-info="visaInfo"
+            :destination-country="destinationCountry"
+            :destination-name="destinationName"
+          />
               <a-card v-else-if="destinationCountry && !visaInfo" class="widget-card" title="✈️ 签证指引" size="small">
-                <a-alert
-                  type="info"
-                  show-icon
+            <a-alert
+              type="info"
+              show-icon
                   message="完善信息以获取指引"
                 >
                   <template #description>
                     <span style="font-size: 12px">{{ getVisaInfoHint() }}</span>
                   </template>
                 </a-alert>
-              </a-card>
+          </a-card>
 
-              <SafetyNoticeCard
+          <SafetyNoticeCard
                 v-if="travel.data?.backendItineraryId"
-                :journey-id="travel.data.backendItineraryId"
+            :journey-id="travel.data.backendItineraryId"
                 :destination="travel.destination || travel.location"
-                :country-code="destinationCountry"
+            :country-code="destinationCountry"
                 class="widget-card"
               />
 
@@ -91,24 +92,36 @@
                 class="widget-card"
               />
 
-              <PracticalInfoCard
-                v-if="hasPracticalInfo"
-                :practical-info="practicalInfoForCard"
+          <PracticalInfoCard
+            v-if="hasPracticalInfo"
+            :practical-info="practicalInfoForCard"
                 class="widget-card"
-              />
+          />
 
               <CulturalGuideCard
                 v-if="travel.data?.backendItineraryId"
-                :journey-id="travel.data.backendItineraryId"
+            :journey-id="travel.data.backendItineraryId"
                 :destination="travel.destination || travel.location"
+                class="widget-card"
+          />
+
+              <JourneyWeatherCard
+                v-if="travel.data?.backendItineraryId"
+            :journey-id="travel.data.backendItineraryId"
+                class="widget-card"
+              />
+
+              <PackingListCard
+                v-if="travel.data?.backendItineraryId"
+                :journey-id="travel.data.backendItineraryId"
                 class="widget-card"
               />
             </div>
-          </aside>
-        </div>
+        </aside>
       </div>
+    </div>
     </Transition>
-    
+
     <TravelAssistant 
       v-if="travel?.id || travel?.data?.backendItineraryId"
       :travel-id="travel?.data?.backendItineraryId || travel?.id" 
@@ -137,6 +150,8 @@ import SafetyNoticeCard from '@/components/TravelDetail/SafetyNoticeCard.vue'
 import PracticalInfoCard from '@/components/TravelDetail/PracticalInfoCard.vue'
 import LocalEssentialsCard from '@/components/TravelDetail/LocalEssentialsCard.vue'
 import CulturalGuideCard from '@/components/TravelDetail/CulturalGuideCard.vue'
+import JourneyWeatherCard from '@/components/TravelDetail/JourneyWeatherCard.vue'
+import PackingListCard from '@/components/TravelDetail/PackingListCard.vue'
 import TravelDetailHeader from '@/components/TravelDetail/TravelDetailHeader.vue'
 import ItinerarySkeleton from '@/components/TravelDetail/ItinerarySkeleton.vue'
 
@@ -213,14 +228,32 @@ const shouldShowSidebar = computed(() => {
 // 头部副标题
 const headerSubtitle = computed(() => {
   if (!travel.value) return ''
-
+  
   const days = travel.value.duration || travel.value.data?.itineraryData?.days?.length || 0
   const dest = travel.value.destination || travel.value.location || ''
   
   if (days > 0 && dest) {
     return `${dest} ${days}天探索之旅`
   }
-  return travel.value.description || travel.value.data?.itineraryData?.summary || ''
+  return ''
+})
+
+// 行程摘要
+const travelSummary = computed(() => {
+  if (!travel.value) return ''
+  
+  // 优先从 itineraryData.summary 获取（后端返回的摘要）
+  // 其次从 description 获取（可能包含摘要）
+  const summary = travel.value.data?.itineraryData?.summary || 
+                  travel.value.description || 
+                  ''
+  
+  // 如果 description 是"X天探索之旅"格式，则不作为摘要显示
+  if (summary && summary.includes('天探索之旅')) {
+    return ''
+  }
+  
+  return summary
 })
 
 const headerBackgroundImage = computed(() => undefined) // 可扩展：从 travel.data 获取封面图
@@ -280,9 +313,9 @@ const extractCountryCodeFromDestination = (destStr?: string): string | null => {
     const aliases = COUNTRY_ALIASES[code] || []
     if (aliases.some(a => fullText.includes(a.toLowerCase()))) return code
   }
-  return null
-}
-
+    return null
+  }
+  
 const destinationCountry = computed(() => {
   if (!travel.value) return null
 
@@ -344,7 +377,7 @@ const loadVisaInfo = async () => {
     const schengen = multi.requiredVisas.find(v => v.name.includes('申根'))
     if (schengen?.visaInfo?.[0]) {
       visaInfo.value = schengen.visaInfo[0]
-      return
+        return
     }
   }
 
@@ -358,7 +391,7 @@ const loadVisaInfo = async () => {
     visaInfo.value = results?.[0] || null
   } catch (e) {
     console.error('Visa fetch failed', e)
-    visaInfo.value = null
+      visaInfo.value = null
   }
 }
 
@@ -433,8 +466,8 @@ const getVisaInfoHint = () => {
   .sidebar-sticky-wrapper {
     position: sticky;
     top: 24px; /* 距离顶部间距 */
-    display: flex;
-    flex-direction: column;
+  display: flex;
+  flex-direction: column;
     gap: 20px;
   }
 }
@@ -450,7 +483,7 @@ const getVisaInfoHint = () => {
   }
 
   .sidebar-sticky-wrapper {
-    display: flex;
+  display: flex;
     flex-direction: column;
     gap: 16px;
   }

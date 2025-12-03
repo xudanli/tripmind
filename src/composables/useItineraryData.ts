@@ -32,6 +32,7 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
   
   // 🔧 防重复调用：标记是否正在加载中
   let isLoadingData = false
+  let isSilentUpdating = false // 标记是否正在静默更新
 
   /**
    * 后台静默富化任务
@@ -129,19 +130,75 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       return
     }
 
-    // 🔧 防重复调用：如果正在加载中，直接返回
-    if (isLoadingData) {
+    // 🔧 防重复调用：如果正在加载中（非静默更新），直接返回
+    if (isLoadingData && !isSilentUpdating) {
       console.warn('[useItineraryData] 数据正在加载中，跳过重复调用')
       return
     }
 
-    isLoadingData = true
-    isLoading.value = true
+    // 🔧 优化：先检查缓存，如果有缓存数据，立即显示
+    // 注意：itineraryId.value 是后端的 UUID，需要通过 backendItineraryId 查找
+    const cachedTravel = travelListStore.getAllTravels().find(
+      t => t.data?.backendItineraryId === itineraryId.value
+    )
+    
+    if (cachedTravel && cachedTravel.data?.itineraryData?.days && cachedTravel.data.itineraryData.days.length > 0) {
+      console.log('[useItineraryData] 发现缓存数据，立即显示:', {
+        id: cachedTravel.id,
+        backendId: cachedTravel.data?.backendItineraryId,
+        destination: cachedTravel.destination,
+        daysCount: cachedTravel.data.itineraryData.days.length
+      })
+      itinerary.value = cachedTravel
+      isLoading.value = false
+      error.value = null
+      
+      // 在后台静默更新数据（不阻塞 UI）
+      Promise.resolve().then(async () => {
+        // 检查是否已经有静默更新在进行
+        if (isSilentUpdating) {
+          console.log('[useItineraryData] 静默更新已在进行，跳过')
+          return
+        }
+        await loadDataFromBackend(true) // 静默更新
+      })
+      return
+    }
+
+    // 如果没有缓存，正常加载
+    await loadDataFromBackend(false)
+  }
+
+  /**
+   * 从后端加载行程详情（内部函数）
+   * @param silent 是否静默更新（不显示加载状态）
+   */
+  const loadDataFromBackend = async (silent: boolean = false) => {
+    if (!itineraryId.value) {
+      error.value = new Error('行程 ID 不能为空')
+      return
+    }
+
+    // 静默更新使用独立标志，不影响 isLoadingData
+    if (silent) {
+      if (isSilentUpdating) {
+        console.log('[useItineraryData] 静默更新已在进行，跳过')
+        return
+      }
+      isSilentUpdating = true
+    } else {
+      isLoadingData = true
+      isLoading.value = true
+    }
     error.value = null
     
-    // 🔧 关键修复：在请求前先清空旧数据，防止数据堆叠
-    console.log('[useItineraryData] 清空旧数据，准备加载新数据...')
-    itinerary.value = null
+    // 🔧 关键修复：在请求前先清空旧数据，防止数据堆叠（仅在非静默模式下）
+    if (!silent) {
+      console.log('[useItineraryData] 清空旧数据，准备加载新数据...')
+      itinerary.value = null
+    } else {
+      console.log('[useItineraryData] 后台静默更新数据...')
+    }
 
     try {
       console.log('[useItineraryData] 从后端加载行程详情:', itineraryId.value)
@@ -337,7 +394,9 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       }
       
       // 5. 更新状态（先设置 isLoading 为 false，确保 UI 立即显示数据）
-      isLoading.value = false
+      if (!silent) {
+        isLoading.value = false
+      }
       
       // 5.1. 检查是否需要异步获取位置信息（后台执行，不阻塞）
       if (newTravel.data?.backendItineraryId && newTravel.destination) {
@@ -378,11 +437,18 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       // 6. 更新 itinerary（这会触发响应式更新）
       itinerary.value = newTravel
       
-      console.log('[useItineraryData] ✅ 基础数据已设置，准备显示:', {
-        daysCount: unifiedData.days.length,
-        totalTimeSlots: unifiedData.days.reduce((sum, d) => sum + (d.timeSlots?.length || 0), 0),
-        firstDaySlots: unifiedData.days[0]?.timeSlots?.length || 0
-      })
+      if (silent) {
+        console.log('[useItineraryData] ✅ 后台数据更新完成:', {
+          daysCount: unifiedData.days.length,
+          totalTimeSlots: unifiedData.days.reduce((sum, d) => sum + (d.timeSlots?.length || 0), 0)
+        })
+      } else {
+        console.log('[useItineraryData] ✅ 基础数据已设置，准备显示:', {
+          daysCount: unifiedData.days.length,
+          totalTimeSlots: unifiedData.days.reduce((sum, d) => sum + (d.timeSlots?.length || 0), 0),
+          firstDaySlots: unifiedData.days[0]?.timeSlots?.length || 0
+        })
+      }
       
       // 7. 更新 Store
       const existingTravel = travelListStore.getTravel(newTravel.id)
@@ -392,7 +458,9 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
         travelListStore.createTravel(newTravel)
       }
       
-      console.log('[useItineraryData] ✅ 基础数据已渲染 (Location Enrichment 在后台进行)')
+      if (!silent) {
+        console.log('[useItineraryData] ✅ 基础数据已渲染 (Location Enrichment 在后台进行)')
+      }
       
       // 7. 启动后台静默富化检查
       let totalSlotsCount = 0
@@ -419,12 +487,24 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       
     } catch (err: any) {
       console.error('[useItineraryData] ❌ 从后端加载行程详情失败:', err)
-      error.value = err
-      message.error('加载行程详情失败，请刷新页面重试')
-      isLoading.value = false
+      
+      // 如果是静默更新失败，不影响已显示的缓存数据
+      if (silent) {
+        console.warn('[useItineraryData] 后台更新失败，继续使用缓存数据:', err.message)
+        // 不设置错误，不显示错误提示，静默失败
+      } else {
+        error.value = err
+        message.error('加载行程详情失败，请刷新页面重试')
+        isLoading.value = false
+      }
     } finally {
       // 🔧 确保在 finally 中重置加载标记
-      isLoadingData = false
+      if (silent) {
+        isSilentUpdating = false
+      } else {
+        isLoadingData = false
+        isLoading.value = false
+      }
     }
   }
 

@@ -6,11 +6,6 @@
         <TaskList :travel-id="travelId" :initial-tasks="computedInitialTasks" />
       </a-tab-pane>
 
-      <!-- 讨论区 Tab -->
-      <a-tab-pane key="discussion" tab="讨论区">
-        <DiscussionArea :travel-id="travelId" />
-      </a-tab-pane>
-
       <!-- 预算管理 Tab -->
       <a-tab-pane key="budget" tab="预算">
         <BudgetManager :travel-id="travelId" :initial-spent="initialSpent" :initial-total="initialTotal" />
@@ -20,39 +15,18 @@
       <a-tab-pane key="members" tab="旅伴">
         <MemberManagement :travel-id="travelId" />
       </a-tab-pane>
-
-      <!-- 订票信息 Tab -->
-      <a-tab-pane key="bookings" tab="订票">
-        <BookingInfo :travel-id="travelId" />
-      </a-tab-pane>
-
-      <!-- 相关攻略 Tab -->
-      <a-tab-pane key="guides" tab="攻略">
-        <TravelGuides :travel-id="travelId" />
-      </a-tab-pane>
-
-      <!-- planner 和 seeker 模式已移除 -->
+      
     </a-tabs>
   </a-card>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useTravelStore } from '@/stores/travel'
 import { useTravelListStore } from '@/stores/travelList'
-import DiscussionArea from './DiscussionArea.vue'
 import TaskList from './TaskList.vue'
 import BudgetManager from './BudgetManager.vue'
 import MemberManagement from './MemberManagement.vue'
-import BookingInfo from './BookingInfo.vue'
-import TravelGuides from './TravelGuides.vue'
-import { 
-  PlusOutlined
-} from '@ant-design/icons-vue'
 
-const { t } = useI18n()
-const travelStore = useTravelStore()
 const travelListStore = useTravelListStore()
 
 interface Props {

@@ -4963,3 +4963,223 @@ export async function verifyInvitation(
   }
 }
 
+/**
+ * 天气信息类型
+ */
+export type WeatherInfoType = 'realtime' | 'historical'
+
+/**
+ * 天气信息
+ */
+export interface WeatherInfo {
+  /** 当前天气概况（实时）或平均温度范围（历史） */
+  currentWeather: string
+  /** 天气预报（实时）或典型天气状况（历史） */
+  forecast: string
+  /** 安全警示和警告 */
+  safetyAlerts: string
+  /** 打包建议 */
+  packingSuggestions: string
+  /** 旅行建议 */
+  travelTips: string
+  /** 信息类型：realtime（实时）或 historical（历史） */
+  type: WeatherInfoType
+  /** 平均温度范围（仅历史气候时提供） */
+  averageTemperature?: string
+  /** 降雨信息（仅历史气候时提供） */
+  rainfall?: string
+  /** 穿衣建议（仅历史气候时提供） */
+  clothingSuggestions?: string
+  /** 常年安全建议（仅历史气候时提供） */
+  safetyAdvice?: string
+}
+
+/**
+ * 获取行程天气信息响应
+ */
+export interface GetJourneyWeatherResponse {
+  success: boolean
+  journeyId: string
+  destination: string
+  startDate: string
+  endDate: string
+  weatherInfo: WeatherInfo
+  fromCache: boolean
+  generatedAt: string
+}
+
+/**
+ * 获取行程天气信息
+ * 
+ * 接口路径：GET /api/v1/journeys/:journeyId/weather
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 根据行程时间自动判断：未来10天内返回实时天气预报和安全警示，远期返回历史平均气候和常年安全建议
+ * 
+ * @param journeyId 行程ID（UUID）
+ * @param language 语言代码，用于生成对应语言的天气信息，默认：zh-CN
+ * @returns 天气信息
+ * @throws {Error} 未认证、行程不存在或获取失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const weather = await getJourneyWeather('550e8400-e29b-41d4-a716-446655440000', 'zh-CN')
+ * console.log('天气类型:', weather.weatherInfo.type)
+ * console.log('当前天气:', weather.weatherInfo.currentWeather)
+ * ```
+ */
+export async function getJourneyWeather(
+  journeyId: string,
+  language: 'zh-CN' | 'en-US' | 'en' = 'zh-CN'
+): Promise<GetJourneyWeatherResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/weather`
+  const params = new URLSearchParams()
+  if (language) {
+    params.append('language', language)
+  }
+  const url = buildUrl(`${endpoint}${params.toString() ? `?${params.toString()}` : ''}`)
+
+  console.log('[ItineraryAPI] 获取行程天气信息:', {
+    url,
+    journeyId,
+    language
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: GetJourneyWeatherResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取行程天气信息失败')
+    }
+
+    console.log('[ItineraryAPI] 获取行程天气信息成功:', {
+      journeyId,
+      destination: apiData.destination,
+      type: apiData.weatherInfo.type,
+      fromCache: apiData.fromCache
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取行程天气信息失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+
+/**
+ * 打包清单项
+ */
+export interface PackingListItem {
+  /** 物品名称 */
+  item: string
+  /** 推荐理由，需明确关联具体活动或天气 */
+  reason: string
+}
+
+/**
+ * 获取智能打包清单响应
+ */
+export interface GetPackingListResponse {
+  success: boolean
+  journeyId: string
+  destination: string
+  startDate: string
+  endDate: string
+  packingList: PackingListItem[]
+  fromCache: boolean
+  generatedAt: string
+}
+
+/**
+ * 获取智能打包清单
+ * 
+ * 接口路径：GET /api/v1/journeys/:journeyId/packing-list
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 根据行程中的具体活动和天气状况，生成深度定制的智能打包清单（5-10项）
+ * 严禁包含护照、身份证、手机等全球通用物品，只包含针对此地、此时、此事的特需物品
+ * 
+ * @param journeyId 行程ID（UUID）
+ * @param language 语言代码，用于生成对应语言的打包清单，默认：zh-CN
+ * @returns 打包清单
+ * @throws {Error} 未认证、行程不存在或获取失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const packingList = await getPackingList('550e8400-e29b-41d4-a716-446655440000', 'zh-CN')
+ * console.log('打包清单:', packingList.packingList)
+ * packingList.packingList.forEach((item, index) => {
+ *   console.log(`${index + 1}. ${item.item} - ${item.reason}`)
+ * })
+ * ```
+ */
+export async function getPackingList(
+  journeyId: string,
+  language: 'zh-CN' | 'en-US' | 'en' = 'zh-CN'
+): Promise<GetPackingListResponse> {
+  const endpoint = `/v1/journeys/${journeyId}/packing-list`
+  const params = new URLSearchParams()
+  if (language) {
+    params.append('language', language)
+  }
+  const url = buildUrl(`${endpoint}${params.toString() ? `?${params.toString()}` : ''}`)
+
+  console.log('[ItineraryAPI] 获取智能打包清单:', {
+    url,
+    journeyId,
+    language
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: GetPackingListResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('获取智能打包清单失败')
+    }
+
+    console.log('[ItineraryAPI] 获取智能打包清单成功:', {
+      journeyId,
+      destination: apiData.destination,
+      itemCount: apiData.packingList.length,
+      fromCache: apiData.fromCache
+    })
+
+    return apiData
+  } catch (error: any) {
+    console.error('[ItineraryAPI] 获取智能打包清单失败:', {
+      error: error.message,
+      stack: error.stack,
+      url,
+      journeyId
+    })
+    throw error
+  }
+}
+

@@ -659,6 +659,316 @@ export async function getLocationJobResult(jobId: string): Promise<BatchLocation
 }
 
 /**
+ * 查询已存储的位置信息请求参数
+ */
+export interface QueryLocationRequest {
+  /** 活动名称 */
+  activityName: string
+  /** 目的地 */
+  destination: string
+  /** 活动类型 */
+  activityType: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+}
+
+/**
+ * 查询已存储的位置信息响应
+ */
+export interface QueryLocationResponse {
+  success: boolean
+  data: LocationInfo | null
+}
+
+/**
+ * 查询已存储的位置信息
+ * 
+ * 接口路径：GET /api/location/query
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 根据活动名称、目的地和类型查询已存储的位置信息（不触发生成）
+ * 如果不存在，返回 null，不会触发生成
+ * 
+ * @param request 查询参数
+ * @returns 位置信息或 null
+ * @throws {Error} 未认证或查询失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const locationInfo = await queryLocation({
+ *   activityName: '铁力士峰云端漫步',
+ *   destination: '瑞士琉森',
+ *   activityType: 'attraction'
+ * })
+ * if (locationInfo) {
+ *   console.log('位置信息已存在:', locationInfo)
+ * } else {
+ *   console.log('位置信息不存在，需要生成')
+ * }
+ * ```
+ */
+export async function queryLocation(
+  request: QueryLocationRequest
+): Promise<LocationInfo | null> {
+  const params = new URLSearchParams({
+    activityName: request.activityName,
+    destination: request.destination,
+    activityType: request.activityType
+  })
+  const endpoint = `/location/query?${params.toString()}`
+  const url = buildUrl(endpoint)
+
+  console.log('[LocationAPI] 查询已存储的位置信息:', {
+    url,
+    activityName: request.activityName,
+    destination: request.destination,
+    activityType: request.activityType
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: QueryLocationResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('查询位置信息失败')
+    }
+
+    if (apiData.data) {
+      console.log('[LocationAPI] 位置信息查询成功:', {
+        activityName: request.activityName,
+        chineseName: apiData.data.chineseName
+      })
+    } else {
+      console.log('[LocationAPI] 位置信息不存在:', {
+        activityName: request.activityName
+      })
+    }
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[LocationAPI] 查询位置信息失败:', {
+      error: error.message,
+      activityName: request.activityName,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 搜索位置信息请求参数
+ */
+export interface SearchLocationRequest {
+  /** 目的地（精确匹配，可选） */
+  destination?: string
+  /** 活动类型（精确匹配，可选） */
+  activityType?: 'attraction' | 'meal' | 'hotel' | 'shopping' | 'transport' | 'ocean'
+  /** 活动名称（模糊搜索，可选） */
+  activityName?: string
+  /** 每页数量，范围：1-100，默认：20 */
+  limit?: number
+  /** 偏移量，默认：0 */
+  offset?: number
+}
+
+/**
+ * 搜索位置信息响应
+ */
+export interface SearchLocationResponse {
+  success: boolean
+  data: {
+    locations: LocationInfo[]
+    total: number
+  }
+}
+
+/**
+ * 搜索位置信息
+ * 
+ * 接口路径：GET /api/location/search
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 根据条件搜索已存储的位置信息，支持分页
+ * 支持按目的地、活动类型、活动名称（模糊搜索）筛选
+ * 
+ * @param request 搜索参数
+ * @returns 搜索结果
+ * @throws {Error} 未认证或搜索失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * // 搜索所有景点类型的位置信息
+ * const result = await searchLocations({
+ *   activityType: 'attraction',
+ *   limit: 20,
+ *   offset: 0
+ * })
+ * 
+ * // 按目的地搜索
+ * const result2 = await searchLocations({
+ *   destination: '瑞士琉森',
+ *   limit: 10
+ * })
+ * 
+ * // 模糊搜索活动名称
+ * const result3 = await searchLocations({
+ *   activityName: '铁力士',
+ *   limit: 20
+ * })
+ * ```
+ */
+export async function searchLocations(
+  request: SearchLocationRequest = {}
+): Promise<{ locations: LocationInfo[]; total: number }> {
+  const params = new URLSearchParams()
+  
+  if (request.destination) {
+    params.append('destination', request.destination)
+  }
+  if (request.activityType) {
+    params.append('activityType', request.activityType)
+  }
+  if (request.activityName) {
+    params.append('activityName', request.activityName)
+  }
+  if (request.limit !== undefined) {
+    params.append('limit', String(request.limit))
+  }
+  if (request.offset !== undefined) {
+    params.append('offset', String(request.offset))
+  }
+
+  const endpoint = `/location/search${params.toString() ? `?${params.toString()}` : ''}`
+  const url = buildUrl(endpoint)
+
+  console.log('[LocationAPI] 搜索位置信息:', {
+    url,
+    ...request
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: SearchLocationResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('搜索位置信息失败')
+    }
+
+    console.log('[LocationAPI] 搜索位置信息成功:', {
+      count: apiData.data.locations.length,
+      total: apiData.data.total
+    })
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[LocationAPI] 搜索位置信息失败:', {
+      error: error.message,
+      request,
+      url
+    })
+    throw error
+  }
+}
+
+/**
+ * 根据ID查询位置信息响应
+ */
+export interface GetLocationByIdResponse {
+  success: boolean
+  data: LocationInfo | null
+}
+
+/**
+ * 根据ID查询位置信息
+ * 
+ * 接口路径：GET /api/location/:id
+ * 认证：需要 JWT Bearer Token
+ * 
+ * 根据位置信息的唯一ID查询详细信息
+ * 使用位置信息的数据库ID进行查询
+ * 
+ * @param id 位置信息的唯一ID（UUID格式）
+ * @returns 位置信息或 null
+ * @throws {Error} 未认证或查询失败时抛出错误
+ * 
+ * @example
+ * ```typescript
+ * const locationInfo = await getLocationById('550e8400-e29b-41d4-a716-446655440000')
+ * if (locationInfo) {
+ *   console.log('位置信息:', locationInfo)
+ * } else {
+ *   console.log('位置信息不存在')
+ * }
+ * ```
+ */
+export async function getLocationById(id: string): Promise<LocationInfo | null> {
+  const endpoint = `/location/${id}`
+  const url = buildUrl(endpoint)
+
+  console.log('[LocationAPI] 根据ID查询位置信息:', {
+    url,
+    id
+  })
+
+  try {
+    const response = await authenticatedFetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      await handleApiError(response)
+    }
+
+    const apiData: GetLocationByIdResponse = await response.json()
+
+    if (!apiData.success) {
+      throw new Error('查询位置信息失败')
+    }
+
+    if (apiData.data) {
+      console.log('[LocationAPI] 位置信息查询成功:', {
+        id,
+        chineseName: apiData.data.chineseName
+      })
+    } else {
+      console.log('[LocationAPI] 位置信息不存在:', {
+        id
+      })
+    }
+
+    return apiData.data
+  } catch (error: any) {
+    console.error('[LocationAPI] 根据ID查询位置信息失败:', {
+      error: error.message,
+      id,
+      url
+    })
+    throw error
+  }
+}
+
+/**
  * 将位置信息转换为前端 details 格式
  * 
  * 将后端返回的 LocationInfo 格式转换为前端组件使用的 details 对象格式

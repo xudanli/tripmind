@@ -19,6 +19,7 @@
     <div class="header-content">
       <h1 class="destination-title">{{ destinationName || destination }}</h1>
       <p class="destination-subtitle" v-if="subtitle">{{ subtitle }}</p>
+      <p class="destination-summary" v-if="summary">{{ summary }}</p>
     </div>
     
     <!-- 信息卡片区域 -->
@@ -104,6 +105,7 @@ interface Props {
   destination: string
   destinationName?: string
   subtitle?: string
+  summary?: string
   backgroundImage?: string
   weatherData?: string
   practicalInfo?: {
@@ -211,11 +213,20 @@ const backgroundStyle = computed(() => {
 }
 
 .destination-subtitle {
-  margin: 0;
+  margin: 0 0 0.75rem 0;
   font-size: 1.1rem;
   line-height: 1.6;
   color: rgba(255, 255, 255, 0.95);
   max-width: 800px;
+}
+
+.destination-summary {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 900px;
+  font-weight: 400;
 }
 
 .info-cards-container {
@@ -321,6 +332,11 @@ const backgroundStyle = computed(() => {
   
   .destination-subtitle {
     font-size: 1rem;
+  }
+  
+  .destination-summary {
+    font-size: 0.9rem;
+    line-height: 1.6;
   }
   
   .info-cards-grid {

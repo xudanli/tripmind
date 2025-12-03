@@ -302,9 +302,9 @@ const nearbyAttractionsList = computed(() => {
 
 /* --- 1. 信息网格 --- */
 .info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 12px;
+  flex-wrap: nowrap; /* 强制单行显示，不换行 */
 }
 
 .info-card {
@@ -312,25 +312,32 @@ const nearbyAttractionsList = computed(() => {
   border-radius: 12px;
   padding: 12px 16px;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
   border: 1px solid rgba(226, 232, 240, 0.6);
+  flex: 1; /* 每个卡片平均分配空间 */
+  min-width: 0; /* 允许收缩 */
+  flex-shrink: 0; /* 防止过度收缩 */
 }
 
 .info-card__icon {
   font-size: 18px;
-  margin-top: 2px;
+  flex-shrink: 0; /* 图标不收缩 */
 }
 
 .info-card__content {
   flex: 1;
   min-width: 0; /* 防止文本溢出 */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .info-card__label {
   font-size: 12px;
   color: #64748b;
-  margin-bottom: 4px;
+  white-space: nowrap; /* 标签不换行 */
 }
 
 .info-card__value {
@@ -338,6 +345,13 @@ const nearbyAttractionsList = computed(() => {
   color: #1e293b;
   font-weight: 500;
   line-height: 1.4;
+  /* 文本过长时显示省略号 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2; /* 最多显示2行 */
+  -webkit-box-orient: vertical;
+  word-break: break-word;
 }
 
 /* --- 2. 预订卡片 --- */
@@ -587,11 +601,5 @@ const nearbyAttractionsList = computed(() => {
   margin-left: 4px;
   font-size: 16px;
   line-height: 1;
-}
-
-@media (max-width: 768px) {
-  .info-grid, .booking-links-grid, .tip-grid {
-    grid-template-columns: 1fr; /* 移动端单列 */
-  }
 }
 </style>

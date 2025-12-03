@@ -245,7 +245,7 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
       const dayData = itineraryData.value.days[dayIndex]
       const dayId = dayData?.id
 
-      const slotRequest = {
+      const slotRequest: any = {
         time: editingData.value.time,
         title: editingData.value.title,
         type: mapType(editingData.value.type),
@@ -253,6 +253,13 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
         location: editingData.value.coordinates || { lat: 0, lng: 0 },
         notes: editingData.value.notes || '',
         cost: editingData.value.cost || 0
+      }
+      
+      // 🔧 新增：如果存在 tripAdvisorId，传入 details
+      if (editingData.value.details?.tripAdvisorId) {
+        slotRequest.details = {
+          tripAdvisorId: editingData.value.details.tripAdvisorId
+        }
       }
 
       if (backendItineraryId && dayId) {
@@ -343,7 +350,7 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
 
       if (backendItineraryId && dayId && slotId) {
         try {
-          const updateRequest = {
+          const updateRequest: any = {
             time: editingData.value.time,
             title: editingData.value.title,
             type: mapType(editingData.value.type),
@@ -351,6 +358,13 @@ export function useSlotEditing(options: UseSlotEditingOptions) {
             location: editingData.value.coordinates || slot.coordinates || { lat: 0, lng: 0 },
             notes: editingData.value.notes || slot.notes || '',
             cost: editingData.value.cost || slot.cost || 0
+          }
+          
+          // 🔧 新增：如果存在 tripAdvisorId，传入 details
+          if (editingData.value.details?.tripAdvisorId) {
+            updateRequest.details = {
+              tripAdvisorId: editingData.value.details.tripAdvisorId
+            }
           }
           const updatedActivity = await updateSlot(backendItineraryId, dayId, slotId, updateRequest)
           

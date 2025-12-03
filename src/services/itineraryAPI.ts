@@ -2274,6 +2274,10 @@ export interface AddSlotToDayRequest {
   notes?: string
   cost?: number
   locationDetails?: LocationDetails
+  details?: {
+    tripAdvisorId?: string // 🔧 新增：支持传入 TripAdvisor ID
+    [key: string]: any
+  }
 }
 
 export interface AddSlotToDayResponse {
@@ -2370,6 +2374,10 @@ export interface UpdateSlotRequest {
   location?: { lat: number; lng: number }
   notes?: string
   cost?: number
+  details?: {
+    tripAdvisorId?: string // 🔧 新增：支持传入 TripAdvisor ID
+    [key: string]: any
+  }
 }
 
 export interface UpdateSlotResponse {
@@ -3109,7 +3117,33 @@ export async function triggerLocationInfoEnrichmentAsync(
     try {
       log('🚀 开始异步获取位置信息...')
       
-      // 获取行程详情
+      // 1. 先获取目的地的经纬度
+      let destinationCoordinates: { lat: number; lng: number } | null = null
+      if (destination) {
+        try {
+          log(`📍 正在获取目的地 "${destination}" 的经纬度...`)
+          const { accurateGeocode } = await import('./locationAPI')
+          const geocodeResult = await accurateGeocode({ 
+            query: destination 
+          })
+          
+          if (geocodeResult && geocodeResult.success && geocodeResult.location) {
+            destinationCoordinates = {
+              lat: geocodeResult.location.latitude,
+              lng: geocodeResult.location.longitude
+            }
+            log(`✅ 目的地经纬度获取成功: ${destinationCoordinates.lat}, ${destinationCoordinates.lng}`)
+          } else {
+            log(`⚠️ 无法获取目的地 "${destination}" 的经纬度，继续使用目的地名称`)
+          }
+        } catch (geocodeError: any) {
+          console.warn('[ItineraryAPI] 获取目的地经纬度失败:', geocodeError.message)
+          log(`⚠️ 获取目的地经纬度失败: ${geocodeError.message}，继续处理活动位置信息`)
+          // 不抛出错误，继续执行后续流程
+        }
+      }
+      
+      // 2. 获取行程详情
       const detail = await getItineraryDetail(journeyId)
       if (!detail.days || detail.days.length === 0) {
         log('⚠️ 行程没有活动，跳过位置信息获取')

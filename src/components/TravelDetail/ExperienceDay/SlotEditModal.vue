@@ -8,14 +8,17 @@
     :open="open"
     @update:open="$emit('update:open', $event)"
     :title="isNew ? (t('travelDetail.experienceDay.addActivity') || '添加活动') : (t('travelDetail.experienceDay.editActivity') || '编辑活动')"
-    width="800px"
+    width="1400px"
     :ok-text="t('travelDetail.experienceDay.save') || '保存'"
     :cancel-text="t('travelDetail.experienceDay.cancel') || '取消'"
     @ok="$emit('save')"
     @cancel="$emit('update:open', false)"
-    :body-style="{ maxHeight: '70vh', overflowY: 'auto' }"
+    :body-style="{ padding: 0 }"
+    class="edit-modal-with-preview"
   >
-    <div class="edit-modal-content">
+    <div class="edit-modal-layout">
+      <!-- 左侧：编辑表单 -->
+      <div class="edit-modal-content">
       <!-- 自然语言输入（仅新增模式） -->
       <div v-if="isNew" class="natural-language-input-section">
         <div class="edit-form-item">
@@ -297,6 +300,17 @@
           </div>
         </a-collapse-panel>
       </a-collapse>
+      </div>
+      
+      <!-- 右侧：实时预览 -->
+      <div class="edit-modal-preview">
+        <div class="preview-header">
+          <span class="preview-title">👁️ {{ t('travelDetail.experienceDay.preview') || '实时预览' }}</span>
+        </div>
+        <div class="preview-content">
+          <SlotDetails :slot="previewSlotData" :currency="currency" />
+        </div>
+      </div>
     </div>
   </a-modal>
 </template>
@@ -310,6 +324,8 @@ import type { EditingData } from './useItineraryModals'
 import type { CurrencyInfo } from '@/utils/currency'
 import { accurateGeocode } from '@/services/locationAPI'
 import { generateLocation } from '@/services/locationAPI'
+import SlotDetails from './SlotDetails.vue'
+import type { TimeSlot } from './types'
 
 interface Props {
   open: boolean
@@ -343,6 +359,60 @@ const localData = ref<EditingData>({ ...props.formData })
 
 // 防止循环更新的标志
 const isUpdatingFromProps = ref(false)
+
+// 🔧 新增：预览数据 - 将编辑数据转换为预览格式
+const previewSlotData = computed<TimeSlot>(() => {
+  const highlights = localData.value.highlights
+    ? localData.value.highlights.split('\n').filter(h => h.trim())
+    : []
+  
+  return {
+    id: 'preview',
+    time: localData.value.time || '09:00',
+    title: localData.value.title || localData.value.activity || '',
+    activity: localData.value.activity || localData.value.title || '',
+    type: (localData.value.type || 'attraction') as any,
+    category: localData.value.category || localData.value.type || 'attraction',
+    duration: typeof localData.value.duration === 'number' 
+      ? localData.value.duration 
+      : (typeof localData.value.duration === 'string' ? parseInt(localData.value.duration) || 60 : 60),
+    cost: localData.value.cost ?? 0,
+    location: localData.value.location || '',
+    coordinates: localData.value.coordinates || { lat: 0, lng: 0 },
+    notes: localData.value.notes || '',
+    bookingLinks: localData.value.bookingLinks || [],
+    details: {
+      name: {
+        chinese: localData.value.nameChinese || '',
+        english: localData.value.nameEnglish || '',
+        local: localData.value.nameEnglish || ''
+      },
+      transportation: localData.value.transportation || '',
+      openingHours: localData.value.openingHours || '',
+      pricing: {
+        general: localData.value.cost ?? undefined,
+        detail: localData.value.pricingDetail || ''
+      },
+      rating: localData.value.rating ? {
+        score: typeof localData.value.rating === 'number' ? localData.value.rating : parseFloat(String(localData.value.rating)),
+        reviewCount: 0,
+        platform: 'TripAdvisor'
+      } : undefined,
+      recommendations: {
+        bookingInfo: localData.value.bookingInfo || '',
+        visitTips: localData.value.visitTips || '',
+        outfitSuggestions: localData.value.outfitSuggestions || '',
+        culturalTips: localData.value.culturalTips || ''
+      },
+      accessibility: localData.value.accessibility || '',
+      description: {
+        scenicIntro: localData.value.scenicIntro || '',
+        highlights: highlights
+      },
+      insiderTip: localData.value.notes || ''
+    }
+  }
+})
 
 // 监听 props 变化，同步到本地
 watch(() => props.formData, (newData) => {
@@ -543,8 +613,67 @@ watch(() => props.open, (isOpen) => {
 </script>
 
 <style scoped>
+/* 🔧 新增：编辑模态框布局 - 左右分栏 */
+.edit-modal-layout {
+  display: flex;
+  height: 70vh;
+  overflow: hidden;
+}
+
 .edit-modal-content {
-  padding: 8px 0;
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid #e5e7eb;
+}
+
+.edit-modal-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+.preview-header {
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.preview-content {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 响应式：小屏幕时改为上下布局 */
+@media (max-width: 1200px) {
+  .edit-modal-layout {
+    flex-direction: column;
+    height: auto;
+    max-height: 80vh;
+  }
+  
+  .edit-modal-content {
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+    max-height: 40vh;
+  }
+  
+  .edit-modal-preview {
+    max-height: 40vh;
+  }
 }
 
 .edit-form-item {

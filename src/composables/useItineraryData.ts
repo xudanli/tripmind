@@ -29,6 +29,9 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
   const isEnriching = ref(false) // 位置信息生成中
   const enrichingProgress = ref(0) // 位置信息生成进度 (0-100)
   const travelListStore = useTravelListStore()
+  
+  // 🔧 防重复调用：标记是否正在加载中
+  let isLoadingData = false
 
   /**
    * 后台静默富化任务
@@ -126,8 +129,19 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       return
     }
 
+    // 🔧 防重复调用：如果正在加载中，直接返回
+    if (isLoadingData) {
+      console.warn('[useItineraryData] 数据正在加载中，跳过重复调用')
+      return
+    }
+
+    isLoadingData = true
     isLoading.value = true
     error.value = null
+    
+    // 🔧 关键修复：在请求前先清空旧数据，防止数据堆叠
+    console.log('[useItineraryData] 清空旧数据，准备加载新数据...')
+    itinerary.value = null
 
     try {
       console.log('[useItineraryData] 从后端加载行程详情:', itineraryId.value)
@@ -408,6 +422,9 @@ export function useItineraryData(itineraryId: Ref<string | undefined>) {
       error.value = err
       message.error('加载行程详情失败，请刷新页面重试')
       isLoading.value = false
+    } finally {
+      // 🔧 确保在 finally 中重置加载标记
+      isLoadingData = false
     }
   }
 

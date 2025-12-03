@@ -204,11 +204,41 @@ export const useTravelListStore = defineStore('travelList', () => {
   const syncFromBackend = async () => {
     try {
       console.log('[TravelListStore] 开始从后端同步行程列表...')
-      const response = await getItineraryList()
       
-      if (response.success && response.data) {
+      // 🔧 修复：循环加载所有数据，确保显示完整列表
+      let allBackendTravels: any[] = []
+      let page = 1
+      const pageSize = 100 // 每页100条
+      let hasMore = true
+      
+      while (hasMore) {
+        const response = await getItineraryList({
+          page,
+          limit: pageSize
+        })
+        
+        if (response.success && response.data) {
+          allBackendTravels = allBackendTravels.concat(response.data)
+          
+          // 检查是否还有更多数据
+          const total = response.total || 0
+          const currentCount = allBackendTravels.length
+          hasMore = currentCount < total && response.data.length === pageSize
+          
+          if (hasMore) {
+            page++
+            console.log(`[TravelListStore] 已加载 ${currentCount}/${total} 条记录，继续加载...`)
+          }
+        } else {
+          hasMore = false
+        }
+      }
+      
+      console.log(`[TravelListStore] 总共加载了 ${allBackendTravels.length} 条记录`)
+      
+      if (allBackendTravels.length > 0) {
         // 将后端数据转换为前端 Travel 格式
-        const backendTravels: Travel[] = response.data.map((itinerary: any) => {
+        const backendTravels: Travel[] = allBackendTravels.map((itinerary: any) => {
           // 后端返回的行程数据结构（列表接口可能不包含完整的 days 数组）
           const daysCount = itinerary.daysCount || itinerary.days || 0
           const title = itinerary.title || `${itinerary.destination}之旅`

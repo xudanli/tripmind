@@ -29,6 +29,7 @@
                 :is-inspiration-mode="travel?.mode === 'inspiration' || travel?.mode === 'classic'"
                 :is-planner-mode="travel?.mode === 'planner'"
                 :loading="isImageLoading(day.day, slotIndex, slot)"
+                :destination="destination"
                 @navigate="handleNavigate(slot)"
                 @book="handleBook(slot)"
                 @search="poiSearch.handleOpenSearch(day.day, slotIndex, slot)"
@@ -261,18 +262,69 @@ const itineraryDays = computed(() => {
   })
   
   return uniqueDays.map((day: any) => {
-    // 优先使用 timeSlots，如果没有则使用 activities
-    const timeSlots = day.timeSlots || day.activities || []
+    // 🔧 修复：优先使用 timeSlots，如果没有则使用 activities，但不要同时使用两者
+    // 如果两者都存在，优先使用 timeSlots，并确保不会重复
+    let timeSlots: any[] = []
+    
+    if (day.timeSlots && Array.isArray(day.timeSlots) && day.timeSlots.length > 0) {
+      // 优先使用 timeSlots
+      timeSlots = day.timeSlots
+    } else if (day.activities && Array.isArray(day.activities) && day.activities.length > 0) {
+      // 如果没有 timeSlots，使用 activities
+      timeSlots = day.activities
+    }
+    
+    // 🔧 关键修复：对 timeSlots 进行去重，防止重复显示
+    const uniqueTimeSlotsMap = new Map<string, any>()
+    timeSlots.forEach((slot: any, index: number) => {
+      // 使用多种方式生成唯一 key，优先使用 id
+      let key = slot.id || slot.uuid
+      
+      // 如果没有 id，使用时间和标题组合
+      if (!key) {
+        const time = slot.time || ''
+        const title = slot.title || slot.activity || ''
+        key = `${time}-${title}`
+      }
+      
+      // 如果还是没有 key，使用索引（这种情况不应该发生）
+      if (!key) {
+        key = `slot-${index}`
+      }
+      
+      // 如果 key 已存在，检查是否是同一个活动（通过时间和标题判断）
+      if (uniqueTimeSlotsMap.has(key)) {
+        const existing = uniqueTimeSlotsMap.get(key)
+        // 如果时间和标题都相同，跳过（避免重复）
+        if (existing.time === slot.time && 
+            (existing.title === slot.title || existing.activity === slot.activity)) {
+          console.warn(`[ExperienceDay] 检测到重复的活动，跳过:`, {
+            time: slot.time,
+            title: slot.title || slot.activity,
+            key,
+            existingId: existing.id,
+            newId: slot.id
+          })
+          return
+        }
+        // 如果 key 相同但内容不同，使用更完整的 key（加上索引）
+        key = `${key}-${index}`
+      }
+      
+      uniqueTimeSlotsMap.set(key, slot)
+    })
+    
+    const uniqueTimeSlots = Array.from(uniqueTimeSlotsMap.values())
     
     // 确保 timeSlots 和 activities 同步（如果两者都存在）
-    if (day.timeSlots && day.activities && day.timeSlots.length !== day.activities.length) {
-      // 如果长度不一致，优先使用 timeSlots
-      day.activities = [...day.timeSlots]
+    if (day.timeSlots && day.activities && day.timeSlots.length !== uniqueTimeSlots.length) {
+      // 如果长度不一致，更新 activities 为去重后的 timeSlots
+      day.activities = [...uniqueTimeSlots]
     }
     
     return {
       ...day,
-      timeSlots: timeSlots.map((slot: any) => ({
+      timeSlots: uniqueTimeSlots.map((slot: any) => ({
         ...slot,
         details: slot.details || {},
         coordinates: slot.coordinates || (typeof slot.location === 'object' ? slot.location : {}),

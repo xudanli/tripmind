@@ -30,36 +30,40 @@
 
       <!-- 地址栏 -->
       <div class="time-slot__address-bar" v-if="addressText">
-        <div class="time-slot__address-text">
+        <div class="time-slot__address-content">
           <span class="time-slot__address-icon">📍</span>
-          <span>{{ addressText }}</span>
+          <span class="time-slot__address-text">{{ addressText }}</span>
         </div>
         <a-button
-          type="primary"
+          type="default" 
           size="small"
           class="time-slot__map-button"
           @click="handleNavigate"
         >
-          🗺 {{ t('travelDetail.experienceDay.viewMap') }}
+          <template #icon>🗺️</template>
+          {{ t('travelDetail.experienceDay.viewMap') }}
         </a-button>
       </div>
     </div>
 
     <!-- 第二层：详细信息 -->
-    <SlotDetails
+    <div class="time-slot__details-layer">
+      <SlotDetails
       :slot="slot"
       :currency="currency"
       :loading-location="loadingLocation"
       @book="$emit('book')"
       @add-nearby-attraction="handleAddNearbyAttraction"
       @fetch-location="handleFetchLocation"
-    />
+      />
+    </div>
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import type { CurrencyInfo } from '@/utils/currency'
 import type { TimeSlot, ItineraryDay, TimeSlotCardProps } from './types'
@@ -67,7 +71,8 @@ import { useSlotFormatting } from '@/composables/useSlotFormatting'
 import { useSlotActions } from '@/composables/useSlotActions'
 import { generateLocation } from '@/services/locationAPI'
 import { convertLocationInfoToDetails } from '@/services/locationAPI'
-import { useTravelStore } from '@/stores/travel'
+import { getAttractionDetails, convertAttractionDetailsToPricingDetail } from '@/services/externalAPI'
+import { getCurrentLanguage } from '@/utils/i18n'
 import SlotHero from './SlotHero.vue'
 import SlotInfoBar from './SlotInfoBar.vue'
 import SlotDetails from './SlotDetails.vue'
@@ -81,6 +86,7 @@ interface Props extends TimeSlotCardProps {
   loading?: boolean
   isInspirationMode?: boolean
   isPlannerMode?: boolean
+  destination?: string // 🔧 新增：从父组件传递的目的地信息
 }
 
 const props = defineProps<Props>()
@@ -106,6 +112,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const route = useRoute()
 
 // 使用 composables
 const { getAddressText: getAddressTextFromFormatting } = useSlotFormatting(props.slot, props.currency)
@@ -137,7 +144,105 @@ const handleAddNearbyAttraction = (attraction: { name: string; distance?: string
 
 // 获取位置信息
 const loadingLocation = ref(false)
-const travelStore = useTravelStore()
+const loadingTripAdvisor = ref(false)
+
+// 🔧 新增：从 TripAdvisor ID 获取景点详情
+const fetchTripAdvisorDetails = async (tripAdvisorId: string) => {
+  if (loadingTripAdvisor.value) return
+  
+  loadingTripAdvisor.value = true
+  
+  try {
+    console.log('[TimeSlotCard] 从 TripAdvisor ID 获取景点详情:', tripAdvisorId)
+    const lang = getCurrentLanguage()
+    const attractionDetails = await getAttractionDetails(tripAdvisorId, lang)
+    
+    // 更新 slot 的 details，合并 TripAdvisor 详情
+    if (!props.slot.details) {
+      props.slot.details = {}
+    }
+    
+    // 合并 TripAdvisor 详情到 slot.details
+    props.slot.details = {
+      ...props.slot.details,
+      // 保留原有的 tripAdvisorId
+      tripAdvisorId: props.slot.details.tripAdvisorId || tripAdvisorId,
+      // 更新评分信息（如果 TripAdvisor 有）
+      rating: attractionDetails.rating ? {
+        score: attractionDetails.rating.rating,
+        reviewCount: attractionDetails.rating.reviewCount,
+        platform: 'TripAdvisor'
+      } : props.slot.details.rating,
+      // 更新门票信息（如果 TripAdvisor 有）
+      pricing: attractionDetails.ticketInfo ? {
+        ...props.slot.details.pricing,
+        detail: convertAttractionDetailsToPricingDetail(attractionDetails) || props.slot.details.pricing?.detail
+      } : props.slot.details.pricing,
+      // 更新开放时间（如果 TripAdvisor 有）
+      openingHours: attractionDetails.openingHours || props.slot.details.openingHours,
+      // 更新联系方式（如果 TripAdvisor 有）
+      contactInfo: attractionDetails.phone || attractionDetails.website || props.slot.details.contactInfo,
+      // 更新描述（如果 TripAdvisor 有）
+      description: attractionDetails.description || props.slot.details.description,
+      // 更新 TripAdvisor URL
+      tripadvisorUrl: attractionDetails.tripadvisorUrl || props.slot.details.tripadvisorUrl
+    }
+    
+    // 如果有坐标信息，更新 slot 的 coordinates
+    if (attractionDetails.coordinates) {
+      props.slot.coordinates = {
+        lat: attractionDetails.coordinates.lat,
+        lng: attractionDetails.coordinates.lng
+      }
+    }
+    
+    // 如果有地址信息，更新 slot 的 location
+    if (attractionDetails.address) {
+      props.slot.location = attractionDetails.address
+    }
+    
+    // 触发父组件更新
+    emit('fetch-location')
+    
+    console.log('[TimeSlotCard] TripAdvisor 景点详情获取成功:', {
+      tripAdvisorId,
+      name: attractionDetails.name,
+      hasRating: !!attractionDetails.rating,
+      hasTicketInfo: !!attractionDetails.ticketInfo
+    })
+  } catch (error: any) {
+    // 如果是景点不存在错误，不显示错误提示（这是正常情况）
+    if (error.message === 'ATTRACTION_NOT_FOUND') {
+      console.warn('[TimeSlotCard] TripAdvisor 景点不存在:', tripAdvisorId)
+      return
+    }
+    
+    console.error('[TimeSlotCard] 获取 TripAdvisor 景点详情失败:', error)
+    // 不显示错误提示，避免干扰用户
+  } finally {
+    loadingTripAdvisor.value = false
+  }
+}
+
+// 🔧 新增：监听 slot.details.tripAdvisorId，自动获取 TripAdvisor 详情
+watch(
+  () => props.slot.details?.tripAdvisorId,
+  (tripAdvisorId) => {
+    // 如果存在 tripAdvisorId 且还没有获取过详情，自动获取
+    if (tripAdvisorId && !props.slot.details?.tripadvisorUrl) {
+      fetchTripAdvisorDetails(tripAdvisorId)
+    }
+  },
+  { immediate: true }
+)
+
+// 🔧 新增：组件挂载时，如果有 tripAdvisorId，自动获取详情
+onMounted(() => {
+  const tripAdvisorId = props.slot.details?.tripAdvisorId
+  if (tripAdvisorId && !props.slot.details?.tripadvisorUrl) {
+    fetchTripAdvisorDetails(tripAdvisorId)
+  }
+})
 
 const handleFetchLocation = async () => {
   if (loadingLocation.value) return
@@ -151,18 +256,84 @@ const handleFetchLocation = async () => {
     return
   }
   
-  // 获取目的地和行程ID
-  const itineraryData = travelStore.itineraryData
-  if (!itineraryData) {
-    message.warning(t('travelDetail.experienceDay.noItineraryData') || '无法获取行程数据')
+  // 🔧 修复：从多个数据源获取目的地信息（按优先级）
+  // 1. 优先使用从父组件传递的 destination prop
+  let destination = props.destination || ''
+  
+  // 2. 如果 prop 中没有，从 travelListStore 获取当前行程的目的地
+  if (!destination) {
+    try {
+      const { useTravelListStore } = await import('@/stores/travelList')
+      const travelListStore = useTravelListStore()
+      const currentTravelId = route.params?.id as string
+      
+      if (currentTravelId) {
+        const currentTravel = travelListStore.getTravel(currentTravelId)
+        if (currentTravel) {
+          // 尝试多个可能的目的地字段
+          destination = currentTravel.destination || 
+                       currentTravel.location || 
+                       currentTravel.data?.destination ||
+                       currentTravel.data?.itineraryData?.destination ||
+                       ''
+          
+          // 如果目的地包含国家信息（如 "巴黎 · 法国"），提取城市名
+          if (destination && destination.includes(' · ')) {
+            destination = destination.split(' · ')[0].trim()
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('[TimeSlotCard] 从 travelListStore 获取目的地失败:', error)
+    }
+  }
+  
+  // 3. 如果还没有目的地，尝试从 slot.details.address 中提取城市名
+  if (!destination && (slot.details?.address?.chinese || slot.details?.address?.english)) {
+    const address = slot.details.address.chinese || slot.details.address.english || ''
+    // 尝试提取城市名（支持中英文地址格式）
+    const cityMatch = address.match(/([^省市区县,，]+?)(?:市|省|区|县|,|，)/) || 
+                     address.match(/([A-Za-z\s]+?)(?:,|$)/)
+    if (cityMatch && cityMatch[1]) {
+      destination = cityMatch[1].trim()
+    }
+  }
+  
+  // 4. 如果还是没有目的地，尝试从 slot.location 中提取
+  if (!destination && slot.location) {
+    const locationStr = typeof slot.location === 'string' ? slot.location : ''
+    if (locationStr) {
+      // 尝试提取城市名
+      const cityMatch = locationStr.match(/([^省市区县,，]+?)(?:市|省|区|县|,|，)/) || 
+                       locationStr.match(/([A-Za-z\s]+?)(?:,|$)/)
+      if (cityMatch && cityMatch[1]) {
+        destination = cityMatch[1].trim()
+      } else {
+        // 如果匹配不到，直接使用 location（可能是完整地址）
+        destination = locationStr
+      }
+    }
+  }
+  
+  // 5. 如果还是没有目的地，尝试从 day 数据中获取（如果 day 有目的地信息）
+  if (!destination && day.destination) {
+    destination = day.destination
+  }
+  
+  if (!destination) {
+    console.error('[TimeSlotCard] 无法获取目的地信息:', {
+      travelId: route.params?.id,
+      slotTitle: slot.title,
+      slotLocation: slot.location,
+      hasDetails: !!slot.details,
+      hasAddress: !!(slot.details?.address?.chinese || slot.details?.address?.english),
+      propsDestination: props.destination
+    })
+    message.warning(t('travelDetail.experienceDay.noDestination') || '无法获取目的地信息，请确保行程已设置目的地')
     return
   }
   
-  const destination = itineraryData.destination || ''
-  if (!destination) {
-    message.warning(t('travelDetail.experienceDay.noDestination') || '无法获取目的地信息')
-    return
-  }
+  console.log('[TimeSlotCard] 获取到目的地:', destination, '来源:', props.destination ? 'props' : 'fallback')
   
   loadingLocation.value = true
   
@@ -218,32 +389,42 @@ const handleFetchLocation = async () => {
 </script>
 
 <style scoped>
+/* ---------------------------------- */
+/* 核心卡片容器：现代化 + 悬浮感 */
+/* ---------------------------------- */
 .time-slot {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0;
-  align-items: stretch;
-  background: rgba(255, 255, 255, 0.92);
-  border-radius: 22px;
-  padding: 26px 32px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-/* Planner 模式：单列布局 */
-.time-slot--planner {
-  padding: 24px 28px;
-}
-
-.time-slot::before {
-  display: none;
+  background: #ffffff;
+  /* 增加一点点透明度让背景融合 */
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  /* 更细腻的边框 */
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  /* 多重阴影打造立体感 */
+  box-shadow: 
+    0 4px 6px -1px rgba(0, 0, 0, 0.02),
+    0 10px 15px -3px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden; /* 防止内部圆角溢出 */
+  margin-bottom: 24px;
 }
 
 .time-slot:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.14);
+  transform: translateY(-4px);
+  box-shadow: 
+    0 10px 25px -5px rgba(0, 0, 0, 0.06),
+    0 8px 10px -6px rgba(0, 0, 0, 0.03);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.time-slot--planner {
+  padding: 20px;
+}
+
+.time-slot--inspiration {
+  padding: 24px;
 }
 
 .time-slot__time {
@@ -683,13 +864,7 @@ const handleFetchLocation = async () => {
   gap: 20px;
 }
 
-/* 第一层：Hero Section */
-.time-slot__hero-layer {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 8px;
-}
+/* 第一层：Hero Section - 已移至优化样式部分 */
 
 /* ① 主视觉区（Hero Banner） */
 .time-slot__hero-banner {
@@ -937,47 +1112,86 @@ const handleFetchLocation = async () => {
   font-weight: 300;
 }
 
-/* ③ 地址栏 */
+/* ---------------------------------- */
+/* Hero Layer：结构微调 */
+/* ---------------------------------- */
+.time-slot__hero-layer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------------------------------- */
+/* 信息条 (Info Bar) 容器优化 */
+/* ---------------------------------- */
+.time-slot__info-wrapper {
+  margin-top: 4px;
+  /* 给子组件一些呼吸空间，如果 SlotInfoBar 自身带 margin 可移除 */
+}
+
+/* ---------------------------------- */
+/* 地址栏：极简胶囊风格 */
+/* ---------------------------------- */
 .time-slot__address-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 20px;
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 10px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
+  transition: background-color 0.2s;
 }
 
-.time-slot__address-text {
+.time-slot__address-bar:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.time-slot__address-content {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  font-size: 14px;
-  color: #0f172a;
-  min-width: 0;
+  overflow: hidden;
 }
 
 .time-slot__address-icon {
   font-size: 16px;
-  flex-shrink: 0;
+  filter: grayscale(0.5);
+}
+
+.time-slot__address-text {
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .time-slot__map-button {
-  height: 36px;
-  border-radius: 8px;
-  background: #1E7DBA;
-  border: none;
-  color: #ffffff;
-  font-weight: 500;
-  padding: 0 20px;
   flex-shrink: 0;
+  font-size: 12px;
+  background: white;
+  border-color: #e2e8f0;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .time-slot__map-button:hover {
-  background: #1565A0;
-  color: #ffffff;
+  color: #1E7DBA;
+  border-color: #1E7DBA;
+  background: #f0f9ff;
+}
+
+/* ---------------------------------- */
+/* 详情层：更清爽的分割 */
+/* ---------------------------------- */
+.time-slot__details-layer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
 }
 
 /* 费用文本 */
@@ -1735,12 +1949,12 @@ const handleFetchLocation = async () => {
   }
 
   .time-slot__address-bar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row; /* 保持行布局，但在极小屏幕可能需要换行 */
+    padding: 8px 12px;
   }
 
   .time-slot__map-button {
-    width: 100%;
+    width: auto; /* 不再强制全宽 */
   }
 
   .time-slot__detail-grid {
@@ -1783,6 +1997,136 @@ const handleFetchLocation = async () => {
   .time-slot__time {
     order: -1;
     justify-content: flex-start;
+  }
+}
+
+/* ---------------------------------- */
+/* SlotHero 内部样式穿透或复写 (如果需要) */
+/* ---------------------------------- */
+/* 假设 SlotHero 内部使用了 .slot-hero__banner 等类名 */
+/* 这里我们优化通用的图片容器样式 */
+:deep(.slot-hero__image-container) {
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ---------------------------------- */
+/* 全局排版与颜色工具类 (Scoped) */
+/* ---------------------------------- */
+
+/* ---------------------------------- */
+/* 灵感亮点：胶囊样式优化 */
+/* ---------------------------------- */
+/* 1. 列表容器：改为横向换行布局 */
+:deep(.time-slot__highlights-list) {
+  display: flex !important;
+  flex-direction: row !important; /* 强制横向 */
+  flex-wrap: wrap !important;     /* 允许换行 */
+  gap: 8px !important;            /* 胶囊之间的间距 */
+  margin-top: 4px;
+}
+
+/* 2. 单个胶囊项：圆角 + 柔和背景 */
+:deep(.time-slot__highlights-item) {
+  /* 布局 */
+  display: inline-flex !important;
+  align-items: center !important;
+  width: auto !important; /* 取消原先的宽带铺满 */
+  
+  /* 胶囊形状 */
+  border-radius: 20px !important; /* 核心：大圆角 */
+  padding: 6px 14px !important;
+  
+  /* 颜色风格：清新的蓝色系 */
+  background: #eff6ff !important; /* 极浅蓝 (Slate-50 或 Blue-50) */
+  color: #1d4ed8 !important;      /* 深蓝文字 */
+  border: 1px solid rgba(59, 130, 246, 0.2) !important; /* 细微描边增加精致感 */
+  border-left: 1px solid rgba(59, 130, 246, 0.2) !important; /* 覆盖原先粗边框 */
+  
+  /* 字体 */
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.4 !important;
+  
+  /* 动效 */
+  transition: all 0.2s ease;
+}
+
+/* 3. 鼠标悬停效果 */
+:deep(.time-slot__highlights-item:hover) {
+  background: #dbeafe !important;
+  transform: translateY(-1px);
+}
+
+/* 4. 如果里面有图标，调整图标间距 */
+:deep(.time-slot__highlights-item .anticon),
+:deep(.time-slot__highlights-item svg) {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+/* 优化 Tips 的视觉 */
+
+:deep(.time-slot__insider-tip-text) {
+  background: #fffbeb !important;
+  border-left: 3px solid #fbbf24 !important;
+  color: #92400e !important;
+  border-radius: 0 6px 6px 0 !important;
+  box-shadow: 0 1px 2px rgba(251, 191, 36, 0.1);
+}
+
+/* 优化 Grid 布局中的 Section */
+:deep(.time-slot__detail-section) {
+  background: transparent !important; /* 移除白色背景，直接展示在卡片上，更干净 */
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+:deep(.time-slot__detail-section-title) {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #1e293b !important; /* Slate-800 */
+  margin-bottom: 12px !important;
+  display: flex;
+  align-items: center;
+}
+
+/* 装饰性 Icon 背景 */
+:deep(.time-slot__detail-section-icon) {
+  width: 24px;
+  height: 24px;
+  background: #eff6ff;
+  color: #3b82f6;
+  border-radius: 6px;
+  margin-right: 8px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------------------------------- */
+/* 响应式调整 */
+/* ---------------------------------- */
+@media (max-width: 640px) {
+  .time-slot {
+    border-radius: 16px;
+    padding: 16px !important; /* 强制覆盖 planner/inspiration 的 padding */
+    margin-bottom: 16px;
+  }
+
+  .time-slot__address-bar {
+    flex-direction: row; /* 保持行布局，但在极小屏幕可能需要换行 */
+    padding: 8px 12px;
+  }
+  
+  .time-slot__map-button span {
+    display: none; /* 手机端只显示图标 */
+  }
+  
+  .time-slot__map-button :deep(.anticon) {
+    margin-right: 0;
   }
 }
 </style>
